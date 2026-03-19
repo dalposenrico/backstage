@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 // ── Change this to match your GitHub repo once it's created ──────────────────
-private let githubRepo = "enricodalpos/backstage"
+private let githubRepo = "dalposenrico/backstage"
 // ─────────────────────────────────────────────────────────────────────────────
 
 @MainActor
