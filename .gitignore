@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift / SPM
+.build/
+*.o
+*.d
+*.swp
+Package.resolved
+.swiftpm/
+
+# Xcode (if ever added)
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Build artifacts
+Backstage.app/
+AppIcon.icns
+AppIcon.iconset/

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/enricodalpos/Documents/DemoPlayer/build-app.sh)",
+      "Bash(swift build:*)",
+      "Bash(1 --package-path /Users/enricodalpos/Documents/DemoPlayer)",
+      "Bash(swift make-icon.swift AppIcon.iconset)",
+      "Bash(iconutil -c icns AppIcon.iconset -o AppIcon.icns)",
+      "Bash(./build-app.sh)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
