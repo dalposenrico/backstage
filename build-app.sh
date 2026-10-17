@@ -91,12 +91,20 @@ codesign --force --sign - --requirements "${ANALYZER_REQUIREMENT}" "${ANALYZER_A
 codesign --force --sign - --requirements "${APP_REQUIREMENT}" "${APP_BUNDLE}"
 codesign --verify --deep --strict "${APP_BUNDLE}"
 
+# ── 8. Install to /Applications ───────────────────────────────────────────────
+INSTALLED_APP="/Applications/${APP_BUNDLE}"
+if [ -d "${INSTALLED_APP}" ] || [ -w "/Applications" ]; then
+    echo "▸ Updating ${INSTALLED_APP}..."
+    ditto "${APP_BUNDLE}" "${INSTALLED_APP}"
+    echo "✓ Updated ${INSTALLED_APP}"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo "✓ ${APP_BUNDLE} is ready."
-echo "  → Drag to /Applications to install."
+echo "✓ ${APP_BUNDLE} is ready and updated in /Applications."
 echo "  → Zip to share (friends right-click > Open on first launch)."
 echo ""
 if [ "${OPEN_WHEN_DONE}" = true ]; then
     open .
 fi
+

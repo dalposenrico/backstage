@@ -49,6 +49,7 @@ The current app is an Ableton-focused project browser and demo player. The longe
 6. Prefer small model/store types over adding more logic to the large view files.
 7. Add focused tests when extracting non-UI logic. At minimum, run the checks in `DEVELOPMENT.md`.
 8. Automatically commit and push verified, working changes with clear, descriptive commit messages.
+9. Automatically update the installed copy in `/Applications/goodvibrations HQ.app` whenever building the app bundle.
 
 ## Current work in progress
 
