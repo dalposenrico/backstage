@@ -35,6 +35,19 @@ else
     sudo ditto "${SOURCE_APP}" "${INSTALLED_APP}"
 fi
 
+if [ -f "${SCRIPT_DIR}/Assets/goodvibrations-icon.png" ]; then
+    swift - "${INSTALLED_APP}" "${SCRIPT_DIR}/Assets/goodvibrations-icon.png" <<'EOF' 2>/dev/null || true
+import AppKit
+let appPath = CommandLine.arguments[1]
+let iconPath = CommandLine.arguments[2]
+if let img = NSImage(contentsOfFile: iconPath) {
+    _ = NSWorkspace.shared.setIcon(img, forFile: appPath, options: [])
+}
+EOF
+fi
+touch "${INSTALLED_APP}"
+killall Dock 2>/dev/null || true
+
 if [ -d "${OLD_INSTALLED_APP}" ]; then
     OLD_TRASH_APP="${HOME}/.Trash/Backstage (previous version).app"
     echo "▸ Moving the previous Backstage app to the Trash..."

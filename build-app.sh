@@ -96,6 +96,17 @@ INSTALLED_APP="/Applications/${APP_BUNDLE}"
 if [ -d "${INSTALLED_APP}" ] || [ -w "/Applications" ]; then
     echo "▸ Updating ${INSTALLED_APP}..."
     ditto "${APP_BUNDLE}" "${INSTALLED_APP}"
+    if [ -f "${ICON_SOURCE}" ]; then
+        swift - "${INSTALLED_APP}" "${ICON_SOURCE}" <<'EOF' 2>/dev/null || true
+import AppKit
+let appPath = CommandLine.arguments[1]
+let iconPath = CommandLine.arguments[2]
+if let img = NSImage(contentsOfFile: iconPath) {
+    _ = NSWorkspace.shared.setIcon(img, forFile: appPath, options: [])
+}
+EOF
+    fi
+    touch "${INSTALLED_APP}"
     echo "✓ Updated ${INSTALLED_APP}"
 fi
 
