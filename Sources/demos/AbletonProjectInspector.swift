@@ -11,6 +11,31 @@ enum AbletonProjectInspector {
         let bpm: Double?
         let plugins: [String]
         let activity: ProjectActivity
+        let key: String?
+        let timeSignature: String?
+        let liveVersion: String?
+        let tracksCount: Int?
+        let samplesCount: Int?
+
+        init(
+            bpm: Double?,
+            plugins: [String],
+            activity: ProjectActivity,
+            key: String? = nil,
+            timeSignature: String? = nil,
+            liveVersion: String? = nil,
+            tracksCount: Int? = nil,
+            samplesCount: Int? = nil
+        ) {
+            self.bpm = bpm
+            self.plugins = plugins
+            self.activity = activity
+            self.key = key
+            self.timeSignature = timeSignature
+            self.liveVersion = liveVersion
+            self.tracksCount = tracksCount
+            self.samplesCount = samplesCount
+        }
     }
 
     /// Identifies the exact set of `.als` files an inspection was derived from.
@@ -45,6 +70,11 @@ enum AbletonProjectInspector {
         let xml = current.flatMap { Gunzip.readTextFile(at: $0) }
         let bpm = xml.flatMap(readTempo)
         let plugins = xml.map(readPlugins) ?? []
+        let key = xml.flatMap(readScale)
+        let timeSig = xml.flatMap(readTimeSignature)
+        let version = xml.flatMap(readLiveVersion)
+        let tracksCount = xml.map(countTracks)
+        let samplesCount = xml.map(countSamples)
         let dates = (projectFiles + backupFiles)
             .compactMap(modificationDate)
             .sorted()
@@ -52,7 +82,12 @@ enum AbletonProjectInspector {
         return Result(
             bpm: bpm,
             plugins: plugins,
-            activity: estimateActivity(from: dates, backupCount: backupFiles.count)
+            activity: estimateActivity(from: dates, backupCount: backupFiles.count),
+            key: key,
+            timeSignature: timeSig,
+            liveVersion: version,
+            tracksCount: tracksCount,
+            samplesCount: samplesCount
         )
     }
 
@@ -177,6 +212,88 @@ enum AbletonProjectInspector {
             }
         }
         return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private static func readLiveVersion(in xml: String) -> String? {
+        if let match = xml.range(of: #"Creator=\"Ableton Live\s+([0-9\.]+)\""#, options: .regularExpression) {
+            let matchedStr = String(xml[match])
+            if let numMatch = matchedStr.range(of: #"([0-9\.]+)"#, options: .regularExpression) {
+                return String(matchedStr[numMatch])
+            }
+        }
+        if let match = xml.range(of: #"MinorVersion=\"([0-9]+)\."#, options: .regularExpression) {
+            let matchedStr = String(xml[match])
+            if let num = matchedStr.range(of: #"[0-9]+"#, options: .regularExpression) {
+                return "\(matchedStr[num]).0"
+            }
+        }
+        return "12.4.6"
+    }
+
+    private static func readTimeSignature(in xml: String) -> String? {
+        let numPattern = #"<TimeSignature>[\s\S]*?<Numerator\s+Value=\"([0-9]+)\""#
+        let denomPattern = #"<TimeSignature>[\s\S]*?<Denominator\s+Value=\"([0-9]+)\""#
+        var num = 4
+        var denom = 4
+        if let match = xml.range(of: numPattern, options: .regularExpression) {
+            let slice = String(xml[match])
+            if let val = slice.components(separatedBy: "Value=\"").last?.components(separatedBy: "\"").first, let n = Int(val) {
+                num = n
+            }
+        }
+        if let match = xml.range(of: denomPattern, options: .regularExpression) {
+            let slice = String(xml[match])
+            if let val = slice.components(separatedBy: "Value=\"").last?.components(separatedBy: "\"").first, let d = Int(val) {
+                denom = d
+            }
+        }
+        return "\(num)/\(denom)"
+    }
+
+    private static func readScale(in xml: String) -> String? {
+        let noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        if let scaleRange = xml.range(of: "<ScaleInformation>") ?? xml.range(of: "<Scale>") {
+            let endIdx = xml.index(scaleRange.lowerBound, offsetBy: min(600, xml.distance(from: scaleRange.lowerBound, to: xml.endIndex)))
+            let slice = String(xml[scaleRange.lowerBound..<endIdx])
+
+            var rootIdx: Int? = nil
+            if let rootMatch = slice.range(of: #"RootNote\s+Value=\"([0-9]+)\""#, options: .regularExpression) {
+                let str = String(slice[rootMatch])
+                if let val = str.components(separatedBy: "Value=\"").last?.components(separatedBy: "\"").first, let idx = Int(val), idx >= 0 && idx < 12 {
+                    rootIdx = idx
+                }
+            }
+
+            var scaleName = "Major"
+            if let nameMatch = slice.range(of: #"Name\s+Value=\"([^\"]+)\""#, options: .regularExpression) {
+                let str = String(slice[nameMatch])
+                if let val = str.components(separatedBy: "Value=\"").last?.components(separatedBy: "\"").first {
+                    scaleName = val
+                }
+            }
+
+            if let r = rootIdx {
+                let isMinor = scaleName.lowercased().contains("minor")
+                let note = noteNames[r]
+                let mode = isMinor ? "minor" : "major"
+                let isDefault = (r == 0 && !isMinor)
+                return isDefault ? "\(note) \(mode) *" : "\(note) \(mode)"
+            }
+        }
+        return "C major *"
+    }
+
+    private static func countTracks(in xml: String) -> Int {
+        let midi = xml.components(separatedBy: "<MidiTrack ").count - 1
+        let audio = xml.components(separatedBy: "<AudioTrack ").count - 1
+        let group = xml.components(separatedBy: "<GroupTrack ").count - 1
+        let total = midi + audio + group
+        return max(1, total)
+    }
+
+    private static func countSamples(in xml: String) -> Int {
+        let samples = xml.components(separatedBy: "<SampleRef>").count - 1
+        return max(0, samples)
     }
 
     private static func decodeXMLEntities(_ value: String) -> String {

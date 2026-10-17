@@ -676,15 +676,31 @@ private struct ProjectListHeader: View {
     @EnvironmentObject var store: AppStore
 
     var body: some View {
-        HStack(spacing: 12) {
-            Color.clear.frame(width: compact ? 28 : 36)
-            sortHeader("PROJECT", order: .name, alignment: .leading)
-            sortHeader("BPM", order: .bpm, width: compact ? 42 : 54, alignment: .trailing)
-            sortHeader("MODIFIED", order: .recentlyEdited, width: compact ? 80 : 100, alignment: .trailing)
-            Color.clear.frame(width: compact ? 70 : 88)
+        HStack(spacing: 10) {
+            Text("Master")
+                .frame(width: compact ? 95 : 120, alignment: .leading)
+
+            sortHeader("Name", order: .name, alignment: .leading)
+
+            Text("Key")
+                .frame(width: 80, alignment: .leading)
+
+            sortHeader("Tempo", order: .bpm, width: 48, alignment: .leading)
+
+            Text("Time")
+                .frame(width: 40, alignment: .leading)
+
+            sortHeader("Edited", order: .recentlyEdited, width: compact ? 105 : 125, alignment: .leading)
+
+            Text("Version")
+                .frame(width: 60, alignment: .leading)
+
+            Text("Content")
+                .frame(width: compact ? 120 : 145, alignment: .leading)
+
+            Spacer().frame(width: 56)
         }
-        .font(.system(size: 9, weight: .semibold))
-        .tracking(0.6)
+        .font(.system(size: 9.5, weight: .semibold))
         .foregroundColor(.tertiaryText)
         .padding(.horizontal, 16)
         .frame(height: 28)
@@ -729,6 +745,12 @@ private struct BrowserProjectRow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var hovered = false
 
+    private static let editedDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd.MM.yyyy HH:mm"
+        return f
+    }()
+
     private var selected: Bool { store.selectedProject?.id == project.id }
     private var isCurrentOpenProject: Bool { store.isCurrentOpenProject(project) }
     private var playing: Bool {
@@ -743,8 +765,9 @@ private struct BrowserProjectRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            if settings.showInlineWaveforms {
+        HStack(spacing: 10) {
+            // 1. Master column: Inline waveform + quick-play, or (no master)
+            Group {
                 if let newestExport = project.sortedTracks.first {
                     InlineProjectWaveformView(
                         track: newestExport,
@@ -759,103 +782,77 @@ private struct BrowserProjectRow: View {
                         }
                     )
                 } else {
-                    HStack(spacing: 5) {
-                        Image(systemName: "waveform.slash")
-                            .font(.system(size: 9))
-                            .foregroundColor(.tertiaryText.opacity(0.8))
-                        Text("(no master)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.tertiaryText)
-                    }
-                    .frame(width: compact ? 90 : 116, alignment: .leading)
+                    Text("(no master)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.tertiaryText)
                 }
-            } else {
-                // Artwork with play button on hover or playing state
-                ZStack {
-                    ProjectArtworkImage(project: project)
-                        .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
-                        .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: compact ? 6 : 8)
-                                .stroke(
-                                    isCurrentOpenProject ? Color.accent.opacity(0.7) : Color.primary.opacity(selected ? 0.2 : 0.08),
-                                    lineWidth: 1
-                                )
-                        }
-
-                    if playing || hovered {
-                        Button {
-                            if playing {
-                                player.togglePlayPause()
-                            } else if let newestExport = project.sortedTracks.first {
-                                store.playTrack(newestExport)
-                            }
-                        } label: {
-                            Image(systemName: playing && player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
-                                .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: compact ? 6 : 8))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!project.hasExports)
-                    }
-                }
-                .accessibilityHidden(true)
             }
+            .frame(width: compact ? 95 : 120, alignment: .leading)
 
-            // Title & Collection
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    if let category = collectionColors.resolvedColor(for: project.folderURL) {
-                        Circle()
-                            .fill(category.color.opacity(0.75))
-                            .frame(width: 6, height: 6)
-                            .help(collectionColorHelp)
-                    }
-                    Text(project.name)
-                        .font(.system(size: 13, weight: selected || isCurrentOpenProject ? .semibold : .medium))
-                        .foregroundColor(.primaryText)
-                        .lineLimit(1)
-
-                    if isCurrentOpenProject {
-                        Text("LIVE")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.accent)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accent.opacity(0.14), in: Capsule())
-                    }
-
-                    if let key = metadataStore.metadata(for: project).musicalKey {
-                        Text(key.uppercased())
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundColor(.secondaryText)
-                    }
+            // 2. Name column (bold white project name)
+            HStack(spacing: 6) {
+                if let category = collectionColors.resolvedColor(for: project.folderURL) {
+                    Circle()
+                        .fill(category.color.opacity(0.75))
+                        .frame(width: 6, height: 6)
+                        .help(collectionColorHelp)
                 }
-
-                Text(project.folderURL.deletingLastPathComponent().lastPathComponent)
-                    .font(.system(size: 11))
-                    .foregroundColor(.tertiaryText)
+                Text(project.name)
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundColor(.primaryText)
                     .lineLimit(1)
+
+                if isCurrentOpenProject {
+                    Text("LIVE")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.accent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.accent.opacity(0.14), in: Capsule())
+                }
             }
+            .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 8)
+            // 3. Key column (e.g. E minor, F# major, C major *)
+            let effectiveKey = metadataStore.metadata(for: project).musicalKey ?? project.displayKey
+            Text(effectiveKey)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(effectiveKey.contains("*") ? .secondaryText : .accent)
+                .frame(width: 80, alignment: .leading)
 
-            // BPM
+            // 4. Tempo column (e.g. 100, 140, 135)
             Text(project.bpmLabel ?? "—")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.secondaryText)
-                .frame(width: compact ? 42 : 54, alignment: .trailing)
+                .frame(width: 48, alignment: .leading)
 
-            // Modified date
-            Text(project.latestModification == .distantPast ? "—" : project.latestModification.compactAge)
-                .font(.system(size: 11))
+            // 5. Time column (e.g. 4/4)
+            Text(project.displayTimeSignature)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondaryText)
+                .frame(width: 40, alignment: .leading)
+
+            // 6. Edited column (e.g. 06.10.2026 22:04)
+            Text(project.latestModification == .distantPast ? "—" : Self.editedDateFormatter.string(from: project.latestModification))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.tertiaryText)
-                .frame(width: compact ? 80 : 100, alignment: .trailing)
+                .frame(width: compact ? 105 : 125, alignment: .leading)
 
-            // Hover actions
-            HStack(spacing: 6) {
+            // 7. Version column (e.g. 12.4.6)
+            Text(project.displayLiveVersion)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.tertiaryText)
+                .frame(width: 60, alignment: .leading)
+
+            // 8. Content column (e.g. 13 tracks, 8 samples)
+            Text(project.contentLabel)
+                .font(.system(size: 11))
+                .foregroundColor(.secondaryText)
+                .lineLimit(1)
+                .frame(width: compact ? 120 : 145, alignment: .leading)
+
+            // 9. Hover Actions / Favourite
+            HStack(spacing: 5) {
                 if store.favourites.contains(project.folderURL) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 10))
@@ -867,7 +864,7 @@ private struct BrowserProjectRow: View {
                         Image(systemName: "doc.badge.gearshape")
                             .font(.system(size: 11))
                             .foregroundColor(project.newestAbletonVersion == nil ? .tertiaryText : .accent)
-                            .frame(width: 20, height: 20)
+                            .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
                     .disabled(project.newestAbletonVersion == nil)
@@ -877,14 +874,14 @@ private struct BrowserProjectRow: View {
                         Image(systemName: "folder")
                             .font(.system(size: 11))
                             .foregroundColor(.secondaryText)
-                            .frame(width: 20, height: 20)
+                            .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
                     .help("Reveal in Finder")
                 }
                 .opacity(hovered ? 1 : 0)
             }
-            .frame(width: compact ? 70 : 88, alignment: .trailing)
+            .frame(width: 56, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)

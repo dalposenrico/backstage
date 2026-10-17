@@ -128,7 +128,12 @@ enum ProjectScanner {
                 tags: attrs?.tagNames ?? [],
                 bpm: inspection.bpm,
                 plugins: inspection.plugins,
-                activity: inspection.activity
+                activity: inspection.activity,
+                key: inspection.key,
+                timeSignature: inspection.timeSignature,
+                liveVersion: inspection.liveVersion,
+                tracksCount: inspection.tracksCount,
+                samplesCount: inspection.samplesCount
             )
             reporter.foundProject(in: folder)
             return FolderNode(url: folder, name: project.name, project: project, children: [])
@@ -162,7 +167,12 @@ enum ProjectScanner {
             AbletonProjectInspector.Result(
                 bpm: cached.bpm,
                 plugins: cached.plugins,
-                activity: cached.activity
+                activity: cached.activity,
+                key: cached.key,
+                timeSignature: cached.timeSignature,
+                liveVersion: cached.liveVersion,
+                tracksCount: cached.tracksCount,
+                samplesCount: cached.samplesCount
             )
         }
         guard let cache,
@@ -188,7 +198,12 @@ enum ProjectScanner {
             CachedInspection(
                 bpm: inspected.bpm,
                 plugins: inspected.plugins,
-                activity: inspected.activity
+                activity: inspected.activity,
+                key: inspected.key,
+                timeSignature: inspected.timeSignature,
+                liveVersion: inspected.liveVersion,
+                tracksCount: inspected.tracksCount,
+                samplesCount: inspected.samplesCount
             ),
             for: fingerprint
         )
