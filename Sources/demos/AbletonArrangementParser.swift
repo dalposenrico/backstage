@@ -47,6 +47,7 @@ public enum AbletonArrangementParser {
         try! NSRegularExpression(pattern: #"<Name>\s*<EffectiveName\s+Value=\"([^\"]+)\""#)
     ]
     private static let colorRegex = try! NSRegularExpression(pattern: #"<Color\s+Value=\"([0-9]+)\""#)
+    private static let trackGroupIdRegex = try! NSRegularExpression(pattern: #"<TrackGroupId\s+Value=\"([^\"]+)\""#)
     private static let keyTrackRegex = try! NSRegularExpression(
         pattern: #"<KeyTrack>[\s\S]*?<MidiKey\s+Value=\"([0-9]+)\"[\s\S]*?<Notes>([\s\S]*?)</Notes>"#
     )
@@ -104,19 +105,19 @@ public enum AbletonArrangementParser {
             tracksSlice = xml
         }
 
-        var tracks: [AbletonTrack] = []
+        var rawTrackMatches: [(location: Int, track: AbletonTrack)] = []
 
-        // Extract MidiTracks
         let midiTracks = extractTracks(regex: midiTrackRegex, in: tracksSlice, type: .midi, projectFolderURL: projectFolderURL)
-        tracks.append(contentsOf: midiTracks)
+        rawTrackMatches.append(contentsOf: midiTracks)
 
-        // Extract AudioTracks
         let audioTracks = extractTracks(regex: audioTrackRegex, in: tracksSlice, type: .audio, projectFolderURL: projectFolderURL)
-        tracks.append(contentsOf: audioTracks)
+        rawTrackMatches.append(contentsOf: audioTracks)
 
-        // Extract GroupTracks
         let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL)
-        tracks.append(contentsOf: groupTracks)
+        rawTrackMatches.append(contentsOf: groupTracks)
+
+        // Sort tracks by their exact document order in <Tracks>
+        let tracks = rawTrackMatches.sorted { $0.location < $1.location }.map(\.track)
 
         // Extract MasterTrack
         let masterTrack = extractMasterTrack(in: xml)
@@ -126,9 +127,9 @@ public enum AbletonArrangementParser {
         if let returnStart = xml.range(of: "<ReturnTracks>"),
            let returnEnd = xml.range(of: "</ReturnTracks>", range: returnStart.upperBound..<xml.endIndex) {
             let returnSlice = String(xml[returnStart.lowerBound..<returnEnd.upperBound])
-            returnTracks = extractTracks(regex: returnTrackRegex, in: returnSlice, type: .returnMaster, projectFolderURL: projectFolderURL)
+            returnTracks = extractTracks(regex: returnTrackRegex, in: returnSlice, type: .returnMaster, projectFolderURL: projectFolderURL).map(\.track)
         } else {
-            returnTracks = extractTracks(regex: returnTrackRegex, in: xml, type: .returnMaster, projectFolderURL: projectFolderURL)
+            returnTracks = extractTracks(regex: returnTrackRegex, in: xml, type: .returnMaster, projectFolderURL: projectFolderURL).map(\.track)
         }
 
         // Calculate total arrangement length in beats
@@ -154,7 +155,7 @@ public enum AbletonArrangementParser {
         in xml: String,
         type: AbletonTrackType,
         projectFolderURL: URL?
-    ) -> [AbletonTrack] {
+    ) -> [(location: Int, track: AbletonTrack)] {
         let nsString = xml as NSString
         let matches = regex.matches(in: xml, range: NSRange(location: 0, length: nsString.length))
 
@@ -166,17 +167,21 @@ public enum AbletonArrangementParser {
 
             let name = extractTrackName(from: body) ?? "\(type.rawValue) Track"
             let colorIndex = extractColor(from: body) ?? 12
+            let rawGroupId = extractAttribute(regex: trackGroupIdRegex, in: body)
+            let trackGroupId = (rawGroupId != nil && rawGroupId != "-1") ? rawGroupId : nil
             let clips = extractClips(from: body, type: type, projectFolderURL: projectFolderURL)
             let devices = extractDevices(from: body)
 
-            return AbletonTrack(
+            let track = AbletonTrack(
                 id: id,
                 name: name,
                 type: type,
                 colorIndex: colorIndex,
+                trackGroupId: trackGroupId,
                 clips: clips,
                 devices: devices
             )
+            return (location: match.range.location, track: track)
         }
     }
 

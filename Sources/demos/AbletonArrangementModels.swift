@@ -147,6 +147,7 @@ public struct AbletonTrack: Sendable, Identifiable, Equatable {
     public let name: String
     public let type: AbletonTrackType
     public let colorIndex: Int
+    public let trackGroupId: String?
     public let clips: [AbletonClip]
     public let devices: [AbletonDevice]
 
@@ -155,6 +156,7 @@ public struct AbletonTrack: Sendable, Identifiable, Equatable {
         name: String,
         type: AbletonTrackType,
         colorIndex: Int = 12,
+        trackGroupId: String? = nil,
         clips: [AbletonClip] = [],
         devices: [AbletonDevice] = []
     ) {
@@ -162,6 +164,7 @@ public struct AbletonTrack: Sendable, Identifiable, Equatable {
         self.name = name
         self.type = type
         self.colorIndex = colorIndex
+        self.trackGroupId = trackGroupId
         self.clips = clips
         self.devices = devices
     }
