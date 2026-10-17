@@ -127,23 +127,22 @@ struct ArrangementTimelineView: View {
 
             ZStack(alignment: .leading) {
                 let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
-                ForEach(0..<totalBars, id: \.self) { bar in
+                let step = zoomLevel >= 1.5 ? 1 : 4
+                ForEach(Array(stride(from: 0, to: totalBars, by: step)), id: \.self) { bar in
                     let barNumber = bar + 1
                     let xPos = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
-                    if bar % 4 == 0 || zoomLevel >= 1.5 {
-                        let totalSeconds = (Double(bar * 4) / arrangement.tempo) * 60.0
-                        let minutes = Int(totalSeconds) / 60
-                        let seconds = Int(totalSeconds) % 60
-                        HStack(spacing: 3) {
-                            Text("\(barNumber)")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.primaryText)
-                            Text(String(format: "%d:%02d", minutes, seconds))
-                                .font(.system(size: 8, design: .monospaced))
-                                .foregroundColor(.tertiaryText)
-                        }
-                        .offset(x: xPos + 2)
+                    let totalSeconds = (Double(bar * 4) / arrangement.tempo) * 60.0
+                    let minutes = Int(totalSeconds) / 60
+                    let seconds = Int(totalSeconds) % 60
+                    HStack(spacing: 3) {
+                        Text("\(barNumber)")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.primaryText)
+                        Text(String(format: "%d:%02d", minutes, seconds))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.tertiaryText)
                     }
+                    .offset(x: xPos + 2)
                 }
             }
             .frame(width: totalTimelineWidth, height: barHeaderHeight, alignment: .leading)
@@ -175,15 +174,16 @@ struct ArrangementTimelineView: View {
 
             // Timeline Track Area
             ZStack(alignment: .leading) {
-                // Background grid lines (every 4 bars)
-                let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
-                ForEach(0..<totalBars, id: \.self) { bar in
-                    if bar % 4 == 0 {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.03))
-                            .frame(width: 1, height: trackHeight)
-                            .offset(x: CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat)
+                // Background grid lines (hardware-accelerated Canvas)
+                Canvas { context, size in
+                    let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
+                    var path = Path()
+                    for bar in stride(from: 0, to: totalBars, by: 4) {
+                        let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: size.height))
                     }
+                    context.stroke(path, with: .color(Color.white.opacity(0.03)), lineWidth: 1)
                 }
 
                 // Clips

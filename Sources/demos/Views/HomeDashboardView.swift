@@ -52,7 +52,7 @@ struct HomeDashboardView: View {
                             .foregroundColor(.tertiaryText)
                     }
 
-                    HomeMasonryLayout(minimumColumnWidth: 270, maximumColumns: 3, spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 18)], spacing: 18) {
                         ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
                             HomeProjectCard(
                                 project: project,

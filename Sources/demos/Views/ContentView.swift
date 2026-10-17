@@ -32,23 +32,27 @@ struct ContentView: View {
                 .opacity(workspaceSection == .library ? 1 : 0)
                 .allowsHitTesting(workspaceSection == .library)
 
-                if workspaceSection == .home {
-                    HomeDashboardView { project in
-                        store.selectedProject = project
-                        showProjectInspector = true
-                        workspaceSection = .library
-                    }
-                    .background(Color.appBg)
-                } else if workspaceSection == .releases {
-                    ReleasesHubView {
-                        workspaceSection = .library
-                        showProjectInspector = true
-                    }
-                    .background(Color.appBg)
-                } else if workspaceSection == .tools {
-                    ToolsHubView()
-                        .background(Color.appBg)
+                HomeDashboardView { project in
+                    store.selectedProject = project
+                    showProjectInspector = true
+                    workspaceSection = .library
                 }
+                .background(Color.appBg)
+                .opacity(workspaceSection == .home ? 1 : 0)
+                .allowsHitTesting(workspaceSection == .home)
+
+                ReleasesHubView {
+                    workspaceSection = .library
+                    showProjectInspector = true
+                }
+                .background(Color.appBg)
+                .opacity(workspaceSection == .releases ? 1 : 0)
+                .allowsHitTesting(workspaceSection == .releases)
+
+                ToolsHubView()
+                    .background(Color.appBg)
+                    .opacity(workspaceSection == .tools ? 1 : 0)
+                    .allowsHitTesting(workspaceSection == .tools)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

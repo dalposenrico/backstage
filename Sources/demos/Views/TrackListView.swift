@@ -134,64 +134,8 @@ struct TrackListView: View {
             Divider().background(Color.divider)
 
             // ── Content ──────────────────────────────────────────────────────
-            switch section {
-            case .arrangement:
-                if let arrangement {
-                    ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if isLoadingArrangement {
-                    VStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text("Parsing arrangement tracks & clips from .als...")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "rectangle.split.3x1")
-                            .font(.system(size: 26))
-                            .foregroundColor(.tertiaryText)
-                        Text("No Ableton Live set (.als) available to inspect")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-            case .midi:
-                if let arrangement {
-                    MidiClipVaultView(arrangement: arrangement, projectName: project.name)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "pianokeys")
-                            .font(.system(size: 26))
-                            .foregroundColor(.tertiaryText)
-                        Text("No MIDI clips found")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-            case .samples:
-                if let arrangement {
-                    SampleHealthAuditorView(arrangement: arrangement, project: project)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "waveform.badge.magnifyingglass")
-                            .font(.system(size: 26))
-                            .foregroundColor(.tertiaryText)
-                        Text("No samples found")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondaryText)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-
-            case .overview, .workflow, .files:
+            ZStack {
+                // Overview, Workflow, Files
                 HStack(spacing: 0) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
@@ -261,13 +205,83 @@ struct TrackListView: View {
                             .frame(width: 320)
                     }
                 }
+                .opacity((section == .overview || section == .workflow || section == .files) ? 1 : 0)
+                .allowsHitTesting(section == .overview || section == .workflow || section == .files)
+
+                // Arrangement
+                Group {
+                    if let arrangement {
+                        ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if isLoadingArrangement {
+                        VStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text("Parsing arrangement tracks & clips from .als...")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        VStack(spacing: 10) {
+                            Image(systemName: "rectangle.split.3x1")
+                                .font(.system(size: 26))
+                                .foregroundColor(.tertiaryText)
+                            Text("No Ableton Live set (.als) available to inspect")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .opacity(section == .arrangement ? 1 : 0)
+                .allowsHitTesting(section == .arrangement)
+
+                // MIDI
+                Group {
+                    if let arrangement {
+                        MidiClipVaultView(arrangement: arrangement, projectName: project.name)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        VStack(spacing: 10) {
+                            Image(systemName: "pianokeys")
+                                .font(.system(size: 26))
+                                .foregroundColor(.tertiaryText)
+                            Text("No MIDI clips found")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .opacity(section == .midi ? 1 : 0)
+                .allowsHitTesting(section == .midi)
+
+                // Samples
+                Group {
+                    if let arrangement {
+                        SampleHealthAuditorView(arrangement: arrangement, project: project)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        VStack(spacing: 10) {
+                            Image(systemName: "waveform.badge.magnifyingglass")
+                                .font(.system(size: 26))
+                                .foregroundColor(.tertiaryText)
+                            Text("No samples found")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .opacity(section == .samples ? 1 : 0)
+                .allowsHitTesting(section == .samples)
+            }
                 .overlay(alignment: .bottomTrailing) {
                     if allowsExpandedWorkspace {
                         ExpandWindowButton()
                             .padding(10)
                     }
                 }
-            }
         }
         .background(Color.appBg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
