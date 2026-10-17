@@ -48,7 +48,7 @@ The current app is an Ableton-focused project browser and demo player. The longe
 5. Treat paths and project names as private local data. Do not add analytics or remote uploads by default.
 6. Prefer small model/store types over adding more logic to the large view files.
 7. Add focused tests when extracting non-UI logic. At minimum, run the checks in `DEVELOPMENT.md`.
-8. Do not commit, tag, push, or publish a release unless explicitly requested.
+8. Automatically commit and push verified, working changes with clear, descriptive commit messages.
 
 ## Current work in progress
 
