@@ -67,22 +67,44 @@ struct DawTopNavBar: View {
 
             Spacer()
 
-            // Quick Hotkey HUD Pill
-            HStack(spacing: 5) {
-                Text("F1")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.accent)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
-                Text("Auto-Export")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondaryText)
+            // Quick Hotkey HUD Button (Clickable & shows live exporting state)
+            Button {
+                globalHotkey.triggerExport()
+            } label: {
+                HStack(spacing: 6) {
+                    if globalHotkey.isRunningExport {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.7)
+                        Text("Exporting…")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.accent)
+                    } else {
+                        Text("F1")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundColor(.accent)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+                        Text("Auto-Export")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondaryText)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(globalHotkey.isRunningExport ? Color.accent.opacity(0.15) : Color.sidebarBg.opacity(0.7))
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(globalHotkey.isRunningExport ? Color.accent : Color.white.opacity(0.14), lineWidth: 1)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 5))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.sidebarBg.opacity(0.6), in: RoundedRectangle(cornerRadius: 5))
-            .help("Press F1 anywhere to trigger Ableton auto-export")
+            .buttonStyle(.plain)
+            .help(globalHotkey.lastResult ?? "Click or press F1 / ⇧⌘E anywhere to trigger Ableton auto-export")
 
             // Settings button
             Button { openSettings() } label: {
