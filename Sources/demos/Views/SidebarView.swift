@@ -253,9 +253,7 @@ struct SidebarView: View {
             HStack(spacing: 0) {
                 Button(action: store.selectFolder) {
                     HStack(spacing: 7) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondaryText)
+                        DawFolderIcon(isOpen: false, color: .secondaryText)
                         Text(store.rootFolderURL.map { $0.lastPathComponent } ?? "Open Folder…")
                             .font(.system(size: 12))
                             .foregroundColor(.secondaryText)
@@ -393,6 +391,62 @@ private struct CollectionTreeItem: View {
     }
 }
 
+/// Minimal, high-contrast DAW folder icon inspired by DAWbro.
+/// Renders a sharp outline with a top-left tab and slit when closed,
+/// and a solid filled body with an outline tab when open.
+struct DawFolderIcon: View {
+    let isOpen: Bool
+    var color: Color = Color(white: 0.88)
+
+    var body: some View {
+        Canvas { context, _ in
+            let w: CGFloat = 14.5
+            let h: CGFloat = 11.5
+            let tabW: CGFloat = 6.0
+            let tabH: CGFloat = 3.2
+            let r: CGFloat = 1.5
+            let strokeW: CGFloat = 1.25
+
+            if isOpen {
+                // Open folder: Tab behind + filled body in front
+                var tabPath = Path()
+                tabPath.move(to: CGPoint(x: 1, y: tabH))
+                tabPath.addLine(to: CGPoint(x: 1, y: 1))
+                tabPath.addQuadCurve(to: CGPoint(x: 2, y: 0), control: CGPoint(x: 1, y: 0))
+                tabPath.addLine(to: CGPoint(x: tabW - 1, y: 0))
+                tabPath.addQuadCurve(to: CGPoint(x: tabW + 1.2, y: tabH), control: CGPoint(x: tabW, y: tabH * 0.4))
+                context.stroke(tabPath, with: .color(color), lineWidth: strokeW)
+
+                let bodyRect = CGRect(x: 0.5, y: tabH - 0.5, width: w - 1, height: h - tabH + 0.5)
+                context.fill(Path(roundedRect: bodyRect, cornerRadius: r), with: .color(color))
+            } else {
+                // Closed folder: Clean minimal outline with top slit line
+                var outline = Path()
+                outline.move(to: CGPoint(x: 0.5, y: h - r))
+                outline.addLine(to: CGPoint(x: 0.5, y: 1))
+                outline.addQuadCurve(to: CGPoint(x: 1.5, y: 0), control: CGPoint(x: 0.5, y: 0))
+                outline.addLine(to: CGPoint(x: tabW - 1, y: 0))
+                outline.addQuadCurve(to: CGPoint(x: tabW + 1.2, y: tabH), control: CGPoint(x: tabW, y: tabH * 0.5))
+                outline.addLine(to: CGPoint(x: w - 1.5, y: tabH))
+                outline.addQuadCurve(to: CGPoint(x: w - 0.5, y: tabH + 1), control: CGPoint(x: w - 0.5, y: tabH))
+                outline.addLine(to: CGPoint(x: w - 0.5, y: h - r))
+                outline.addQuadCurve(to: CGPoint(x: w - 1.5, y: h), control: CGPoint(x: w - 0.5, y: h))
+                outline.addLine(to: CGPoint(x: 1.5, y: h))
+                outline.addQuadCurve(to: CGPoint(x: 0.5, y: h - r), control: CGPoint(x: 0.5, y: h))
+
+                context.stroke(outline, with: .color(color), lineWidth: strokeW)
+
+                // Top flap line across the body
+                var slit = Path()
+                slit.move(to: CGPoint(x: 1, y: tabH + 0.5))
+                slit.addLine(to: CGPoint(x: w - 1.5, y: tabH + 0.5))
+                context.stroke(slit, with: .color(color), lineWidth: strokeW * 0.85)
+            }
+        }
+        .frame(width: 15, height: 12)
+    }
+}
+
 private struct CollectionRow: View {
     let name: String
     let count: Int
@@ -408,70 +462,72 @@ private struct CollectionRow: View {
     @State private var hovered = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                // Indent guide lines for nested subfolders
-                if depth > 0 {
-                    TreeIndentGuides(depth: depth)
-                }
+        HStack(spacing: 5) {
+            // Indent guide lines for nested subfolders
+            if depth > 0 {
+                TreeIndentGuides(depth: depth)
+            }
 
-                // Disclosure chevron
-                if expandable {
-                    Button(action: toggleExpansion) {
+            // Disclosure chevron + DAW minimal folder icon (click either to expand/collapse)
+            Button(action: {
+                if expandable { toggleExpansion() }
+                else { action() }
+            }) {
+                HStack(spacing: 4) {
+                    if expandable {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(hovered ? .white : Color(white: 0.55))
                             .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .frame(width: 12, height: 20)
+                            .frame(width: 10, height: 20)
+                    } else {
+                        Color.clear.frame(width: 10)
                     }
-                    .buttonStyle(.plain)
-                } else {
-                    Color.clear.frame(width: 12)
-                }
 
-                // High-contrast clean outline/fill folder icon (monochrome, no rainbow tint)
-                Image(systemName: expanded ? "folder.fill" : "folder")
-                    .font(.system(size: 11.5))
-                    .foregroundColor(selected ? .white : Color(white: 0.85))
-                    .frame(width: 14)
-
-                // High-contrast clean folder name
-                Text(name)
-                    .font(.system(size: 12, weight: selected || depth == 0 ? .semibold : .medium))
-                    .foregroundColor(selected ? .white : Color(white: 0.92))
-                    .lineLimit(1)
-
-                Spacer(minLength: 4)
-
-                if hidden {
-                    Image(systemName: "eye.slash.fill")
-                        .font(.system(size: 8.5))
-                        .foregroundColor(.orange)
-                }
-
-                // High-contrast clean count
-                Text("\(count)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(Color(white: 0.45))
-            }
-            .padding(.leading, depth == 0 ? 10 : 4)
-            .padding(.trailing, 10)
-            .frame(height: 26)
-            .background(
-                selected
-                    ? Color(red: 0.22, green: 0.16, blue: 0.10)
-                    : (hovered ? Color.white.opacity(0.04) : Color.clear)
-            )
-            .overlay(alignment: .leading) {
-                if selected {
-                    Rectangle()
-                        .fill(Color.accent)
-                        .frame(width: 2.5)
+                    DawFolderIcon(isOpen: expanded, color: selected ? .white : Color(white: 0.88))
                 }
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Folder name & track count (click to select and open folder)
+            Button(action: action) {
+                HStack(spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 12, weight: selected || depth == 0 ? .semibold : .medium))
+                        .foregroundColor(selected ? .white : Color(white: 0.92))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    if hidden {
+                        Image(systemName: "eye.slash.fill")
+                            .font(.system(size: 8.5))
+                            .foregroundColor(.orange)
+                    }
+
+                    Text("\(count)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(Color(white: 0.45))
+                }
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, depth == 0 ? 10 : 4)
+        .padding(.trailing, 10)
+        .frame(height: 26)
+        .background(
+            selected
+                ? Color(red: 0.22, green: 0.16, blue: 0.10)
+                : (hovered ? Color.white.opacity(0.04) : Color.clear)
+        )
+        .overlay(alignment: .leading) {
+            if selected {
+                Rectangle()
+                    .fill(Color.accent)
+                    .frame(width: 2.5)
+            }
+        }
+        .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .contextMenu {
             if let collectionURL {
@@ -840,10 +896,15 @@ struct SidebarSectionHeader: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.secondaryText)
-                .frame(width: 14)
+            if icon == "folder.fill" {
+                DawFolderIcon(isOpen: true, color: .secondaryText)
+                    .frame(width: 14)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondaryText)
+                    .frame(width: 14)
+            }
 
             Text(title)
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
