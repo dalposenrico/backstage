@@ -2,6 +2,11 @@ import AppKit
 
 @MainActor
 enum WindowPresenter {
+    static func showABCompare() {
+        NSApp.activate(ignoringOtherApps: true)
+        bringWindowForward(titled: "Versions", attemptsRemaining: 8)
+    }
+
     static func showFocusPlanner() {
         NSApp.activate(ignoringOtherApps: true)
         bringWindowForward(titled: "Focus Planner", attemptsRemaining: 8)

@@ -19,45 +19,143 @@ final class GlobalHotkeyManager: ObservableObject {
     @Published var isRunningExport = false
     @Published private(set) var lastResult: String?
 
+    static weak var shared: GlobalHotkeyManager?
+
     private static let enabledKey = "abletonExportHotkeyEnabled"
+    private static let hotKeySignature = OSType(0x47564851) // 'GVHQ'
+    private static let hotKeyIDF1: UInt32 = 1
+    private static let hotKeyIDAlt: UInt32 = 2
+
+    private var carbonHotKeyRefF1: EventHotKeyRef?
+    private var carbonHotKeyRefAlt: EventHotKeyRef?
+    private var carbonEventHandlerRef: EventHandlerRef?
+
     private var globalMonitor: Any?
     private var localMonitor: Any?
 
     init() {
-        // Default to enabled so F1 works out of the box
         let saved = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool
         self.isEnabled = saved ?? true
+        Self.shared = self
         if isEnabled { install() }
     }
 
     deinit {
-        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
-        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        uninstall()
     }
 
     // MARK: - Install / Uninstall
 
     private func install() {
-        guard globalMonitor == nil else { return }
-        
-        // Prompt for accessibility if needed so global keyboard monitoring works
-        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+        Self.shared = self
 
-        // Global monitor fires when the app is NOT the key application (i.e.
-        // when Ableton Live is in front).
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyEvent(event)
+        // 1. Carbon Global Hotkey (requires NO Accessibility permissions)
+        installCarbonHotKeys()
+
+        // 2. NSEvent monitors as fallback
+        if globalMonitor == nil {
+            let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+            _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handleKeyEvent(event)
+            }
         }
-        // Also catch it if the user presses F1 while HQ is focused.
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleKeyEvent(event) == true { return nil }
-            return event
+        if localMonitor == nil {
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if self?.handleKeyEvent(event) == true { return nil }
+                return event
+            }
         }
-        AccountDiagnostics.record("Ableton export hotkey (F1) installed")
+        AccountDiagnostics.record("Ableton export hotkeys (Carbon + Cocoa: F1 / ⇧⌘E) installed")
+    }
+
+    private func installCarbonHotKeys() {
+        guard carbonEventHandlerRef == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { (_, eventRef, _) -> OSStatus in
+                guard let eventRef = eventRef else { return OSStatus(eventNotHandledErr) }
+                var hotKeyID = EventHotKeyID()
+                let paramStatus = GetEventParameter(
+                    eventRef,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                if paramStatus == noErr && hotKeyID.signature == GlobalHotkeyManager.hotKeySignature {
+                    DispatchQueue.main.async {
+                        GlobalHotkeyManager.shared?.triggerExport()
+                    }
+                    return noErr
+                }
+                return OSStatus(eventNotHandledErr)
+            },
+            1,
+            &eventType,
+            nil,
+            &carbonEventHandlerRef
+        )
+
+        if status != noErr {
+            AccountDiagnostics.record("Failed to install Carbon hotkey handler: \(status)")
+            return
+        }
+
+        // Register F1 (no modifiers)
+        var f1Ref: EventHotKeyRef?
+        let f1ID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyIDF1)
+        let regF1 = RegisterEventHotKey(
+            UInt32(kVK_F1),
+            0,
+            f1ID,
+            GetApplicationEventTarget(),
+            0,
+            &f1Ref
+        )
+        if regF1 == noErr {
+            self.carbonHotKeyRefF1 = f1Ref
+        }
+
+        // Register Cmd+Shift+E as secondary shortcut (great for keyboards where F1 needs Fn)
+        var altRef: EventHotKeyRef?
+        let altID = EventHotKeyID(signature: Self.hotKeySignature, id: Self.hotKeyIDAlt)
+        let cmdShift = UInt32(cmdKey | shiftKey)
+        let regAlt = RegisterEventHotKey(
+            UInt32(kVK_ANSI_E),
+            cmdShift,
+            altID,
+            GetApplicationEventTarget(),
+            0,
+            &altRef
+        )
+        if regAlt == noErr {
+            self.carbonHotKeyRefAlt = altRef
+        }
     }
 
     private func uninstall() {
+        if let carbonHotKeyRefF1 {
+            UnregisterEventHotKey(carbonHotKeyRefF1)
+            self.carbonHotKeyRefF1 = nil
+        }
+        if let carbonHotKeyRefAlt {
+            UnregisterEventHotKey(carbonHotKeyRefAlt)
+            self.carbonHotKeyRefAlt = nil
+        }
+        if let carbonEventHandlerRef {
+            RemoveEventHandler(carbonEventHandlerRef)
+            self.carbonEventHandlerRef = nil
+        }
         if let globalMonitor {
             NSEvent.removeMonitor(globalMonitor)
             self.globalMonitor = nil
@@ -66,28 +164,32 @@ final class GlobalHotkeyManager: ObservableObject {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil
         }
-        AccountDiagnostics.record("Ableton export hotkey (F1) uninstalled")
+        AccountDiagnostics.record("Ableton export hotkeys uninstalled")
     }
 
-    // MARK: - Public trigger (for Tools Hub button)
+    // MARK: - Public trigger (for Tools Hub button & Menu commands)
 
     func triggerExport() {
         Task { await runExport() }
     }
 
-    // MARK: - Key handler
+    // MARK: - Key handler (Cocoa fallback)
 
     @discardableResult
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        // Only ignore if Command, Option, Control, or Shift are pressed.
-        // DO NOT check deviceIndependentFlagsMask because the fn/function flag
-        // is always set on MacBook keyboards when pressing F1!
-        let disallowedModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard event.keyCode == UInt16(kVK_F1), disallowedModifiers.isEmpty else {
-            return false
+        let isF1 = event.keyCode == UInt16(kVK_F1)
+        let isCmdShiftE = event.keyCode == UInt16(kVK_ANSI_E) && event.modifierFlags.contains([.command, .shift])
+
+        if isF1 {
+            let disallowedModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard disallowedModifiers.isEmpty else { return false }
+            Task { await runExport() }
+            return true
+        } else if isCmdShiftE {
+            Task { await runExport() }
+            return true
         }
-        Task { await runExport() }
-        return true
+        return false
     }
 
     // MARK: - Script execution
