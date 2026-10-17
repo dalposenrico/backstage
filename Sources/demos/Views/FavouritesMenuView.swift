@@ -424,7 +424,7 @@ struct FavouritesMenuView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.forward.app.fill")
                             .font(.system(size: 10, weight: .bold))
-                        Text("Open in Live")
+                        Text("DAW")
                             .font(.system(size: 11, weight: .bold))
                     }
                     .padding(.horizontal, 9)
@@ -433,7 +433,7 @@ struct FavouritesMenuView: View {
                     .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
-                .help("Open directly in Ableton Live (DAW) without opening goodvibrations HQ")
+                .help("Open directly in DAW without opening goodvibrations HQ")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -487,7 +487,7 @@ struct FavouritesMenuView: View {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.forward.app.fill")
                             .font(.system(size: 9))
-                        Text("Open in Live")
+                        Text("DAW")
                             .font(.system(size: 10, weight: .semibold))
                     }
                     .padding(.horizontal, 6)
@@ -500,7 +500,7 @@ struct FavouritesMenuView: View {
                     .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.plain)
-                .help("Open directly in Ableton Live (DAW) without opening goodvibrations HQ")
+                .help("Open directly in DAW without opening goodvibrations HQ")
             }
 
             Button { store.openInMainWindow(project) } label: {
