@@ -14,6 +14,8 @@ struct TrackListView: View {
     @State private var section: ProjectInspectorSection = .overview
     @State private var arrangement: AbletonArrangement?
     @State private var isLoadingArrangement = false
+    @State private var parseProgress: Double = 0.0
+    @State private var parseStatus: String = "Reading Ableton set…"
     @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
 
     var body: some View {
@@ -248,13 +250,7 @@ struct TrackListView: View {
                         ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if isLoadingArrangement {
-                        VStack(spacing: 10) {
-                            ProgressView().controlSize(.small)
-                            Text("Parsing arrangement tracks & clips from .als...")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondaryText)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        arrangementLoadingView
                     } else {
                         VStack(spacing: 10) {
                             Image(systemName: "rectangle.split.3x1")
@@ -271,6 +267,8 @@ struct TrackListView: View {
                     if let arrangement {
                         MidiClipVaultView(arrangement: arrangement, projectName: project.name)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if isLoadingArrangement {
+                        arrangementLoadingView
                     } else {
                         VStack(spacing: 10) {
                             Image(systemName: "pianokeys")
@@ -287,6 +285,8 @@ struct TrackListView: View {
                     if let arrangement {
                         SampleHealthAuditorView(arrangement: arrangement, project: project)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if isLoadingArrangement {
+                        arrangementLoadingView
                     } else {
                         VStack(spacing: 10) {
                             Image(systemName: "waveform.badge.magnifyingglass")
@@ -311,15 +311,69 @@ struct TrackListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: project.id) {
             isLoadingArrangement = true
+            parseProgress = 0.05
+            parseStatus = "Opening Ableton Live set (.als)…"
             if let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url {
                 arrangement = await Task.detached(priority: .userInitiated) {
-                    AbletonArrangementParser.parse(from: alsURL, projectFolderURL: project.folderURL)
+                    AbletonArrangementParser.parse(
+                        from: alsURL,
+                        projectFolderURL: project.folderURL
+                    ) { fraction, message in
+                        Task { @MainActor in
+                            self.parseProgress = fraction
+                            self.parseStatus = message
+                        }
+                    }
                 }.value
             } else {
                 arrangement = nil
             }
             isLoadingArrangement = false
         }
+    }
+
+    private var arrangementLoadingView: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.badge.magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.accent)
+                    Text("Parsing Arrangement")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primaryText)
+                    Spacer()
+                    Text("\(Int(parseProgress * 100))%")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.accent)
+                }
+
+                ProgressView(value: parseProgress, total: 1.0)
+                    .progressViewStyle(.linear)
+                    .tint(.accent)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondaryText)
+                    Text(parseStatus)
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.secondaryText)
+                        .lineLimit(1)
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(width: 360)
+            .background(Color.sidebarBg.opacity(0.85), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var projectActionsMenu: some View {
