@@ -120,47 +120,50 @@ struct TrackListView: View {
 
             Divider().background(Color.divider)
 
-            HStack(spacing: 6) {
-                ForEach(ProjectInspectorSection.allCases) { item in
-                    let isSelected = section == item
-                    Button {
-                        section = item
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: item.icon)
-                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                            Text(item.title)
-                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
-                        }
-                        .foregroundColor(isSelected ? .white : Color(white: 0.72))
-                        .padding(.horizontal, 11)
-                        .frame(height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(
-                                    isSelected
-                                        ? Color(red: 0.17, green: 0.18, blue: 0.22)
-                                        : Color(red: 0.10, green: 0.105, blue: 0.12)
-                                )
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(
-                                    isSelected ? Color.accent : Color.white.opacity(0.12),
-                                    lineWidth: isSelected ? 1.2 : 1.0
-                                )
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
-            .background(Color.sidebarBg.opacity(0.45))
+            ZStack(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.divider)
+                    .frame(height: 1)
+                    .frame(maxWidth: .infinity)
 
-            Divider().background(Color.divider)
+                HStack(alignment: .bottom, spacing: 4) {
+                    ForEach(ProjectInspectorSection.allCases) { item in
+                        let isSelected = section == item
+                        Button {
+                            section = item
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: item.icon)
+                                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                                    .foregroundColor(isSelected ? .accent : Color(white: 0.65))
+                                Text(item.title)
+                                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                                    .foregroundColor(isSelected ? .white : Color(white: 0.72))
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background {
+                                if isSelected {
+                                    DawTabFill(cornerRadius: 5)
+                                        .fill(Color.appBg)
+                                }
+                            }
+                            .overlay {
+                                if isSelected {
+                                    DawTabOutline(cornerRadius: 5, strokeWidth: 1.2)
+                                        .stroke(Color.accent, lineWidth: 1.2)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+            }
+            .frame(height: 36)
+            .background(Color.sidebarBg.opacity(0.45))
 
             // ── Content ──────────────────────────────────────────────────────
             ZStack {

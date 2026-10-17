@@ -21,8 +21,6 @@ struct ContentView: View {
             // Top studio navigation bar (DAWbro style)
             DawTopNavBar(selection: $store.activeWorkspaceSection)
 
-            Divider().background(Color.divider)
-
             ZStack {
                 LibraryWorkspace(
                     showProjectInspector: $showProjectInspector,
