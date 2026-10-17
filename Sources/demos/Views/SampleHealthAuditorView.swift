@@ -359,12 +359,8 @@ struct SampleHealthAuditorView: View {
     }
 
     private func getAudioDuration(fileURL: URL?, fallback: Double) -> Double {
-        if let url = fileURL {
-            let asset = AVURLAsset(url: url)
-            let secs = CMTimeGetSeconds(asset.duration)
-            if secs.isFinite && secs > 0 {
-                return secs
-            }
+        if let url = fileURL, let player = try? AVAudioPlayer(contentsOf: url), player.duration > 0 {
+            return player.duration
         }
         return fallback
     }
