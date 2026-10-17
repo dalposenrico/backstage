@@ -882,7 +882,7 @@ struct SidebarProjectItem: View {
             store.selectedProject = project
         } label: {
             HStack(spacing: 7) {
-                AbletonBadgeView()
+                ProjectBadgeView(project: project)
 
                 Text(project.name)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))

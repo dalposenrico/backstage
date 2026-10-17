@@ -58,17 +58,37 @@ struct Project: Identifiable, Hashable {
     let bpm: Double?
     let plugins: [String]
     let activity: ProjectActivity
+    let latestModification: Date
+
+    init(
+        name: String,
+        folderURL: URL,
+        tracks: [Track],
+        versions: [AbletonVersion],
+        creationDate: Date?,
+        tags: [String],
+        bpm: Double?,
+        plugins: [String],
+        activity: ProjectActivity,
+        latestModification: Date? = nil
+    ) {
+        self.name = name
+        self.folderURL = folderURL
+        self.tracks = tracks
+        self.versions = versions
+        self.creationDate = creationDate
+        self.tags = tags
+        self.bpm = bpm
+        self.plugins = plugins
+        self.activity = activity
+        self.latestModification = latestModification ?? ((tracks.compactMap(\.modificationDate) + versions.compactMap(\.modificationDate)).max() ?? .distantPast)
+    }
 
     var hasExports: Bool { !tracks.isEmpty }
 
     var bpmLabel: String? {
         guard let bpm else { return nil }
         return bpm.rounded() == bpm ? String(Int(bpm)) : String(format: "%.1f", bpm)
-    }
-
-    var latestModification: Date {
-        (tracks.compactMap(\.modificationDate) + versions.compactMap(\.modificationDate)).max()
-            ?? .distantPast
     }
 
     var latestSavedItem: (name: String, date: Date)? {

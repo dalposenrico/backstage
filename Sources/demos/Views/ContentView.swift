@@ -24,29 +24,30 @@ struct ContentView: View {
 
             Divider().background(Color.divider)
 
-            Group {
-                switch workspaceSection {
-                case .home:
+            ZStack {
+                LibraryWorkspace(
+                    showProjectInspector: $showProjectInspector,
+                    projectWorkspaceExpanded: $projectWorkspaceExpanded
+                )
+                .opacity(workspaceSection == .library ? 1 : 0)
+                .allowsHitTesting(workspaceSection == .library)
+
+                if workspaceSection == .home {
                     HomeDashboardView { project in
                         store.selectedProject = project
                         showProjectInspector = true
                         workspaceSection = .library
                     }
-
-                case .library:
-                    LibraryWorkspace(
-                        showProjectInspector: $showProjectInspector,
-                        projectWorkspaceExpanded: $projectWorkspaceExpanded
-                    )
-
-                case .releases:
+                    .background(Color.appBg)
+                } else if workspaceSection == .releases {
                     ReleasesHubView {
                         workspaceSection = .library
                         showProjectInspector = true
                     }
-
-                case .tools:
+                    .background(Color.appBg)
+                } else if workspaceSection == .tools {
                     ToolsHubView()
+                        .background(Color.appBg)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

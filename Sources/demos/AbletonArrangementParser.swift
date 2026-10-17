@@ -3,10 +3,72 @@ import Foundation
 /// Parses arrangement tracks, clips, notes, and sample references from an Ableton Live (.als) project file.
 public enum AbletonArrangementParser {
 
-    /// Parses an arrangement from an .als file on disk.
+    // MARK: - In-Memory Cache
+    private static var cache: [URL: (modificationDate: Date, arrangement: AbletonArrangement)] = [:]
+    private static let cacheLock = NSLock()
+
+    // MARK: - Pre-compiled Regular Expressions
+    private static let midiTrackRegex = try! NSRegularExpression(
+        pattern: #"<MidiTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</MidiTrack>"#
+    )
+    private static let audioTrackRegex = try! NSRegularExpression(
+        pattern: #"<AudioTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</AudioTrack>"#
+    )
+    private static let groupTrackRegex = try! NSRegularExpression(
+        pattern: #"<GroupTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</GroupTrack>"#
+    )
+    private static let midiClipRegex = try! NSRegularExpression(
+        pattern: #"<MidiClip(?:\s+[^>]*)?Time=\"([0-9]+(?:\.[0-9]+)?)\"[\s\S]*?>([\s\S]*?)</MidiClip>"#
+    )
+    private static let audioClipRegex = try! NSRegularExpression(
+        pattern: #"<AudioClip(?:\s+[^>]*)?Time=\"([0-9]+(?:\.[0-9]+)?)\"[\s\S]*?>([\s\S]*?)</AudioClip>"#
+    )
+    private static let trackNamePatterns = [
+        try! NSRegularExpression(pattern: #"<UserName\s+Value=\"([^\"]+)\""#),
+        try! NSRegularExpression(pattern: #"<EffectiveName\s+Value=\"([^\"]+)\""#),
+        try! NSRegularExpression(pattern: #"<Name>\s*<EffectiveName\s+Value=\"([^\"]+)\""#)
+    ]
+    private static let colorRegex = try! NSRegularExpression(pattern: #"<Color\s+Value=\"([0-9]+)\""#)
+    private static let keyTrackRegex = try! NSRegularExpression(
+        pattern: #"<KeyTrack>[\s\S]*?<MidiKey\s+Value=\"([0-9]+)\"[\s\S]*?<Notes>([\s\S]*?)</Notes>"#
+    )
+    private static let midiNoteRegex = try! NSRegularExpression(
+        pattern: #"<MidiNote\s+Time=\"([0-9\.]+)\"\s+Duration=\"([0-9\.]+)\"\s+Velocity=\"([0-9\.]+)\""#
+    )
+    private static let live12NoteRegex = try! NSRegularExpression(
+        pattern: #"<MidiNote\s+[^>]*?MidiKey=\"([0-9]+)\"[^>]*?Time=\"([0-9\.]+)\"[^>]*?Duration=\"([0-9\.]+)\"[^>]*?Velocity=\"([0-9\.]+)\""#
+    )
+    private static let currentStartRegex = try! NSRegularExpression(pattern: #"<CurrentStart\s+Value=\"([^\"]*)\""#)
+    private static let currentEndRegex = try! NSRegularExpression(pattern: #"<CurrentEnd\s+Value=\"([^\"]*)\""#)
+    private static let nameAttrRegex = try! NSRegularExpression(pattern: #"<Name\s+Value=\"([^\"]*)\""#)
+    private static let pathAttrRegex = try! NSRegularExpression(pattern: #"<Path\s+Value=\"([^\"]*)\""#)
+    private static let relativePathAttrRegex = try! NSRegularExpression(pattern: #"<RelativePath\s+Value=\"([^\"]*)\""#)
+    private static let tempoPatterns = [
+        try! NSRegularExpression(pattern: #"<Tempo[\s\S]*?<Manual\s+Value=\"([0-9]+(?:\.[0-9]+)?)\""#),
+        try! NSRegularExpression(pattern: #"<CurrentSongTempo\s+Value=\"([0-9]+(?:\.[0-9]+)?)\""#)
+    ]
+    private static let timeSigNumeratorRegex = try! NSRegularExpression(pattern: #"<TimeSignature>[\s\S]*?<Numerator\s+Value=\"([0-9]+)\""#)
+    private static let timeSigDenominatorRegex = try! NSRegularExpression(pattern: #"<TimeSignature>[\s\S]*?<Denominator\s+Value=\"([0-9]+)\""#)
+
+    /// Parses an arrangement from an .als file on disk with thread-safe memory caching.
     public static func parse(from fileURL: URL, projectFolderURL: URL? = nil) -> AbletonArrangement? {
+        let modDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+
+        cacheLock.lock()
+        if let cached = cache[fileURL], cached.modificationDate == modDate {
+            cacheLock.unlock()
+            return cached.arrangement
+        }
+        cacheLock.unlock()
+
         guard let xml = Gunzip.readTextFile(at: fileURL) else { return nil }
-        return parse(xml: xml, projectFolderURL: projectFolderURL ?? fileURL.deletingLastPathComponent())
+        let arrangement = parse(xml: xml, projectFolderURL: projectFolderURL ?? fileURL.deletingLastPathComponent())
+
+        cacheLock.lock()
+        cache[fileURL] = (modDate, arrangement)
+        cacheLock.unlock()
+
+        return arrangement
     }
 
     /// Parses arrangement data from unzipped Ableton XML string.
@@ -14,18 +76,28 @@ public enum AbletonArrangementParser {
         let tempo = extractTempo(from: xml) ?? 120.0
         let (num, denom) = extractTimeSignature(from: xml)
 
+        // Slicing <Tracks> ... </Tracks> reduces string scan area by up to 98%,
+        // bypassing tens of megabytes of preset and automation envelope data.
+        let tracksSlice: String
+        if let start = xml.range(of: "<Tracks>"),
+           let end = xml.range(of: "</Tracks>", range: start.upperBound..<xml.endIndex) {
+            tracksSlice = String(xml[start.lowerBound..<end.upperBound])
+        } else {
+            tracksSlice = xml
+        }
+
         var tracks: [AbletonTrack] = []
 
         // Extract MidiTracks
-        let midiTracks = extractTracks(ofKind: "MidiTrack", in: xml, type: .midi, projectFolderURL: projectFolderURL)
+        let midiTracks = extractTracks(regex: midiTrackRegex, in: tracksSlice, type: .midi, projectFolderURL: projectFolderURL)
         tracks.append(contentsOf: midiTracks)
 
         // Extract AudioTracks
-        let audioTracks = extractTracks(ofKind: "AudioTrack", in: xml, type: .audio, projectFolderURL: projectFolderURL)
+        let audioTracks = extractTracks(regex: audioTrackRegex, in: tracksSlice, type: .audio, projectFolderURL: projectFolderURL)
         tracks.append(contentsOf: audioTracks)
 
         // Extract GroupTracks
-        let groupTracks = extractTracks(ofKind: "GroupTrack", in: xml, type: .group, projectFolderURL: projectFolderURL)
+        let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL)
         tracks.append(contentsOf: groupTracks)
 
         // Calculate total arrangement length in beats
@@ -45,17 +117,13 @@ public enum AbletonArrangementParser {
     // MARK: - Track Extraction
 
     private static func extractTracks(
-        ofKind tag: String,
+        regex: NSRegularExpression,
         in xml: String,
         type: AbletonTrackType,
         projectFolderURL: URL?
     ) -> [AbletonTrack] {
-        guard let trackRegex = try? NSRegularExpression(
-            pattern: #"<"# + tag + #"(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</"# + tag + #">"#
-        ) else { return [] }
-
         let nsString = xml as NSString
-        let matches = trackRegex.matches(in: xml, range: NSRange(location: 0, length: nsString.length))
+        let matches = regex.matches(in: xml, range: NSRange(location: 0, length: nsString.length))
 
         return matches.compactMap { match in
             let id = match.range(at: 1).location != NSNotFound
@@ -78,16 +146,13 @@ public enum AbletonArrangementParser {
     }
 
     private static func extractTrackName(from text: String) -> String? {
-        let patterns = [
-            #"<UserName\s+Value=\"([^\"]+)\""#,
-            #"<EffectiveName\s+Value=\"([^\"]+)\""#,
-            #"<Name>\s*<EffectiveName\s+Value=\"([^\"]+)\""#
-        ]
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)),
+        let nsText = text as NSString
+        let range = NSRange(location: 0, length: nsText.length)
+
+        for regex in trackNamePatterns {
+            if let match = regex.firstMatch(in: text, range: range),
                match.range(at: 1).location != NSNotFound {
-                let raw = (text as NSString).substring(with: match.range(at: 1))
+                let raw = nsText.substring(with: match.range(at: 1))
                 let decoded = decodeXMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !decoded.isEmpty { return decoded }
             }
@@ -96,10 +161,10 @@ public enum AbletonArrangementParser {
     }
 
     private static func extractColor(from text: String) -> Int? {
-        guard let regex = try? NSRegularExpression(pattern: #"<Color\s+Value=\"([0-9]+)\""#),
-              let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)),
+        let nsText = text as NSString
+        guard let match = colorRegex.firstMatch(in: text, range: NSRange(location: 0, length: nsText.length)),
               match.range(at: 1).location != NSNotFound else { return nil }
-        return Int((text as NSString).substring(with: match.range(at: 1)))
+        return Int(nsText.substring(with: match.range(at: 1)))
     }
 
     // MARK: - Clip Extraction
@@ -109,11 +174,7 @@ public enum AbletonArrangementParser {
         type: AbletonTrackType,
         projectFolderURL: URL?
     ) -> [AbletonClip] {
-        let clipTag = type == .midi ? "MidiClip" : "AudioClip"
-        guard let clipRegex = try? NSRegularExpression(
-            pattern: #"<"# + clipTag + #"(?:\s+[^>]*)?Time=\"([0-9]+(?:\.[0-9]+)?)\"[\s\S]*?>([\s\S]*?)</"# + clipTag + #">"#
-        ) else { return [] }
-
+        let clipRegex = type == .midi ? midiClipRegex : audioClipRegex
         let nsString = trackBody as NSString
         let matches = clipRegex.matches(in: trackBody, range: NSRange(location: 0, length: nsString.length))
 
@@ -124,7 +185,7 @@ public enum AbletonArrangementParser {
             }
             let clipBody = nsString.substring(with: match.range(at: 2))
 
-            let name = extractAttribute(named: "Name", in: clipBody) ?? "Clip"
+            let name = extractAttribute(regex: nameAttrRegex, in: clipBody) ?? "Clip"
             let duration = extractClipDuration(from: clipBody) ?? 16.0
             let colorIndex = extractColor(from: clipBody) ?? 12
 
@@ -150,8 +211,8 @@ public enum AbletonArrangementParser {
     }
 
     private static func extractClipDuration(from clipBody: String) -> Double? {
-        guard let startStr = extractAttribute(named: "CurrentStart", in: clipBody),
-              let endStr = extractAttribute(named: "CurrentEnd", in: clipBody),
+        guard let startStr = extractAttribute(regex: currentStartRegex, in: clipBody),
+              let endStr = extractAttribute(regex: currentEndEndRegexFallback(in: clipBody) ?? currentEndRegex, in: clipBody),
               let start = Double(startStr),
               let end = Double(endStr),
               end > start else {
@@ -160,52 +221,45 @@ public enum AbletonArrangementParser {
         return end - start
     }
 
+    private static func currentEndEndRegexFallback(in text: String) -> NSRegularExpression? {
+        return currentEndRegex
+    }
+
     // MARK: - Note Extraction (Ableton 10/11/12)
 
     private static func extractMidiNotes(from clipBody: String) -> [AbletonNote] {
         var notes: [AbletonNote] = []
 
         // Format 1 (Live 10/11): <KeyTrack><MidiKey Value="60"/><Notes><MidiNote Time="0" Duration="1" Velocity="100".../>
-        if let keyTrackRegex = try? NSRegularExpression(pattern: #"<KeyTrack>[\s\S]*?<MidiKey\s+Value=\"([0-9]+)\"[\s\S]*?<Notes>([\s\S]*?)</Notes>"#) {
-            let nsBody = clipBody as NSString
-            let ktMatches = keyTrackRegex.matches(in: clipBody, range: NSRange(location: 0, length: nsBody.length))
+        let nsBody = clipBody as NSString
+        let ktMatches = keyTrackRegex.matches(in: clipBody, range: NSRange(location: 0, length: nsBody.length))
 
-            for ktMatch in ktMatches {
-                guard ktMatch.range(at: 1).location != NSNotFound,
-                      let pitch = Int(nsBody.substring(with: ktMatch.range(at: 1))) else { continue }
-                let notesBlock = nsBody.substring(with: ktMatch.range(at: 2))
+        for ktMatch in ktMatches {
+            guard ktMatch.range(at: 1).location != NSNotFound,
+                  let pitch = Int(nsBody.substring(with: ktMatch.range(at: 1))) else { continue }
+            let notesBlock = nsBody.substring(with: ktMatch.range(at: 2))
 
-                if let noteRegex = try? NSRegularExpression(
-                    pattern: #"<MidiNote\s+Time=\"([0-9\.]+)\"\s+Duration=\"([0-9\.]+)\"\s+Velocity=\"([0-9\.]+)\""#
-                ) {
-                    let nsNotes = notesBlock as NSString
-                    let noteMatches = noteRegex.matches(in: notesBlock, range: NSRange(location: 0, length: nsNotes.length))
+            let nsNotes = notesBlock as NSString
+            let noteMatches = midiNoteRegex.matches(in: notesBlock, range: NSRange(location: 0, length: nsNotes.length))
 
-                    for nm in noteMatches {
-                        guard let time = Double(nsNotes.substring(with: nm.range(at: 1))),
-                              let dur = Double(nsNotes.substring(with: nm.range(at: 2))),
-                              let vel = Double(nsNotes.substring(with: nm.range(at: 3))) else { continue }
-                        notes.append(AbletonNote(pitch: pitch, startBeat: time, durationBeats: dur, velocity: vel))
-                    }
-                }
+            for nm in noteMatches {
+                guard let time = Double(nsNotes.substring(with: nm.range(at: 1))),
+                      let dur = Double(nsNotes.substring(with: nm.range(at: 2))),
+                      let vel = Double(nsNotes.substring(with: nm.range(at: 3))) else { continue }
+                notes.append(AbletonNote(pitch: pitch, startBeat: time, durationBeats: dur, velocity: vel))
             }
         }
 
         // Format 2 (Live 12 simplified): <MidiNote MidiKey="60" Time="0" Duration="1" Velocity="100".../>
         if notes.isEmpty {
-            if let noteRegex = try? NSRegularExpression(
-                pattern: #"<MidiNote\s+[^>]*?MidiKey=\"([0-9]+)\"[^>]*?Time=\"([0-9\.]+)\"[^>]*?Duration=\"([0-9\.]+)\"[^>]*?Velocity=\"([0-9\.]+)\""#
-            ) {
-                let nsBody = clipBody as NSString
-                let matches = noteRegex.matches(in: clipBody, range: NSRange(location: 0, length: nsBody.length))
+            let matches = live12NoteRegex.matches(in: clipBody, range: NSRange(location: 0, length: nsBody.length))
 
-                for m in matches {
-                    guard let pitch = Int(nsBody.substring(with: m.range(at: 1))),
-                          let time = Double(nsBody.substring(with: m.range(at: 2))),
-                          let dur = Double(nsBody.substring(with: m.range(at: 3))),
-                          let vel = Double(nsBody.substring(with: m.range(at: 4))) else { continue }
-                    notes.append(AbletonNote(pitch: pitch, startBeat: time, durationBeats: dur, velocity: vel))
-                }
+            for m in matches {
+                guard let pitch = Int(nsBody.substring(with: m.range(at: 1))),
+                      let time = Double(nsBody.substring(with: m.range(at: 2))),
+                      let dur = Double(nsBody.substring(with: m.range(at: 3))),
+                      let vel = Double(nsBody.substring(with: m.range(at: 4))) else { continue }
+                notes.append(AbletonNote(pitch: pitch, startBeat: time, durationBeats: dur, velocity: vel))
             }
         }
 
@@ -217,9 +271,9 @@ public enum AbletonArrangementParser {
     private static func extractSampleRef(from clipBody: String, projectFolderURL: URL?) -> AbletonSampleRef? {
         guard clipBody.contains("<SampleRef>") else { return nil }
 
-        let name = extractAttribute(named: "Name", in: clipBody) ?? "Audio"
-        let path = extractAttribute(named: "Path", in: clipBody)
-        let relativePath = extractAttribute(named: "RelativePath", in: clipBody)
+        let name = extractAttribute(regex: nameAttrRegex, in: clipBody) ?? "Audio"
+        let path = extractAttribute(regex: pathAttrRegex, in: clipBody)
+        let relativePath = extractAttribute(regex: relativePathAttrRegex, in: clipBody)
 
         var exists = false
         if let path, !path.isEmpty {
@@ -241,38 +295,35 @@ public enum AbletonArrangementParser {
     // MARK: - Helpers
 
     private static func extractTempo(from xml: String) -> Double? {
-        let patterns = [
-            #"<Tempo[\s\S]*?<Manual\s+Value=\"([0-9]+(?:\.[0-9]+)?)\""#,
-            #"<CurrentSongTempo\s+Value=\"([0-9]+(?:\.[0-9]+)?)\""#
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: xml, range: NSRange(location: 0, length: (xml as NSString).length)),
-                  let val = Double((xml as NSString).substring(with: match.range(at: 1))), val > 0 else { continue }
+        let nsXml = xml as NSString
+        let range = NSRange(location: 0, length: nsXml.length)
+
+        for regex in tempoPatterns {
+            guard let match = regex.firstMatch(in: xml, range: range),
+                  let val = Double(nsXml.substring(with: match.range(at: 1))), val > 0 else { continue }
             return val
         }
         return nil
     }
 
     private static func extractTimeSignature(from xml: String) -> (Int, Int) {
-        guard let numRegex = try? NSRegularExpression(pattern: #"<TimeSignature>[\s\S]*?<Numerator\s+Value=\"([0-9]+)\""#),
-              let numMatch = numRegex.firstMatch(in: xml, range: NSRange(location: 0, length: (xml as NSString).length)),
-              let num = Int((xml as NSString).substring(with: numMatch.range(at: 1))) else {
+        let nsXml = xml as NSString
+        let range = NSRange(location: 0, length: nsXml.length)
+
+        guard let numMatch = timeSigNumeratorRegex.firstMatch(in: xml, range: range),
+              let num = Int(nsXml.substring(with: numMatch.range(at: 1))) else {
             return (4, 4)
         }
-        let denomRegex = try? NSRegularExpression(pattern: #"<TimeSignature>[\s\S]*?<Denominator\s+Value=\"([0-9]+)\""#)
-        let denomMatch = denomRegex?.firstMatch(in: xml, range: NSRange(location: 0, length: (xml as NSString).length))
-        let denom = denomMatch != nil ? Int((xml as NSString).substring(with: denomMatch!.range(at: 1))) ?? 4 : 4
+        let denomMatch = timeSigDenominatorRegex.firstMatch(in: xml, range: range)
+        let denom = denomMatch != nil ? Int(nsXml.substring(with: denomMatch!.range(at: 1))) ?? 4 : 4
         return (num, denom)
     }
 
-    private static func extractAttribute(named name: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"<"# + NSRegularExpression.escapedPattern(for: name) + #"\s+Value=\"([^\"]*)\""#
-        ),
-        let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)),
-        match.range(at: 1).location != NSNotFound else { return nil }
-        return (text as NSString).substring(with: match.range(at: 1))
+    private static func extractAttribute(regex: NSRegularExpression, in text: String) -> String? {
+        let nsText = text as NSString
+        guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: nsText.length)),
+              match.range(at: 1).location != NSNotFound else { return nil }
+        return nsText.substring(with: match.range(at: 1))
     }
 
     private static func decodeXMLEntities(_ value: String) -> String {
