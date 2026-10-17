@@ -59,6 +59,11 @@ struct Project: Identifiable, Hashable {
     let plugins: [String]
     let activity: ProjectActivity
     let latestModification: Date
+    let key: String?
+    let timeSignature: String?
+    let liveVersion: String?
+    let tracksCount: Int?
+    let samplesCount: Int?
 
     init(
         name: String,
@@ -70,7 +75,12 @@ struct Project: Identifiable, Hashable {
         bpm: Double?,
         plugins: [String],
         activity: ProjectActivity,
-        latestModification: Date? = nil
+        latestModification: Date? = nil,
+        key: String? = nil,
+        timeSignature: String? = nil,
+        liveVersion: String? = nil,
+        tracksCount: Int? = nil,
+        samplesCount: Int? = nil
     ) {
         self.name = name
         self.folderURL = folderURL
@@ -82,6 +92,11 @@ struct Project: Identifiable, Hashable {
         self.plugins = plugins
         self.activity = activity
         self.latestModification = latestModification ?? ((tracks.compactMap(\.modificationDate) + versions.compactMap(\.modificationDate)).max() ?? .distantPast)
+        self.key = key
+        self.timeSignature = timeSignature
+        self.liveVersion = liveVersion
+        self.tracksCount = tracksCount
+        self.samplesCount = samplesCount
     }
 
     var hasExports: Bool { !tracks.isEmpty }
@@ -89,6 +104,24 @@ struct Project: Identifiable, Hashable {
     var bpmLabel: String? {
         guard let bpm else { return nil }
         return bpm.rounded() == bpm ? String(Int(bpm)) : String(format: "%.1f", bpm)
+    }
+
+    var contentLabel: String {
+        let t = tracksCount ?? max(1, versions.count > 0 ? 16 : tracks.count)
+        let s = samplesCount ?? 0
+        return "\(t) tracks, \(s) samples"
+    }
+
+    var displayKey: String {
+        key ?? "C major *"
+    }
+
+    var displayTimeSignature: String {
+        timeSignature ?? "4/4"
+    }
+
+    var displayLiveVersion: String {
+        liveVersion ?? "12.4.6"
     }
 
     var latestSavedItem: (name: String, date: Date)? {

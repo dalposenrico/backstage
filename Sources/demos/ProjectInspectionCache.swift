@@ -8,6 +8,31 @@ struct CachedInspection: Codable, Equatable {
     let bpm: Double?
     let plugins: [String]
     let activity: ProjectActivity
+    var key: String? = nil
+    var timeSignature: String? = nil
+    var liveVersion: String? = nil
+    var tracksCount: Int? = nil
+    var samplesCount: Int? = nil
+
+    init(
+        bpm: Double?,
+        plugins: [String],
+        activity: ProjectActivity,
+        key: String? = nil,
+        timeSignature: String? = nil,
+        liveVersion: String? = nil,
+        tracksCount: Int? = nil,
+        samplesCount: Int? = nil
+    ) {
+        self.bpm = bpm
+        self.plugins = plugins
+        self.activity = activity
+        self.key = key
+        self.timeSignature = timeSignature
+        self.liveVersion = liveVersion
+        self.tracksCount = tracksCount
+        self.samplesCount = samplesCount
+    }
 }
 
 /// Remembers inspection results after the first scan of a project so relaunching
