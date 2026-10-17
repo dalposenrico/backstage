@@ -1,4 +1,4 @@
-# Builds Backstage.app and attaches it to a GitHub Release.
+# Builds goodvibrations HQ.app and attaches it to a GitHub Release.
 #
 # HOW TO SHIP A NEW VERSION:
 #   1. Update CFBundleShortVersionString in Sources/demos/Info.plist  (e.g. "1.1")
@@ -31,12 +31,12 @@ jobs:
 
       - name: Zip for distribution
         run: |
-          ditto -c -k --keepParent Backstage.app Backstage.zip
+          ditto -c -k --keepParent "goodvibrations HQ.app" goodvibrations-HQ.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Backstage.zip
+          files: goodvibrations-HQ.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

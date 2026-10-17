@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Backstage</string>
+	<string>goodvibrations HQ</string>
     <key>CFBundleDisplayName</key>
-    <string>Backstage</string>
+	<string>goodvibrations HQ</string>
     <key>CFBundleExecutable</key>
     <string>demos</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.enricodalpos.demos</string>
+    <string>com.enricodalpos.goodvibrationshq</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
@@ -26,7 +26,22 @@
     <string>NSApplication</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.music</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>© 2025 Enrico Dal Pos</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2025 Enrico Dal Pos</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>goodvibrations HQ uses Apple Calendar to schedule project focus sessions, prepare the Pomodoro when they begin, and remind you about studio bookings.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>goodvibrations HQ reads the current Wi-Fi name to know when SAE check-in is available.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.enricodalpos.goodvibrationshq.export-checkpoint</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>goodvibrations</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

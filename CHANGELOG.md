@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Backstage are documented here.
+All notable changes to goodvibrations HQ are documented here.
 
 ---
 
@@ -15,7 +15,7 @@ All notable changes to Backstage are documented here.
 - Finder colour tag display per project
 - Reveal in Finder on project hover
 - Full state persistence: selected project, expanded folders, sort order all restored on relaunch
-- Click `[Backstage]` logo to open Settings (also ⌘,)
+- Click `[goodvibrations HQ]` logo to open Settings (also ⌘,)
 - Expand all / collapse all folder buttons
 - Appearance modes: system, dark, light
 - Automatic update notifications via GitHub Releases

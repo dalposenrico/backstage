@@ -39,20 +39,23 @@ extension Color {
 
     // MARK: - App palette (adaptive dark ↔ light)
 
-    static let appBg         = adaptive(dark: "111111", light: "F5F5F7")
-    static let sidebarBg     = adaptive(dark: "0C0C0C", light: "ECEEF0")
-    static let hoverBg       = adaptive(dark: "1E1E1E", light: "E2E4E7")
-    static let selectedBg    = adaptive(dark: "272727", light: "D8DADD")
-    static let playerBg      = adaptive(dark: "0A0A0A", light: "E8E8EA")
-    static let primaryText   = adaptive(dark: "EFEFEF", light: "1C1C1E")
-    static let secondaryText = adaptive(dark: "6E6E6E", light: "52525A")  // improved contrast
-    static let tertiaryText  = adaptive(dark: "4A4A4A", light: "9A9A9E")  // improved contrast
-    static let accent        = adaptive(dark: "C4A3FF", light: "7048D4")  // lavender → deep purple
-    static let divider       = adaptive(dark: "1E1E1E", light: "D1D1D6")
+    static let appBg         = adaptive(dark: "12141A", light: "F7F8FA")
+    static let sidebarBg     = adaptive(dark: "0D0F14", light: "EEF1F5")
+    static let hoverBg       = adaptive(dark: "20242D", light: "E7EBF1")
+    static let selectedBg    = adaptive(dark: "292F3B", light: "DCE5F2")
+    static let playerBg      = adaptive(dark: "0B0D12", light: "F1F3F6")
+    static let surfaceBg     = adaptive(dark: "191C23", light: "FFFFFF")
+    static let elevatedBg    = adaptive(dark: "20242D", light: "F8FAFC")
+    static let primaryText   = adaptive(dark: "F4F6F8", light: "171A21")
+    static let secondaryText = adaptive(dark: "B2B8C2", light: "505866")
+    static let tertiaryText  = adaptive(dark: "7F8794", light: "778190")
+    static let accent        = adaptive(dark: "7EB1FF", light: "2868B2")
+    static let divider       = adaptive(dark: "292D36", light: "D8DEE7")
+    static let subtleBorder  = adaptive(dark: "303641", light: "DCE2EA")
 
     // Play button: inverted bg so it always pops against the player bar
-    static let playBtnBg     = adaptive(dark: "EFEFEF", light: "1C1C1E")
-    static let playBtnFg     = adaptive(dark: "111111", light: "F5F5F7")
+    static let playBtnBg     = adaptive(dark: "F4F6F8", light: "1D2633")
+    static let playBtnFg     = adaptive(dark: "12141A", light: "FFFFFF")
 
     // Seek bar track
     static let seekTrack      = adaptive(dark: "FFFFFF0D", light: "0000001A")  // 5 % white / 10 % black
@@ -75,6 +78,29 @@ extension Color {
 // MARK: - Date formatting
 
 extension Date {
+    var compactAge: String {
+        let seconds = max(0, -timeIntervalSinceNow)
+        if seconds < 60 { return "just now" }
+        let minutes = Int(seconds / 60)
+        if seconds < 3600 { return "\(minutes) \(minutes == 1 ? "minute" : "minutes") ago" }
+        let hours = Int(seconds / 3600)
+        if seconds < 86_400 { return "\(hours) \(hours == 1 ? "hour" : "hours") ago" }
+        let days = Int(seconds / 86_400)
+        if days < 14 { return "\(days) \(days == 1 ? "day" : "days") ago" }
+        let weeks = days / 7
+        if days < 30 { return "\(weeks) \(weeks == 1 ? "week" : "weeks") ago" }
+        let months = days / 30
+        if days < 730 { return "\(months) \(months == 1 ? "month" : "months") ago" }
+        let years = days / 365
+        return "\(years) \(years == 1 ? "year" : "years") ago"
+    }
+
+    var compactCalendarDate: String {
+        Calendar.current.isDate(self, equalTo: Date(), toGranularity: .year)
+            ? formatted(.dateTime.month(.abbreviated).day())
+            : formatted(.dateTime.month(.abbreviated).day().year())
+    }
+
     /// Compact sidebar label: "2h ago", "3d ago", "Jan 15", "2023"
     var relativeShort: String {
         let secs = -timeIntervalSinceNow
@@ -122,6 +148,19 @@ extension Date {
     var fullDateTime: String {
         formatted(.dateTime.month(.wide).day().year().hour().minute())
     }
+
+    /// Compact menu-bar timestamp: "Today at 14:32", "Yesterday at 09:10", or "17 Aug at 18:45".
+    var menuSavedDate: String {
+        let calendar = Calendar.current
+        let time = formatted(.dateTime.hour().minute())
+        if calendar.isDateInToday(self) { return "today at \(time)" }
+        if calendar.isDateInYesterday(self) { return "yesterday at \(time)" }
+        let sameYear = calendar.isDate(self, equalTo: Date(), toGranularity: .year)
+        let day = sameYear
+            ? formatted(.dateTime.day().month(.abbreviated))
+            : formatted(.dateTime.day().month(.abbreviated).year())
+        return "\(day) at \(time)"
+    }
 }
 
 // MARK: - TimeInterval
@@ -132,5 +171,14 @@ extension TimeInterval {
         let m = Int(self) / 60
         let s = Int(self) % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    var estimatedWorkLabel: String {
+        guard self > 0 else { return "—" }
+        let minutes = max(15, Int((self / 900).rounded()) * 15)
+        if minutes < 60 { return "~\(minutes)m" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "~\(hours)h" : "~\(hours)h \(remainder)m"
     }
 }

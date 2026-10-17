@@ -5,30 +5,31 @@ import AppKit
 
 struct TrackListView: View {
     let project: Project
+    var allowsExpandedWorkspace = true
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var player: AudioPlayer
+    @EnvironmentObject var artworkStore: ProjectArtworkStore
+    @EnvironmentObject var collectionColors: CollectionColorStore
+    @Environment(\.openWindow) private var openWindow
+    @State private var section: ProjectInspectorSection = .overview
+    @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
 
             // ── Project header ───────────────────────────────────────────────
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
 
-                        // Name + Finder button
+                        // Project identity. Secondary actions live in one menu so the
+                        // two actions that resume work remain visually dominant.
                         HStack(spacing: 10) {
                             Text(project.name)
-                                .font(.system(size: 26, weight: .bold))
+                                .font(.system(size: 23, weight: .bold))
                                 .foregroundColor(.primaryText)
-
-                            Button { NSWorkspace.shared.open(project.folderURL) } label: {
-                                Image(systemName: "arrow.up.forward.square")
-                                    .font(.system(size: 15))
-                                    .foregroundColor(.secondaryText)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Open in Finder")
+                                .lineLimit(2)
+                            Spacer(minLength: 8)
+                            projectActionsMenu
                         }
 
                         // Finder color tags
@@ -60,73 +61,116 @@ struct TrackListView: View {
                         }
 
                         // Metadata row — larger, higher contrast
-                        HStack(spacing: 8) {
-                            Text(project.hasExports
-                                 ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
-                                 : "No exports yet")
-                                .font(.system(size: 13))
-                                .foregroundColor(project.hasExports ? .secondaryText : .tertiaryText)
-
-                            if let created = project.creationDate {
-                                Text("·").foregroundColor(.tertiaryText).font(.system(size: 13))
-                                Text("Added \(created.fullDateTime)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondaryText)
-                            }
-
-                            if project.latestModification != .distantPast {
-                                Text("·").foregroundColor(.tertiaryText).font(.system(size: 13))
-                                Text("Edited \(project.latestModification.relativeFull)")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.secondaryText)
-                            }
-                        }
-                    }
-
-                    Spacer()
-
-                    // Play All (only shown when there are exports)
-                    if project.hasExports {
-                        Button {
-                            if let first = project.sortedTracks.first { store.playTrack(first) }
-                        } label: {
+                        VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
-                                Image(systemName: "play.fill").font(.system(size: 11))
-                                Text("Play All").font(.system(size: 13, weight: .medium))
+                                Text(project.hasExports
+                                     ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
+                                     : "No exports yet")
+                                if project.latestModification != .distantPast {
+                                    Text("·").foregroundColor(.tertiaryText)
+                                    Text("Edited \(project.latestModification.relativeFull)")
+                                }
                             }
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(Color.accent)
-                            .cornerRadius(20)
+                            if let created = project.creationDate {
+                                Text("Added \(created.fullDateTime)")
+                            }
                         }
-                        .buttonStyle(.plain)
-                    }
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondaryText)
+
+                        ProjectInsights(project: project)
+
+                        HStack(spacing: 8) {
+                            if let version = project.newestAbletonVersion {
+                                Button { store.openInAbleton(project, version: version) } label: {
+                                    Label("Open in Ableton", systemImage: "arrow.up.forward.app.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .foregroundColor(.white)
+                                        .background(Color.accent)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            if project.hasExports {
+                                Button {
+                                    if let first = project.sortedTracks.first { store.playTrack(first) }
+                                } label: {
+                                    Label("Play Latest", systemImage: "play.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .foregroundColor(.primaryText)
+                                        .background(Color.elevatedBg)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.subtleBorder) }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 28)
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
             .padding(.bottom, 18)
 
             Divider().background(Color.divider)
 
-            // ── Content ──────────────────────────────────────────────────────
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+            Picker("Project section", selection: $section) {
+                ForEach(ProjectInspectorSection.allCases) { item in
+                    Label(item.title, systemImage: item.icon).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(Color.sidebarBg.opacity(0.45))
 
-                    // ── Exports section ──────────────────────────────────────
-                    if !project.tracks.isEmpty {
+            Divider().background(Color.divider)
+
+            // ── Content ──────────────────────────────────────────────────────
+            HStack(spacing: 0) {
+            ScrollView {
+                // This inspector contains interactive sections whose height changes in
+                // place. LazyVStack can repeatedly invalidate its placement cache on
+                // macOS when reflection fields are inserted, locking the main thread
+                // in layout. A regular VStack keeps sizing deterministic here.
+                VStack(alignment: .leading, spacing: 0) {
+
+                    switch section {
+                    case .overview:
+                        ProjectProgressSection(project: project)
+                        ProjectTodoSection(project: project)
+                        ProjectNotesSection(project: project)
+                        StreamingReferencesSection(project: project)
+                            .padding(.vertical, 8)
+
+                    case .workflow:
+                        ProductionChecklistView(project: project)
+
+                    case .files:
+                        PluginsUsedSection(plugins: project.plugins)
+                        if !project.tracks.isEmpty {
                         ListSectionHeader(title: "Exports", count: project.tracks.count)
 
-                        ForEach(project.sortedTracks) { track in
-                            TrackRow(track: track)
-                                .onTapGesture {
-                                    player.currentTrack?.id == track.id
-                                        ? player.togglePlayPause()
-                                        : store.playTrack(track)
+                        ForEach(project.exportGroups) { group in
+                            if !group.folder.isEmpty {
+                                ExportFolderHeader(path: group.folder, count: group.tracks.count)
+                            }
+                            ForEach(group.tracks) { track in
+                                TrackRow(track: track, project: project)
+                                    .padding(.leading, group.folder.isEmpty ? 0 : 14)
+                                    .onTapGesture {
+                                        player.currentTrack?.id == track.id
+                                            ? player.togglePlayPause()
+                                            : store.playTrack(track)
+                                    }
                                 }
                         }
-                    } else {
+                        } else {
                         // No-export placeholder
                         HStack(spacing: 10) {
                             Image(systemName: "square.dashed")
@@ -138,28 +182,166 @@ struct TrackListView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 20)
-                    }
+                        }
 
                     // ── Project versions (.als files) ────────────────────────
-                    if !project.versions.isEmpty {
+                        if !project.versions.isEmpty {
                         ListSectionHeader(title: "Project Files", count: project.versions.count)
                             .padding(.top, project.tracks.isEmpty ? 4 : 0)
 
                         ForEach(project.versions) { version in
                             AbletonVersionRow(version: version)
                         }
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+            }
+            if allowsExpandedWorkspace && workspaceExpanded {
+                Divider().background(Color.divider)
+                ProjectDetailsPanel(project: project)
+                    .frame(width: 320)
+            }
             }
             .overlay(alignment: .bottomTrailing) {
-                ExpandWindowButton()
-                    .padding(10)
+                if allowsExpandedWorkspace {
+                    ExpandWindowButton()
+                        .padding(10)
+                }
             }
         }
         .background(Color.appBg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var projectActionsMenu: some View {
+        Menu {
+            Button { NSWorkspace.shared.open(project.folderURL) } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+            Button { store.toggleFavourite(project) } label: {
+                Label(
+                    store.favourites.contains(project.folderURL) ? "Remove from Favourites" : "Add to Favourites",
+                    systemImage: store.favourites.contains(project.folderURL) ? "star.slash" : "star"
+                )
+            }
+            Divider()
+            Button { openWindow(id: "ab-compare") } label: {
+                Label("Open Versions", systemImage: "rectangle.split.2x1")
+            }
+            Button { openWindow(id: "project-artwork") } label: {
+                Label("Choose Artwork", systemImage: "photo")
+            }
+            Divider()
+            Button { Task { await store.refreshProject(project) } } label: {
+                Label("Refresh Project", systemImage: "arrow.clockwise")
+            }
+            .disabled(store.refreshingProjects.contains(project.folderURL))
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.secondaryText)
+                .frame(width: 30, height: 28)
+                .background(Color.elevatedBg)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.subtleBorder) }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("More project actions")
+    }
+}
+
+private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
+    case overview, workflow, files
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var icon: String {
+        switch self {
+        case .overview: return "scope"
+        case .workflow: return "checklist"
+        case .files: return "folder"
+        }
+    }
+}
+
+private struct ExportFolderHeader: View {
+    let path: String
+    let count: Int
+    @EnvironmentObject private var collectionColors: CollectionColorStore
+    @EnvironmentObject private var store: AppStore
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 10))
+                .foregroundColor(
+                    store.selectedProject.flatMap { collectionColors.resolvedColor(for: $0.folderURL)?.color }
+                    ?? .secondaryText
+                )
+            Text(path)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondaryText)
+                .lineLimit(1)
+            Text("\(count)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.tertiaryText)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 3)
+    }
+}
+
+private struct ProjectInsights: View {
+    let project: Project
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], alignment: .leading, spacing: 8) {
+            if let bpm = project.bpmLabel {
+                insight(icon: "metronome", value: bpm, label: "BPM")
+            }
+            if project.activity.backupCount > 0 {
+                insight(
+                    icon: "clock.arrow.circlepath",
+                    value: project.activity.estimatedWorkTime.estimatedWorkLabel,
+                    label: "estimated work"
+                )
+                insight(
+                    icon: "square.stack.3d.up",
+                    value: "\(project.activity.backupCount)",
+                    label: project.activity.backupCount == 1 ? "backup" : "backups"
+                )
+                insight(
+                    icon: "calendar.badge.clock",
+                    value: "\(project.activity.sessionCount)",
+                    label: project.activity.sessionCount == 1 ? "session" : "sessions"
+                )
+            }
+        }
+        .padding(.top, 2)
+        .help("Work time is estimated from Ableton save and backup timestamps. Gaps over two hours start a new session.")
+    }
+
+    private func insight(icon: String, value: String, label: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(.accent)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(.primaryText)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondaryText)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -190,15 +372,16 @@ struct ListSectionHeader: View {
 
 struct TrackRow: View {
     let track: Track
+    let project: Project
     @State private var isHovered = false
     @EnvironmentObject var player: AudioPlayer
+    @EnvironmentObject var untitledSync: UntitledSyncStore
 
     var isCurrent: Bool { player.currentTrack?.id == track.id }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
                 // State icon
                 ZStack {
                     if isCurrent {
@@ -219,6 +402,7 @@ struct TrackRow: View {
                     .font(.system(size: 14, weight: isCurrent ? .semibold : .regular))
                     .foregroundColor(isCurrent ? .accent : .primaryText)
                     .lineLimit(1)
+                    .help(track.displayName)
 
                 // Format badge
                 Text(track.fileExtension)
@@ -229,33 +413,21 @@ struct TrackRow: View {
                     .background(Color.white.opacity(0.07))
                     .cornerRadius(4)
 
-                Spacer()
+                Spacer(minLength: 4)
+            }
 
+            HStack(spacing: 8) {
+                Spacer().frame(width: 28)
                 if isCurrent {
-                    Text("\(player.currentTime.mmss) / \(player.duration.mmss)")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.secondaryText)
-                        .animation(.none, value: player.currentTime)
+                    PlaybackTimeLabel(timeline: player.timeline)
                 } else if let date = track.modificationDate {
-                    Text(date.relativeFull)
-                        .font(.system(size: 12))        // was 11
-                        .foregroundColor(.secondaryText) // was tertiaryText
-                        .lineLimit(1)
+                    Text("Edited \(date.relativeShort)")
                 }
+                Spacer()
+                UntitledSyncButton(track: track, project: project)
             }
-
-            // Creation date sub-line
-            if !isCurrent, let created = track.creationDate {
-                HStack(spacing: 4) {
-                    Spacer().frame(width: 32)
-                    Text("Added")
-                        .foregroundColor(.tertiaryText)
-                    Text(created.fullDateTime)
-                        .foregroundColor(.secondaryText)  // was tertiaryText
-                }
-                .font(.system(size: 11))   // was 10
-                .padding(.top, 3)
-            }
+            .font(.system(size: 11))
+            .foregroundColor(.secondaryText)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -271,6 +443,76 @@ struct TrackRow: View {
     }
 }
 
+private struct UntitledSyncButton: View {
+    let track: Track
+    let project: Project
+    @EnvironmentObject var sync: UntitledSyncStore
+    @Environment(\.openWindow) private var openWindow
+
+    private var status: UntitledSyncStatus { sync.status(for: track) }
+
+    var body: some View {
+        Menu {
+            if status != .synced {
+                Button(status == .updateAvailable ? "Send New Version" : "Send to [untitled]") {
+                    sync.prepare(track, project: project)
+                    openWindow(id: "untitled-automation")
+                    WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: false)
+                }
+            }
+            if status == .sending {
+                Button("Mark as On [untitled]") { sync.markSynced(track) }
+            }
+            if status != .notSynced {
+                Divider()
+                Button("Reset Sync Status") { sync.reset(track) }
+            }
+        } label: {
+            Label(label, systemImage: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(color)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(helpText)
+    }
+
+    private var label: String {
+        switch status {
+        case .notSynced: return "Not synced"
+        case .sending: return "Sending"
+        case .synced: return "On [untitled]"
+        case .updateAvailable: return "New version"
+        }
+    }
+
+    private var icon: String {
+        switch status {
+        case .notSynced: return "icloud.slash"
+        case .sending: return "icloud.and.arrow.up"
+        case .synced: return "icloud.fill"
+        case .updateAvailable: return "arrow.triangle.2.circlepath.icloud"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case .synced: return .accent
+        case .sending, .updateAvailable: return .orange
+        case .notSynced: return .tertiaryText
+        }
+    }
+
+    private var helpText: String {
+        switch status {
+        case .notSynced: return "Send this export to [untitled]"
+        case .sending: return "Waiting for confirmation from [untitled]"
+        case .synced: return "This exact export is marked as on [untitled]"
+        case .updateAvailable: return "This file changed after it was synced"
+        }
+    }
+}
+
 // MARK: - Ableton version row (.als file)
 
 struct AbletonVersionRow: View {
@@ -278,8 +520,8 @@ struct AbletonVersionRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
                 // Document icon — visually distinct from the music note
                 Image(systemName: "doc.fill")
                     .font(.system(size: 11))
@@ -288,8 +530,9 @@ struct AbletonVersionRow: View {
 
                 Text(version.displayName)
                     .font(.system(size: 14))
-                    .foregroundColor(.secondaryText)
+                    .foregroundColor(.primaryText)
                     .lineLimit(1)
+                    .help(version.displayName)
 
                 // .als badge
                 Text("als")
@@ -300,27 +543,21 @@ struct AbletonVersionRow: View {
                     .background(Color.accent.opacity(0.10))
                     .cornerRadius(4)
 
-                Spacer()
+                Spacer(minLength: 4)
+            }
 
+            HStack(spacing: 8) {
+                Spacer().frame(width: 28)
                 if let date = version.modificationDate {
-                    Text(date.relativeFull)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondaryText)
-                        .lineLimit(1)
+                    Text("Edited \(date.relativeShort)")
+                }
+                Spacer()
+                if let created = version.creationDate {
+                    Text("Added \(created.formatted(.dateTime.month(.abbreviated).day().year()))")
                 }
             }
-
-            if let created = version.creationDate {
-                HStack(spacing: 4) {
-                    Spacer().frame(width: 32)
-                    Text("Added")
-                        .foregroundColor(.tertiaryText)
-                    Text(created.fullDateTime)
-                        .foregroundColor(.secondaryText)
-                }
-                .font(.system(size: 11))
-                .padding(.top, 3)
-            }
+            .font(.system(size: 11))
+            .foregroundColor(.secondaryText)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -337,32 +574,11 @@ struct AbletonVersionRow: View {
 // MARK: - Expand window button
 
 struct ExpandWindowButton: View {
-    @State private var isExpanded   = false
-    @State private var previousFrame: NSRect = .zero
+    @AppStorage("projectWorkspaceExpanded") private var isExpanded = false
     @State private var isHovered    = false
 
-    func toggle() {
-        guard let screen = NSScreen.main,
-              let window = NSApp.keyWindow else { return }
-
-        if isExpanded {
-            window.setFrame(previousFrame, display: true, animate: true)
-            isExpanded = false
-        } else {
-            previousFrame = window.frame
-            let sf = screen.visibleFrame
-            let w  = sf.width  * 0.65
-            let h  = sf.height * 0.72
-            let x  = sf.minX + (sf.width  - w) / 2
-            let y  = sf.minY + (sf.height - h) / 2
-            window.setFrame(NSRect(x: x, y: y, width: w, height: h),
-                            display: true, animate: true)
-            isExpanded = true
-        }
-    }
-
     var body: some View {
-        Button(action: toggle) {
+        Button { isExpanded.toggle() } label: {
             Image(systemName: isExpanded
                   ? "arrow.down.right.and.arrow.up.left"
                   : "arrow.up.left.and.arrow.down.right")
@@ -376,7 +592,90 @@ struct ExpandWindowButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(isExpanded ? "Restore size" : "Expand window to 65%")
+        .help(isExpanded ? "Return to project library" : "Expand project workspace")
         .animation(.easeInOut(duration: 0.1), value: isHovered)
+    }
+}
+
+// MARK: - Plug-ins used
+
+private struct PluginsUsedSection: View {
+    let plugins: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "puzzlepiece.extension")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.accent)
+                Text("PLUGINS USED")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.tertiaryText)
+                    .tracking(0.8)
+                Text("\(plugins.count)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+            }
+
+            if plugins.isEmpty {
+                Text("No third-party plug-ins found in the newest Ableton set.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.tertiaryText)
+            } else {
+                FlowLayout(spacing: 6) {
+                    ForEach(plugins, id: \.self) { plugin in
+                        Text(plugin)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondaryText)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(Color.elevatedBg)
+                            .clipShape(Capsule())
+                            .overlay { Capsule().stroke(Color.subtleBorder, lineWidth: 1) }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.surfaceBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.subtleBorder, lineWidth: 1) }
+        .padding(.vertical, 10)
+    }
+}
+
+private struct FlowLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        layout(proposal: proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = layout(proposal: ProposedViewSize(width: bounds.width, height: proposal.height), subviews: subviews)
+        for (index, point) in result.points.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
+        }
+    }
+
+    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
+        let width = proposal.width ?? 600
+        var points: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            points.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return (CGSize(width: width, height: y + lineHeight), points)
     }
 }

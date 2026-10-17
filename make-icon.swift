@@ -1,5 +1,5 @@
 #!/usr/bin/swift
-// Generates Backstage.app icon — dark background + white waveform bars.
+// Generates the goodvibrations HQ app icon — dark background + white waveform bars.
 // Usage: swift make-icon.swift <output-iconset-dir>
 // Then run: iconutil -c icns <output-iconset-dir> -o AppIcon.icns
 

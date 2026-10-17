@@ -1,0 +1,475 @@
+import AppKit
+import SwiftUI
+
+private enum QuickAccessTab: String, CaseIterable {
+    case songs = "Songs"
+    case tools = "Tools"
+}
+
+struct FavouritesMenuView: View {
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var toolLaunchers: ToolLauncherStore
+    @EnvironmentObject private var checkInAssistant: StudioCheckInAssistant
+    @EnvironmentObject private var untitledSync: UntitledSyncStore
+    @Environment(\.openWindow) private var openWindow
+    @State private var selectedTab: QuickAccessTab = .songs
+    @State private var searchText = ""
+    @State private var isAddingMacro = false
+    @State private var macroName = ""
+    @FocusState private var isMacroNameFocused: Bool
+
+    private var projects: [Project] {
+        let matches = searchText.isEmpty ? store.projects : store.projects.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+        return matches.sorted { $0.latestModification > $1.latestModification }
+    }
+
+    private var tools: [ToolLauncher] {
+        searchText.isEmpty ? toolLaunchers.tools : toolLaunchers.tools.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var showsStudioCheckIn: Bool {
+        searchText.isEmpty || "Studio Check-in".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsCrashAnalyzer: Bool {
+        searchText.isEmpty || "Ableton Crash Analyzer".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsNameWorlds: Bool {
+        searchText.isEmpty
+            || "Name Worlds".localizedCaseInsensitiveContains(searchText)
+            || "Name Generator".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var visibleToolCount: Int {
+        tools.count
+            + (showsStudioCheckIn ? 1 : 0)
+            + (showsNameWorlds ? 1 : 0)
+            + (showsCrashAnalyzer ? 1 : 0)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            content
+            Divider()
+            if store.audioPlayer.currentTrack != nil { nowPlaying }
+            footer
+        }
+        .frame(width: 420, height: 520)
+        .background(.regularMaterial)
+        .task {
+            while !Task.isCancelled {
+                await store.scan()
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Text("GV")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.tint)
+                Text("goodvibrations HQ").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if selectedTab == .tools {
+                    addToolMenu
+                }
+            }
+            Picker("Section", selection: $selectedTab) {
+                ForEach(QuickAccessTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            TextField(selectedTab == .songs ? "Search songs…" : "Search tools…", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+        }
+        .padding(12)
+        .onChange(of: selectedTab) { searchText = "" }
+    }
+
+    @ViewBuilder private var content: some View {
+        if selectedTab == .songs {
+            if projects.isEmpty {
+                emptyState(title: store.rootFolderURL == nil ? "Choose a music folder in goodvibrations HQ" : "No songs found",
+                           symbol: "music.note.list")
+            } else {
+                ScrollView { LazyVStack(spacing: 0) { ForEach(projects) { songRow($0) } } }
+            }
+        } else {
+            VStack(spacing: 0) {
+                if isAddingMacro {
+                    macroEditor
+                    Divider()
+                }
+                if visibleToolCount == 0 {
+                    emptyState(title: "Add your first tool", symbol: "hammer")
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            if showsStudioCheckIn { studioCheckInRow }
+                            if showsNameWorlds { nameWorldsRow }
+                            if showsCrashAnalyzer { crashAnalyzerRow }
+                            ForEach(tools) { toolRow($0) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var nameWorldsRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "globe.europe.africa.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.tint)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Name Worlds")
+                Text("Project names from vibes and tags")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Launch", action: openNameWorlds)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: openNameWorlds)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private func openNameWorlds() {
+        openWindow(id: "name-generator")
+        WindowPresenter.showNameGenerator(dismissingMenuBarPanel: true)
+    }
+
+    private var crashAnalyzerRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "waveform.path.ecg.rectangle")
+                .font(.system(size: 18))
+                .foregroundStyle(.purple)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ableton Crash Analyzer")
+                Text("Crash history and plug-in diagnosis")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Launch") { toolLaunchers.launchAbletonCrashAnalyzer() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture { toolLaunchers.launchAbletonCrashAnalyzer() }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var studioCheckInRow: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(checkInAssistant.isEnabled ? Color.green : .secondary)
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Studio Check-in")
+                    Text(studioCheckInSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { checkInAssistant.isEnabled },
+                    set: { enabled in
+                        if enabled { Task { await checkInAssistant.enable() } }
+                        else { checkInAssistant.isEnabled = false }
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+
+            if checkInAssistant.isEnabled, let booking = checkInAssistant.nextRelevantBooking {
+                HStack {
+                    Button("Open SAE") { checkInAssistant.openPortal() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    if !checkInAssistant.isCompleted(booking) {
+                        Button("I'm checked in") { checkInAssistant.markCheckedIn(booking) }
+                            .controlSize(.small)
+                    } else {
+                        Label("Checked in — reminders stopped", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                    Spacer()
+                }
+                .padding(.leading, 34)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var studioCheckInSubtitle: String {
+        guard checkInAssistant.isEnabled else { return "Calendar and Wi-Fi reminders · Off" }
+        if let booking = checkInAssistant.nextRelevantBooking {
+            if checkInAssistant.isCompleted(booking) {
+                return "Checked in · No more reminders for this booking"
+            }
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "\(booking.title) at \(formatter.string(from: booking.startDate)) · \(checkInAssistant.isOnRequiredWiFi ? "SAE Wi-Fi" : "Waiting for SAE Wi-Fi")"
+        }
+        return "On · No upcoming studio bookings"
+    }
+
+    private func songRow(_ project: Project) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                if let track = project.sortedTracks.first { store.playTrack(track) }
+                else { NSWorkspace.shared.open(project.folderURL) }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: store.favourites.contains(project.folderURL) ? "star.fill" : "music.note")
+                        .frame(width: 18)
+                        .foregroundStyle(store.favourites.contains(project.folderURL) ? Color.accentColor : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(project.name).lineLimit(1)
+                        Text(project.latestSavedItem?.name ?? "Open project folder")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let saved = project.latestSavedItem?.date {
+                            Text("Saved \(saved.menuSavedDate)")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button { store.openInMainWindow(project) } label: {
+                Image(systemName: "macwindow.on.rectangle")
+            }
+            .buttonStyle(.borderless)
+            .help("Open project in goodvibrations HQ")
+
+            if let latestExport = project.sortedTracks.first {
+                untitledMenu(track: latestExport, project: project)
+            }
+
+            Button { NSWorkspace.shared.open(project.folderURL) } label: { Image(systemName: "folder.fill") }
+                .buttonStyle(.borderless)
+                .help("Open in Finder")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .contextMenu {
+            Button(store.favourites.contains(project.folderURL) ? "Remove from Favourites" : "Add to Favourites") {
+                store.toggleFavourite(project)
+            }
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 40) }
+    }
+
+    private func untitledMenu(track: Track, project: Project) -> some View {
+        let status = untitledSync.status(for: track)
+        return Menu {
+            if status != .synced {
+                Button(status == .updateAvailable ? "Send New Version" : "Send to [untitled]") {
+                    untitledSync.prepare(track, project: project)
+                    openWindow(id: "untitled-automation")
+                    WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: true)
+                }
+            }
+            if status == .sending {
+                Button("Mark as On [untitled]") { untitledSync.markSynced(track) }
+            }
+            if status != .notSynced {
+                Divider()
+                Button("Reset Sync Status") { untitledSync.reset(track) }
+            }
+        } label: {
+            Image(systemName: untitledIcon(for: status))
+                .foregroundStyle(untitledColor(for: status))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(untitledHelp(for: status))
+    }
+
+    private func untitledIcon(for status: UntitledSyncStatus) -> String {
+        switch status {
+        case .notSynced: return "icloud.slash"
+        case .sending: return "icloud.and.arrow.up"
+        case .synced: return "icloud.fill"
+        case .updateAvailable: return "arrow.triangle.2.circlepath.icloud"
+        }
+    }
+
+    private func untitledColor(for status: UntitledSyncStatus) -> Color {
+        switch status {
+        case .synced: return .accentColor
+        case .sending, .updateAvailable: return .orange
+        case .notSynced: return .secondary
+        }
+    }
+
+    private func untitledHelp(for status: UntitledSyncStatus) -> String {
+        switch status {
+        case .notSynced: return "Send latest export to [untitled]"
+        case .sending: return "Waiting for [untitled] confirmation"
+        case .synced: return "Latest export is marked as on [untitled]"
+        case .updateAvailable: return "A newer version is ready for [untitled]"
+        }
+    }
+
+    private func toolRow(_ tool: ToolLauncher) -> some View {
+        HStack(spacing: 10) {
+            if tool.isKeyboardMaestroMacro {
+                Image(systemName: "keyboard.badge.ellipsis")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.tint)
+                    .frame(width: 24, height: 24)
+            } else {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: tool.path))
+                    .resizable().scaledToFit().frame(width: 24, height: 24)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.name).lineLimit(1)
+                Text(tool.isKeyboardMaestroMacro
+                     ? "Keyboard Maestro macro"
+                     : tool.url.deletingLastPathComponent().lastPathComponent)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Button("Launch") { toolLaunchers.launch(tool) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture { toolLaunchers.launch(tool) }
+        .contextMenu {
+            if !tool.isKeyboardMaestroMacro {
+                Button("Show in Finder") { toolLaunchers.reveal(tool) }
+                Divider()
+            }
+            Button("Remove", role: .destructive) { toolLaunchers.remove(tool) }
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private func emptyState(title: String, symbol: String) -> some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: symbol).font(.title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(.secondary)
+            if selectedTab == .tools { addToolMenu }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var addToolMenu: some View {
+        Menu {
+            Button("Keyboard Maestro Macro…") {
+                isAddingMacro = true
+                DispatchQueue.main.async { isMacroNameFocused = true }
+            }
+            Button("App, File, or Folder…", action: toolLaunchers.addTools)
+        } label: {
+            Label("Add Tool", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Add a producer tool")
+    }
+
+    private var macroEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Keyboard Maestro Macro")
+                .font(.system(size: 13, weight: .semibold))
+            TextField("Exact macro name or UID", text: $macroName)
+                .textFieldStyle(.roundedBorder)
+                .focused($isMacroNameFocused)
+                .onSubmit(addMacro)
+            Text("Use the UID if more than one macro has the same name.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    macroName = ""
+                    isAddingMacro = false
+                }
+                Button("Add", action: addMacro)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(macroName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(12)
+    }
+
+    private func addMacro() {
+        guard !macroName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        toolLaunchers.addKeyboardMaestroMacro(named: macroName)
+        macroName = ""
+        isAddingMacro = false
+    }
+
+    private var nowPlaying: some View {
+        HStack(spacing: 10) {
+            Button(action: store.audioPlayer.togglePlayPause) {
+                Image(systemName: store.audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(store.audioPlayer.currentTrack?.displayName ?? "").font(.caption).lineLimit(1)
+                PlaybackProgressView(timeline: store.audioPlayer.timeline)
+            }
+        }
+        .padding(10)
+    }
+
+    private struct PlaybackProgressView: View {
+        @ObservedObject var timeline: PlaybackTimeline
+
+        var body: some View {
+            ProgressView(value: timeline.progress).controlSize(.small)
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text(selectedTab == .songs ? "\(projects.count) songs" : "\(visibleToolCount) tools")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Open goodvibrations HQ") {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+    }
+}

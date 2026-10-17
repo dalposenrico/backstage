@@ -7,9 +7,27 @@ struct SidebarView: View {
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var updateChecker: UpdateChecker
+    @EnvironmentObject var collectionColors: CollectionColorStore
     @Environment(\.openSettings) private var openSettings
+    @State private var showingFolderSearch = false
+    @State private var folderSearchQuery = ""
+    @AppStorage("librarySidebarMode") private var sidebarMode = "library"
 
     var body: some View {
+        Group {
+            if sidebarMode == "today" {
+                DailyFocusSidebarView {
+                    withAnimation(.easeInOut(duration: 0.2)) { sidebarMode = "library" }
+                }
+                .transition(.opacity.combined(with: .move(edge: .leading)))
+            } else {
+                librarySidebar
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+        }
+    }
+
+    private var librarySidebar: some View {
         VStack(spacing: 0) {
 
             // ── Header ──────────────────────────────────────────────────────
@@ -25,93 +43,90 @@ struct SidebarView: View {
 
                     Spacer()
 
-                    // Collapse / expand all folders
-                    if !store.folderTree.isEmpty && store.searchQuery.isEmpty {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                store.collapseAll()
-                            }
-                        } label: {
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.tertiaryText)
-                                .frame(width: 22, height: 20)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Collapse all folders")
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                store.expandAll()
-                            }
-                        } label: {
-                            Image(systemName: "list.bullet.indent")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(.tertiaryText)
-                                .frame(width: 22, height: 20)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Expand all folders")
-                    }
-
-                    // Sort menu
-                    Menu {
-                        ForEach(SortOrder.allCases, id: \.self) { order in
-                            Button {
-                                store.sortOrder = order
-                            } label: {
-                                Label(order.rawValue,
-                                      systemImage: store.sortOrder == order ? "checkmark" : "")
-                            }
-                        }
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { sidebarMode = "today" }
                     } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(store.sortOrder == .recentlyEdited ? .tertiaryText : .accent)
-                            .frame(width: 22, height: 20)
+                        Image(systemName: "timer")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 26, height: 24)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open Today focus")
+
+                    Menu {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                showingFolderSearch.toggle()
+                                if !showingFolderSearch { folderSearchQuery = "" }
+                            }
+                        } label: {
+                            Label(showingFolderSearch ? "Close Folder Search" : "Search Folders", systemImage: "magnifyingglass")
+                        }
+                        if !store.folderTree.isEmpty && folderSearchQuery.isEmpty {
+                            Divider()
+                            Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                store.collapseAllCollections()
+                            }
+                        } label: {
+                                Label("Collapse All Folders", systemImage: "chevron.up.chevron.down")
+                        }
+                            Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                store.expandAllCollections()
+                            }
+                        } label: {
+                                Label("Expand All Folders", systemImage: "list.bullet.indent")
+                            }
+                        }
+                        Divider()
+                        Button { store.showHidden.toggle() } label: {
+                            Label(store.showHidden ? "Hide Archived Items" : "Show Archived Items", systemImage: store.showHidden ? "eye.slash" : "eye")
+                        }
+                        Button { Task { await store.scan() } } label: {
+                            Label("Refresh Library", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(store.isScanning)
+                    } label: {
+                        if store.isScanning {
+                            ProgressView().controlSize(.small).frame(width: 26, height: 24)
+                        } else {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                                .frame(width: 26, height: 24)
+                        }
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-                    .help("Sort projects")
-
-                    if store.isScanning {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: 20, height: 20)
-                    } else {
-                        Button { Task { await store.scan() } } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.tertiaryText)
-                                .frame(width: 22, height: 20)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Refresh")
-                    }
+                    .help("Folder options")
                 }
 
-                // Search field
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondaryText)
-                    TextField("Search projects", text: $store.searchQuery)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(.primaryText)
-                    if !store.searchQuery.isEmpty {
-                        Button { store.searchQuery = "" } label: {
+                if showingFolderSearch {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder.badge.questionmark")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                        TextField("Find a folder", text: $folderSearchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .foregroundColor(.primaryText)
+                        if !folderSearchQuery.isEmpty {
+                            Button { folderSearchQuery = "" } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 11))
                                 .foregroundColor(.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.white.opacity(0.05))
-                .cornerRadius(8)
             }
             .padding(.horizontal, 14)
             .padding(.top, 16)
@@ -151,30 +166,62 @@ struct SidebarView: View {
             }
 
             // ── Project / folder list ────────────────────────────────────────
-            if store.folderTree.isEmpty && !store.isScanning {
+            if store.folderTree.isEmpty && store.isScanning {
+                VStack(spacing: 10) {
+                    Group {
+                        if let fraction = store.scanProgress?.fractionComplete {
+                            ProgressView(value: fraction)
+                        } else {
+                            ProgressView()
+                        }
+                    }
+                    .progressViewStyle(.linear)
+                    .tint(.accent)
+                    .frame(width: 120)
+                    Text("Loading library…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondaryText)
+                    if let progress = store.scanProgress {
+                        Text(progress.currentFolder)
+                            .font(.system(size: 10))
+                            .foregroundColor(.tertiaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 145)
+                        Text(progress.totalFolders.map {
+                            "\(progress.foldersScanned)/\($0) checked · \(progress.projectsFound) found"
+                        } ?? "Counting folders…")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.tertiaryText)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if store.folderTree.isEmpty {
                 VStack(spacing: 8) {
-                    Text(store.rootFolderURL == nil ? "No folder selected" : "No projects found")
+                    Text(store.rootFolderURL == nil ? "Choose a music folder" : "No Ableton projects found")
                         .font(.system(size: 12))
                         .foregroundColor(.tertiaryText)
+                    if store.rootFolderURL == nil {
+                        Button("Choose Folder…", action: store.selectFolder)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                    }
                 }
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        if store.searchQuery.isEmpty {
-                            // ── Tree browser ──────────────────────────
-                            ForEach(store.folderTree) { node in
-                                FolderTreeItem(node: node, depth: 0)
-                            }
-                        } else {
-                            // ── Flat filtered list during search ──────
-                            ForEach(store.filteredProjects) { project in
-                                ProjectRow(
-                                    project: project,
-                                    isSelected: store.selectedProject?.id == project.id
-                                )
-                                .onTapGesture { store.selectedProject = project }
-                            }
+                        CollectionRow(
+                            name: "All Projects",
+                            count: store.visibleProjects.count,
+                            selected: store.selectedCollectionURL == nil,
+                            icon: "square.grid.2x2"
+                        ) {
+                            store.selectedCollectionURL = nil
+                        }
+
+                        ForEach(store.folderTree.filter { matchesFolderSearch($0, query: folderSearchQuery) }) { node in
+                            CollectionTreeItem(node: node, depth: 0, folderSearchQuery: folderSearchQuery)
                         }
                     }
                     .padding(.horizontal, 8)
@@ -235,6 +282,332 @@ struct SidebarView: View {
         }
         .background(Color.sidebarBg)
         .frame(maxHeight: .infinity)
+    }
+
+    private func matchesFolderSearch(_ node: FolderNode, query: String) -> Bool {
+        guard !node.isProject else { return false }
+        guard !query.isEmpty else { return true }
+        return node.name.localizedCaseInsensitiveContains(query)
+            || node.children.contains { matchesFolderSearch($0, query: query) }
+    }
+}
+
+private struct CollectionTreeItem: View {
+    let node: FolderNode
+    let depth: Int
+    let folderSearchQuery: String
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var collectionColors: CollectionColorStore
+
+    private var childCollections: [FolderNode] {
+        node.children.filter {
+            !$0.isProject
+                && (store.showHidden || !store.isFolderHidden($0.url))
+                && matchesFolderSearch($0)
+        }
+    }
+
+    private var expanded: Bool { !folderSearchQuery.isEmpty || store.expandedCollections.contains(node.url) }
+
+    var body: some View {
+        if !node.isProject && (store.showHidden || !store.isFolderHidden(node.url)) {
+            CollectionRow(
+                name: node.name,
+                count: store.visibleProjectCount(in: node),
+                selected: store.selectedCollectionURL == node.url,
+                icon: expanded ? "folder.fill" : "folder",
+                depth: depth,
+                expandable: !childCollections.isEmpty,
+                expanded: expanded,
+                hidden: store.isFolderHidden(node.url),
+                collectionURL: node.url,
+                toggleExpansion: {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        store.toggleCollectionExpansion(node.url)
+                    }
+                },
+                toggleHidden: { store.toggleFolderHidden(node.url) }
+            ) {
+                store.selectedCollectionURL = node.url
+                if let first = node.allProjects().first { store.selectedProject = first }
+            }
+            .padding(.leading, CGFloat(depth) * 10)
+
+            if expanded {
+                ForEach(childCollections) { child in
+                    CollectionTreeItem(node: child, depth: depth + 1, folderSearchQuery: folderSearchQuery)
+                }
+            }
+        }
+    }
+
+    private func matchesFolderSearch(_ candidate: FolderNode) -> Bool {
+        guard folderSearchQuery.isEmpty == false else { return true }
+        return candidate.name.localizedCaseInsensitiveContains(folderSearchQuery)
+            || candidate.children.contains { !$0.isProject && matchesFolderSearch($0) }
+    }
+}
+
+private struct CollectionRow: View {
+    let name: String
+    let count: Int
+    let selected: Bool
+    let icon: String
+    var depth: Int = 0
+    var expandable = false
+    var expanded = false
+    var hidden = false
+    var collectionURL: URL?
+    var toggleExpansion: () -> Void = {}
+    var toggleHidden: () -> Void = {}
+    let action: () -> Void
+    @State private var hovered = false
+    @State private var showColorPalette = false
+    @EnvironmentObject private var collectionColors: CollectionColorStore
+
+    private var categoryColor: CollectionColor? {
+        collectionURL.flatMap { collectionColors.resolvedColor(for: $0) }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if expandable {
+                Button(action: toggleExpansion) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.tertiaryText)
+                        .frame(width: 12, height: 20)
+                }
+                .buttonStyle(.plain)
+            } else if collectionURL != nil {
+                Color.clear.frame(width: 12)
+            }
+            if let collectionURL {
+                Button { showColorPalette = true } label: {
+                    Image(systemName: icon)
+                        .font(.system(size: 11))
+                        .foregroundColor(categoryColor?.color.opacity(selected ? 0.82 : 0.48) ?? (selected ? .accent : .secondaryText))
+                        .frame(width: 14, height: 20)
+                }
+                .buttonStyle(.plain)
+                .help("Choose a color for \(name)")
+                .popover(isPresented: $showColorPalette, arrowEdge: .leading) {
+                    CollectionColorPalette(name: name, url: collectionURL)
+                }
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .foregroundColor(selected ? .accent : .secondaryText)
+                    .frame(width: 14)
+            }
+            Text(name)
+                .font(.system(size: 13, weight: selected || depth == 0 ? .semibold : .regular))
+                .foregroundColor(selected ? .primaryText : .secondaryText)
+                .lineLimit(1)
+            if let emoji = collectionURL.flatMap({ collectionColors.resolvedEmoji(for: $0) }) {
+                Text(emoji).font(.system(size: 13))
+            }
+            Spacer()
+            if hidden {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange)
+            }
+            Text("\(count)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.tertiaryText)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 7).fill(
+                selected
+                    ? Color.selectedBg
+                    : (hovered ? Color.hoverBg : .clear)
+            )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .onHover { hovered = $0 }
+        .opacity(hidden ? 0.55 : 1)
+        .contextMenu {
+            if icon != "square.grid.2x2" {
+                Button(hidden ? "Unhide Folder" : "Hide Folder") { toggleHidden() }
+            }
+            if let collectionURL {
+                Divider()
+                Menu("Color") {
+                    Button {
+                        collectionColors.setColor(nil, for: collectionURL)
+                    } label: {
+                        Label("None", systemImage: collectionColors.exactColor(for: collectionURL) == nil ? "checkmark.circle.fill" : "circle")
+                    }
+                    Divider()
+                    ForEach(CollectionColor.allCases) { option in
+                        Button {
+                            collectionColors.setColor(option, for: collectionURL)
+                        } label: {
+                            Label(option.title, systemImage: collectionColors.exactColor(for: collectionURL) == option ? "checkmark.circle.fill" : "circle.fill")
+                        }
+                    }
+                }
+            }
+        }
+        .help(expandable ? "Select this folder, or use the chevron to show nested folders" : "Show projects in this folder")
+    }
+}
+
+private struct CollectionColorPalette: View {
+    let name: String
+    let url: URL
+    @EnvironmentObject private var collectionColors: CollectionColorStore
+    @Environment(\.dismiss) private var dismiss
+
+    private var selected: CollectionColor? { collectionColors.exactColor(for: url) }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 52, weight: .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundColor(selected?.color ?? .secondaryText)
+                .frame(height: 58)
+
+            Text(name)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.primaryText)
+                .lineLimit(1)
+
+            HStack {
+                Text("COLLECTION EMOJI")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.7)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                TextField("🎵", text: Binding(
+                    get: { collectionColors.exactEmoji(for: url) ?? "" },
+                    set: { collectionColors.setEmoji($0, for: url) }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .frame(width: 54)
+            }
+
+            VStack(alignment: .leading, spacing: 9) {
+                Text("FOLDER COLOR")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.7)
+                    .foregroundColor(.tertiaryText)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        paletteButton(nil)
+                        ForEach(CollectionColor.allCases) { color in
+                            paletteButton(color)
+                        }
+                    }
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 2)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 9) {
+                Text("SUBTLE BACKGROUND")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.7)
+                    .foregroundColor(.tertiaryText)
+                HStack {
+                    Button("Choose Photo…") { chooseBackground() }
+                    if collectionColors.resolvedBackgroundURL(for: url) != nil {
+                        Button("Remove", role: .destructive) {
+                            collectionColors.setBackgroundURL(nil, for: url)
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 9) {
+                HStack {
+                    Text("PRODUCTION STAGES")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(0.7)
+                        .foregroundColor(.tertiaryText)
+                    Spacer()
+                    if collectionColors.exactAllowedStages(for: url) != nil {
+                        Button("Use inherited") { collectionColors.resetStages(for: url) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 9))
+                            .foregroundColor(.accent)
+                    }
+                }
+
+                Text("Choose the stages that make sense for projects in this folder. Nested folders inherit this setting.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.tertiaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)], spacing: 6) {
+                    ForEach(ProjectStage.allCases, id: \.rawValue) { stage in
+                        let isEnabled = collectionColors.allowedStages(for: url).contains(stage)
+                        Button {
+                            collectionColors.setStage(stage, enabled: !isEnabled, for: url)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: isEnabled ? "checkmark.circle.fill" : "circle")
+                                Text(stage.title).lineLimit(1)
+                            }
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(isEnabled ? .primaryText : .tertiaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 7)
+                            .frame(height: 28)
+                            .background(isEnabled ? Color.accent.opacity(0.09) : Color.elevatedBg)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 390)
+    }
+
+    private func paletteButton(_ option: CollectionColor?) -> some View {
+        Button {
+            collectionColors.setColor(option, for: url)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(option?.color ?? Color.secondaryText.opacity(0.12))
+                    .frame(width: 25, height: 25)
+                if option == nil {
+                    Image(systemName: "slash")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondaryText)
+                }
+                if selected == option {
+                    Circle()
+                        .stroke(Color.primaryText.opacity(0.8), lineWidth: 2)
+                        .frame(width: 31, height: 31)
+                }
+            }
+            .frame(width: 31, height: 31)
+        }
+        .buttonStyle(.plain)
+        .help(option?.title ?? "No color")
+    }
+
+    private func chooseBackground() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a subtle background for \(name)"
+        panel.begin { response in
+            guard response == .OK, let imageURL = panel.url else { return }
+            Task { @MainActor in collectionColors.setBackgroundURL(imageURL, for: url) }
+        }
     }
 }
 
@@ -371,31 +744,54 @@ struct ProjectRow: View {
                 }
 
                 HStack(spacing: 0) {
-                    Text(project.hasExports
-                         ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
-                         : "no exports")
-                        .font(.system(size: 12))
-                        .foregroundColor(project.hasExports ? .tertiaryText : .tertiaryText.opacity(0.5))
-                        .italic(!project.hasExports)
+                    if let bpm = project.bpmLabel {
+                        Text("\(bpm) BPM")
+                            .fontWeight(.medium)
+                    } else {
+                        Text(project.hasExports
+                             ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
+                             : "no exports")
+                            .italic(!project.hasExports)
+                    }
+                    if project.activity.backupCount > 0 {
+                        Text(" · \(project.activity.estimatedWorkTime.estimatedWorkLabel)")
+                    }
                     if !dateLabel.isEmpty && project.hasExports {
                         Text(" · \(dateLabel)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.tertiaryText)
                     }
                 }
+                .font(.system(size: 12))
+                .foregroundColor(project.hasExports ? .tertiaryText : .tertiaryText.opacity(0.5))
             }
 
             Spacer()
 
-            // Reveal in Finder on hover
+            // Persistent star indicator when not hovering
+            if store.favourites.contains(project.folderURL) && !isHovered {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.accent.opacity(0.6))
+            }
+
+            // Action buttons on hover
             if isHovered {
-                Button { NSWorkspace.shared.open(project.folderURL) } label: {
-                    Image(systemName: "folder.badge.arrow.up")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondaryText)
+                HStack(spacing: 4) {
+                    Button { store.toggleFavourite(project) } label: {
+                        Image(systemName: store.favourites.contains(project.folderURL) ? "star.fill" : "star")
+                            .font(.system(size: 13))
+                            .foregroundColor(store.favourites.contains(project.folderURL) ? .accent : .secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(store.favourites.contains(project.folderURL) ? "Remove from widget" : "Add to widget")
+
+                    Button { NSWorkspace.shared.open(project.folderURL) } label: {
+                        Image(systemName: "folder.badge.arrow.up")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open in Finder")
                 }
-                .buttonStyle(.plain)
-                .help("Open in Finder")
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
         }
