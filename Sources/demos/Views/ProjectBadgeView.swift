@@ -51,7 +51,7 @@ struct ProjectBadgeView: View {
     }
 
     private func extractVersionNumber(from string: String) -> String? {
-        let pattern = #"(?i)\bv([0-9]+(?:\.[0-9]+)?)\b"#
+        let pattern = #"(?i)(?:^|[\s_\-\.])v([0-9]+(?:\.[0-9]+)?)(?:[\s_\-\.]|$)"#
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: string, range: NSRange(location: 0, length: (string as NSString).length)),
               match.range(at: 1).location != NSNotFound else {

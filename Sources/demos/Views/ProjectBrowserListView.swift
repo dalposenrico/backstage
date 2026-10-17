@@ -692,6 +692,9 @@ private struct ProjectListHeader: View {
 
             sortHeader("Edited", order: .recentlyEdited, width: compact ? 105 : 125, alignment: .leading)
 
+            Text("v")
+                .frame(width: 44, alignment: .center)
+
             Text("Version")
                 .frame(width: 60, alignment: .leading)
 
@@ -838,7 +841,11 @@ private struct BrowserProjectRow: View {
                 .foregroundColor(.tertiaryText)
                 .frame(width: compact ? 105 : 125, alignment: .leading)
 
-            // 7. Version column (e.g. 12.4.6)
+            // 7. Badge column: v1, v10, DEMO, MIX, etc.
+            ProjectBadgeView(project: project)
+                .frame(width: 44, alignment: .center)
+
+            // 8. Version column (e.g. 12.4.6)
             Text(project.displayLiveVersion)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.tertiaryText)
