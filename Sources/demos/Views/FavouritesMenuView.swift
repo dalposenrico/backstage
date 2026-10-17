@@ -134,7 +134,12 @@ struct FavouritesMenuView: View {
                 emptyState(title: store.rootFolderURL == nil ? "Choose a music folder in goodvibrations HQ" : "No songs found",
                            symbol: "music.note.list")
             } else {
-                ScrollView { LazyVStack(spacing: 0) { ForEach(projects) { songRow($0) } } }
+                VStack(spacing: 0) {
+                    if searchText.isEmpty {
+                        quickOpenInDawBanner
+                    }
+                    ScrollView { LazyVStack(spacing: 0) { ForEach(projects) { songRow($0) } } }
+                }
             }
         } else {
             VStack(spacing: 0) {
@@ -390,35 +395,117 @@ struct FavouritesMenuView: View {
         .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
     }
 
+    @ViewBuilder private var quickOpenInDawBanner: some View {
+        if let project = store.currentOpenProject ?? store.recentProjects.first,
+           project.newestAbletonVersion != nil {
+            let isCurrentSession = store.currentOpenProject?.id == project.id
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(isCurrentSession ? Color.green : Color.accentColor)
+                            .frame(width: 6, height: 6)
+                        Text(isCurrentSession ? "CURRENT LIVE SESSION" : "RECENT PROJECT")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundColor(isCurrentSession ? .green : .accentColor)
+                    }
+                    Text(project.name)
+                        .font(.system(size: 12.5, weight: .bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    store.openInAbleton(project)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.forward.app.fill")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Open in Live")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 5))
+                    .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+                .help("Open directly in Ableton Live (DAW) without opening goodvibrations HQ")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accentColor.opacity(0.10))
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
+        }
+    }
+
     private func songRow(_ project: Project) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button {
                 if let track = project.sortedTracks.first { store.playTrack(track) }
                 else { NSWorkspace.shared.open(project.folderURL) }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Image(systemName: store.favourites.contains(project.folderURL) ? "star.fill" : "music.note")
-                        .frame(width: 18)
+                        .font(.system(size: 11))
+                        .frame(width: 16)
                         .foregroundStyle(store.favourites.contains(project.folderURL) ? Color.accentColor : .secondary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(project.name).lineLimit(1)
-                        Text(project.latestSavedItem?.name ?? "Show in Finder")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let saved = project.latestSavedItem?.date {
-                            Text("Saved \(saved.menuSavedDate)")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                        Text(project.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(project.latestSavedItem?.name ?? "Show in Finder")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                            if let saved = project.latestSavedItem?.date {
+                                Text("·").font(.system(size: 9)).foregroundStyle(.tertiary)
+                                Text(saved.menuSavedDate)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
-                    Spacer()
+                    Spacer(minLength: 4)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
+            // Open in DAW directly without opening goodvibrations HQ
+            if project.newestAbletonVersion != nil {
+                Button {
+                    store.openInAbleton(project)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.forward.app.fill")
+                            .font(.system(size: 9))
+                        Text("Open in Live")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3.5)
+                    .background(Color.accentColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.accentColor.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("Open directly in Ableton Live (DAW) without opening goodvibrations HQ")
+            }
+
             Button { store.openInMainWindow(project) } label: {
                 Image(systemName: "macwindow.on.rectangle")
+                    .font(.system(size: 11))
             }
             .buttonStyle(.borderless)
             .help("View project in goodvibrations HQ")
@@ -427,17 +514,28 @@ struct FavouritesMenuView: View {
                 untitledMenu(track: latestExport, project: project)
             }
 
-            Button { NSWorkspace.shared.open(project.folderURL) } label: { Image(systemName: "folder.fill") }
-                .buttonStyle(.borderless)
-                .help("Open in Finder")
+            Button { NSWorkspace.shared.open(project.folderURL) } label: {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .help("Open in Finder")
         }
-        .padding(.horizontal, 12).padding(.vertical, 9)
+        .padding(.horizontal, 12).padding(.vertical, 8)
         .contextMenu {
+            if project.newestAbletonVersion != nil {
+                Button {
+                    store.openInAbleton(project)
+                } label: {
+                    Label("Open in Ableton Live (DAW)", systemImage: "arrow.up.forward.app.fill")
+                }
+                Divider()
+            }
             Button(store.favourites.contains(project.folderURL) ? "Remove from Favourites" : "Add to Favourites") {
                 store.toggleFavourite(project)
             }
         }
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 40) }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 36) }
     }
 
     private func untitledMenu(track: Track, project: Project) -> some View {
