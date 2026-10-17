@@ -24,7 +24,9 @@ struct MidiClipVaultView: View {
         let usedCount: Int
     }
 
-    private var midiItems: [MidiItem] {
+    @State private var midiItems: [MidiItem] = []
+
+    private func computeMidiItems() -> [MidiItem] {
         // Compute usage counts by clip name
         var clipCounts: [String: Int] = [:]
         var primaryTracks: [String: AbletonTrack] = [:]
@@ -58,9 +60,10 @@ struct MidiClipVaultView: View {
     }
 
     private var displayedItems: [MidiItem] {
-        if searchText.isEmpty { return midiItems }
+        let items = midiItems.isEmpty ? computeMidiItems() : midiItems
+        if searchText.isEmpty { return items }
         let text = searchText.lowercased()
-        return midiItems.filter { item in
+        return items.filter { item in
             item.name.lowercased().contains(text) ||
             item.trackName.lowercased().contains(text) ||
             item.key.lowercased().contains(text)

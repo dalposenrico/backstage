@@ -132,11 +132,7 @@ struct TrackListView: View {
                     ForEach(ProjectInspectorSection.allCases) { item in
                         let isSelected = section == item
                         Button {
-                            var transaction = Transaction()
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) {
-                                section = item
-                            }
+                            selectSection(item)
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: item.icon)
@@ -163,6 +159,9 @@ struct TrackListView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .overlay(InstantMouseDownOverlay {
+                            selectSection(item)
+                        })
                     }
                     Spacer(minLength: 0)
                 }
@@ -300,12 +299,14 @@ struct TrackListView: View {
                     }
                 }
             }
-                .overlay(alignment: .bottomTrailing) {
-                    if allowsExpandedWorkspace {
-                        ExpandWindowButton()
-                            .padding(10)
-                    }
+            .transaction { $0.disablesAnimations = true }
+            .animation(nil, value: section)
+            .overlay(alignment: .bottomTrailing) {
+                if allowsExpandedWorkspace {
+                    ExpandWindowButton()
+                        .padding(10)
                 }
+            }
         }
         .background(Color.appBg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -329,6 +330,15 @@ struct TrackListView: View {
                 arrangement = nil
             }
             isLoadingArrangement = false
+        }
+    }
+
+    private func selectSection(_ item: ProjectInspectorSection) {
+        guard section != item else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            section = item
         }
     }
 
@@ -830,3 +840,38 @@ private struct FlowLayout: Layout {
         return (CGSize(width: width, height: y + lineHeight), points)
     }
 }
+
+// MARK: - Instant Mouse Down Overlay
+private struct InstantMouseDownOverlay: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> InstantMouseDownNSView {
+        let view = InstantMouseDownNSView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ nsView: InstantMouseDownNSView, context: Context) {
+        nsView.action = action
+    }
+}
+
+private final class InstantMouseDownNSView: NSView {
+    var action: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if bounds.contains(point) {
+            return self
+        }
+        return nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        action?()
+    }
+}
+

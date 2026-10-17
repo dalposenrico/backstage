@@ -29,7 +29,9 @@ struct SampleHealthAuditorView: View {
         let key: String
     }
 
-    private var sampleItems: [SampleItem] {
+    @State private var sampleItems: [SampleItem] = []
+
+    private func computeSampleItems() -> [SampleItem] {
         // Group all clips in arrangement by sample reference
         var clipCounts: [String: Int] = [:]
         var primaryTracks: [String: AbletonTrack] = [:]
@@ -61,7 +63,7 @@ struct SampleHealthAuditorView: View {
             let isMissing = sample.isMissing || (fileURL == nil)
             let used = max(1, clipCounts[sample.fileName] ?? 1)
             let track = primaryTracks[sample.fileName]
-            let duration = getAudioDuration(fileURL: fileURL, fallback: sampleDurations[sample.fileName] ?? 1.5)
+            let duration = sampleDurations[sample.fileName] ?? 1.5
             let tempo = extractTempo(from: sample.fileName)
             let key = extractKey(from: sample.fileName)
 
@@ -82,7 +84,8 @@ struct SampleHealthAuditorView: View {
     }
 
     private var displayedItems: [SampleItem] {
-        sampleItems.filter { item in
+        let items = sampleItems.isEmpty ? computeSampleItems() : sampleItems
+        return items.filter { item in
             if filterMissingOnly && !item.isMissing { return false }
             if !searchText.isEmpty {
                 let text = searchText.lowercased()
@@ -358,12 +361,6 @@ struct SampleHealthAuditorView: View {
         return nil
     }
 
-    private func getAudioDuration(fileURL: URL?, fallback: Double) -> Double {
-        if let url = fileURL, let player = try? AVAudioPlayer(contentsOf: url), player.duration > 0 {
-            return player.duration
-        }
-        return fallback
-    }
 
     private func extractTempo(from fileName: String) -> Int? {
         let lower = fileName.lowercased()
