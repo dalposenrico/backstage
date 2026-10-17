@@ -26,13 +26,13 @@ final class InlineWaveformCache: @unchecked Sendable {
     }
 
     /// Asynchronously requests downsampled peak samples without stalling the main thread.
-    func requestSamples(for url: URL, completion: @escaping @Sendable ([Float]) -> Void) {
+    func requestSamples(for url: URL, completion: @escaping @MainActor @Sendable ([Float]) -> Void) {
         let path = url.path
 
         lock.lock()
         if let memory = memoryCache[path] {
             lock.unlock()
-            completion(memory)
+            DispatchQueue.main.async { completion(memory) }
             return
         }
         if inFlight.contains(path) {
