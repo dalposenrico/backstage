@@ -152,8 +152,8 @@ final class GlobalHotkeyManager: ObservableObject {
         }
 
         // 3. Hard-coded development fallback
-        let fallback = NSString("~/Documents/DemoPlayer/Scripts/\(scriptName)")
-            .expandingTildeInPath
+        let fallback = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/DemoPlayer/Scripts/\(scriptName)").path
         if FileManager.default.fileExists(atPath: fallback) {
             return fallback
         }
