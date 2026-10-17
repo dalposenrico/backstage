@@ -6,6 +6,7 @@ struct DawTopNavBar: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @Environment(\.openSettings) private var openSettings
+    @State private var hoveredSection: WorkspaceSection?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -37,8 +38,8 @@ struct DawTopNavBar: View {
             .buttonStyle(.plain)
             .help("goodvibrations HQ Settings (⌘,)")
 
-            // Studio Tabs (DAWbro style)
-            HStack(spacing: 4) {
+            // Studio Tabs (DAWbro style, clearly outlined, full-width clickable target)
+            HStack(spacing: 6) {
                 tabButton(
                     title: "Project library",
                     icon: "line.3.horizontal",
@@ -95,36 +96,48 @@ struct DawTopNavBar: View {
             .help("Open Settings (⌘,)")
         }
         .padding(.horizontal, 14)
-        .frame(height: 42)
+        .frame(height: 44)
         .background(Color(red: 0.08, green: 0.085, blue: 0.095))
     }
 
     private func tabButton(title: String, icon: String, section: WorkspaceSection) -> some View {
         let isSelected = selection == section
+        let isHovered = hoveredSection == section
 
         return Button {
             selection = section
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 7) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: isSelected ? .bold : .medium))
                 Text(title)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
             }
-            .foregroundColor(isSelected ? .white : .secondaryText)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 6)
+            .foregroundColor(isSelected ? .white : (isHovered ? Color(white: 0.95) : Color.secondaryText))
+            .padding(.horizontal, 13)
+            .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color(red: 0.16, green: 0.17, blue: 0.20) : Color.clear)
+                    .fill(
+                        isSelected
+                            ? Color(red: 0.17, green: 0.18, blue: 0.22)
+                            : (isHovered ? Color(red: 0.13, green: 0.14, blue: 0.16) : Color(red: 0.10, green: 0.105, blue: 0.12))
+                    )
             )
             .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.accent.opacity(0.85), lineWidth: 1.2)
-                }
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        isSelected
+                            ? Color.accent
+                            : (isHovered ? Color.white.opacity(0.32) : Color.white.opacity(0.14)),
+                        lineWidth: isSelected ? 1.2 : 1.0
+                    )
             }
+            .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .onHover { isOver in
+            hoveredSection = isOver ? section : nil
+        }
     }
 }

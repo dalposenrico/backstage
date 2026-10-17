@@ -120,15 +120,44 @@ struct TrackListView: View {
 
             Divider().background(Color.divider)
 
-            Picker("Project section", selection: $section) {
+            HStack(spacing: 6) {
                 ForEach(ProjectInspectorSection.allCases) { item in
-                    Label(item.title, systemImage: item.icon).tag(item)
+                    let isSelected = section == item
+                    Button {
+                        section = item
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                            Text(item.title)
+                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                        }
+                        .foregroundColor(isSelected ? .white : Color(white: 0.72))
+                        .padding(.horizontal, 11)
+                        .frame(height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(
+                                    isSelected
+                                        ? Color(red: 0.17, green: 0.18, blue: 0.22)
+                                        : Color(red: 0.10, green: 0.105, blue: 0.12)
+                                )
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(
+                                    isSelected ? Color.accent : Color.white.opacity(0.12),
+                                    lineWidth: isSelected ? 1.2 : 1.0
+                                )
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
                 }
+                Spacer(minLength: 0)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             .background(Color.sidebarBg.opacity(0.45))
 
             Divider().background(Color.divider)
