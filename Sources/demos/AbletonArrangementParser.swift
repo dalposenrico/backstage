@@ -70,18 +70,29 @@ public enum AbletonArrangementParser {
     private static let timeSigDenominatorRegex = try! NSRegularExpression(pattern: #"<TimeSignature>[\s\S]*?<Denominator\s+Value=\"([0-9]+)\""#)
 
     /// Parses an arrangement from an .als file on disk with thread-safe memory caching.
-    public static func parse(from fileURL: URL, projectFolderURL: URL? = nil) -> AbletonArrangement? {
+    public static func parse(
+        from fileURL: URL,
+        projectFolderURL: URL? = nil,
+        onProgress: (@Sendable (Double, String) -> Void)? = nil
+    ) -> AbletonArrangement? {
         let modDate = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
 
         cacheLock.lock()
         if let cached = cache[fileURL], cached.modificationDate == modDate {
             cacheLock.unlock()
+            onProgress?(1.0, "Arrangement ready")
             return cached.arrangement
         }
         cacheLock.unlock()
 
+        onProgress?(0.12, "Decompressing Ableton project set…")
         guard let xml = Gunzip.readTextFile(at: fileURL) else { return nil }
-        let arrangement = parse(xml: xml, projectFolderURL: projectFolderURL ?? fileURL.deletingLastPathComponent())
+
+        let arrangement = parse(
+            xml: xml,
+            projectFolderURL: projectFolderURL ?? fileURL.deletingLastPathComponent(),
+            onProgress: onProgress
+        )
 
         cacheLock.lock()
         cache[fileURL] = (modDate, arrangement)
@@ -91,7 +102,12 @@ public enum AbletonArrangementParser {
     }
 
     /// Parses arrangement data from unzipped Ableton XML string.
-    public static func parse(xml: String, projectFolderURL: URL? = nil) -> AbletonArrangement {
+    public static func parse(
+        xml: String,
+        projectFolderURL: URL? = nil,
+        onProgress: (@Sendable (Double, String) -> Void)? = nil
+    ) -> AbletonArrangement {
+        onProgress?(0.25, "Reading tempo & song structure…")
         let tempo = extractTempo(from: xml) ?? 120.0
         let (num, denom) = extractTimeSignature(from: xml)
 
@@ -107,12 +123,15 @@ public enum AbletonArrangementParser {
 
         var rawTrackMatches: [(location: Int, track: AbletonTrack)] = []
 
+        onProgress?(0.40, "Scanning MIDI tracks & piano rolls…")
         let midiTracks = extractTracks(regex: midiTrackRegex, in: tracksSlice, type: .midi, projectFolderURL: projectFolderURL)
         rawTrackMatches.append(contentsOf: midiTracks)
 
+        onProgress?(0.65, "Scanning audio tracks & waveforms…")
         let audioTracks = extractTracks(regex: audioTrackRegex, in: tracksSlice, type: .audio, projectFolderURL: projectFolderURL)
         rawTrackMatches.append(contentsOf: audioTracks)
 
+        onProgress?(0.82, "Scanning group & return tracks…")
         let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL)
         rawTrackMatches.append(contentsOf: groupTracks)
 
@@ -120,6 +139,7 @@ public enum AbletonArrangementParser {
         let tracks = rawTrackMatches.sorted { $0.location < $1.location }.map(\.track)
 
         // Extract MasterTrack
+        onProgress?(0.90, "Resolving master track & sample paths…")
         let masterTrack = extractMasterTrack(in: xml)
 
         // Extract ReturnTracks
@@ -133,9 +153,12 @@ public enum AbletonArrangementParser {
         }
 
         // Calculate total arrangement length in beats
+        onProgress?(0.96, "Calculating timeline boundaries…")
         let allClips = tracks.flatMap(\.clips)
         let maxClipEnd = allClips.map(\.endBeat).max() ?? 64.0
         let totalLength = max(64.0, ceil(maxClipEnd / 16.0) * 16.0)
+
+        onProgress?(1.0, "Arrangement ready")
 
         return AbletonArrangement(
             tempo: tempo,
