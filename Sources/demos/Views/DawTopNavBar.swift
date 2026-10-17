@@ -158,6 +158,13 @@ struct DawTopNavBar: View {
                                 Text("Exporting…")
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundColor(.accent)
+                            } else if let result = globalHotkey.lastResult, result.contains("Untitled") {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.orange)
+                                Text("Save Track First")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(.orange)
                             } else {
                                 Text("F1")
                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -174,11 +181,24 @@ struct DawTopNavBar: View {
                         .padding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(globalHotkey.isRunningExport ? Color.accent.opacity(0.15) : Color.sidebarBg.opacity(0.7))
+                                .fill(
+                                    globalHotkey.isRunningExport
+                                        ? Color.accent.opacity(0.15)
+                                        : (globalHotkey.lastResult?.contains("Untitled") == true
+                                            ? Color.orange.opacity(0.12)
+                                            : Color.sidebarBg.opacity(0.7))
+                                )
                         )
                         .overlay {
                             RoundedRectangle(cornerRadius: 5)
-                                .stroke(globalHotkey.isRunningExport ? Color.accent : Color.white.opacity(0.14), lineWidth: 1)
+                                .stroke(
+                                    globalHotkey.isRunningExport
+                                        ? Color.accent
+                                        : (globalHotkey.lastResult?.contains("Untitled") == true
+                                            ? Color.orange.opacity(0.5)
+                                            : Color.white.opacity(0.14)),
+                                    lineWidth: 1
+                                )
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 5))
                     }

@@ -16,6 +16,8 @@ Workflow:
 3. Posts a native macOS notification.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -41,37 +43,111 @@ def get_latest_ableton_log() -> Path | None:
     return max(log_files, key=lambda p: p.stat().st_mtime)
 
 
-def get_active_project_path() -> Path | None:
+def is_template_path(path: Path | None) -> bool:
+    """Checks whether the file path points to an Ableton template or factory default."""
+    if not path:
+        return False
+    p_lower = str(path).lower()
+    if "/templates/" in p_lower or "creating tracks" in p_lower:
+        return True
+    if "/factory packs/" in p_lower or "/core library/" in p_lower or "/app-resources/" in p_lower:
+        return True
+    return False
+
+
+def is_untitled_name(name: str | None) -> bool:
+    """Checks if a track/project name is an unsaved default like 'Untitled'."""
+    if not name:
+        return True
+    s = name.strip().lower()
+    if s.endswith(".als"):
+        s = s[:-4].strip()
+    return (
+        s == "untitled"
+        or s.startswith("untitled")
+        or s == "sans titre"
+        or s.startswith("sans titre")
+        or s == "ohne titel"
+        or s.startswith("ohne titel")
+    )
+
+
+def show_untitled_warning(win_title: str | None = None):
+    """
+    Alerts the producer that the active project is Untitled and must be saved with a name first.
+    Presents both a native macOS notification and an alert dialog.
+    """
+    title = "Save Track With a Name"
+    msg = (
+        "This Live set is Untitled.\n\n"
+        "Please save your track with a name first before auto-exporting:\n"
+        "File → Save Live Set As..."
+    )
+    notify("goodvibrations HQ", "⚠️ Track is Untitled: Please save your track with a name first.")
+
+    escaped_title = title.replace('"', '\\"')
+    escaped_msg = msg.replace('"', '\\"').replace("\n", "\\n")
+    alert_script = f'''
+    try
+        tell application "System Events"
+            activate
+            display alert "{escaped_title}" message "{escaped_msg}" as warning buttons {{"OK"}} default button "OK" giving up after 20
+        end tell
+    on error
+        try
+            display alert "{escaped_title}" message "{escaped_msg}" as warning buttons {{"OK"}} default button "OK" giving up after 20
+        end try
+    end try
+    '''
+    subprocess.run(["osascript", "-e", alert_script])
+
+
+def get_active_project_path() -> tuple[Path | None, bool]:
     """
     Parses Ableton's active Log.txt to find the currently open .als project.
-    Ignores internal Ableton template paths (e.g., Creating Tracks).
+    Returns (als_path, is_untitled_or_template).
     """
     log_path = get_latest_ableton_log()
     if not log_path or not log_path.exists():
-        return None
+        return None, True
 
     file_size = log_path.stat().st_size
     bytes_to_read = min(file_size, 1024 * 1024)
 
     with open(log_path, "rb") as f:
-        f.seek(file_size - bytes_to_read)
+        f.seek(max(0, file_size - bytes_to_read))
         content = f.read().decode("utf-8", errors="ignore")
 
-    marker = ': info: Loading document "'
-    matches = []
+    doc_marker = ': info: Loading document "'
+    template_marker = "TryToLoadTemplate:"
+
+    last_doc: Path | None = None
+    is_template = False
+
     for line in content.splitlines():
-        if marker in line:
-            start = line.find(marker) + len(marker)
+        if template_marker in line:
+            is_template = True
+        elif doc_marker in line:
+            start = line.find(doc_marker) + len(doc_marker)
             end = line.find('"', start)
             if end != -1:
                 path_str = line[start:end]
-                if path_str.endswith(".als") and "Creating Tracks" not in path_str:
-                    matches.append(Path(path_str))
+                if path_str.endswith(".als"):
+                    cand = Path(path_str)
+                    if is_template_path(cand):
+                        is_template = True
+                        last_doc = cand
+                    else:
+                        is_template = False
+                        last_doc = cand
 
-    if matches:
-        return matches[-1]
+    if is_template or not last_doc:
+        return last_doc, True
 
-    return None
+    if is_untitled_name(last_doc.stem):
+        return last_doc, True
+
+    return last_doc, False
 
 
 def get_ableton_window_title() -> str | None:
@@ -271,16 +347,25 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
 
 def main():
     print("🔍 Inspecting active Ableton Live session...")
-    als_path = get_active_project_path()
+    win_title = get_ableton_window_title()
 
-    if not als_path or not als_path.exists():
-        win_title = get_ableton_window_title()
-        notify(
-            "goodvibrations HQ",
-            "Could not determine active Ableton project path. Make sure the set is saved at least once."
-        )
-        print(f"Error: Could not locate active .als document path (Window: '{win_title}').", file=sys.stderr)
-        sys.exit(1)
+    # 1. Check if Ableton window title indicates an Untitled set
+    if win_title and (
+        "untitled" in win_title.lower()
+        or "sans titre" in win_title.lower()
+        or "ohne titel" in win_title.lower()
+    ):
+        print(f"⚠️ Active Ableton window is Untitled: '{win_title}'.", file=sys.stderr)
+        show_untitled_warning(win_title)
+        sys.exit(2)
+
+    als_path, is_untitled_or_template = get_active_project_path()
+
+    # 2. Check if the project is a template, nonexistent, or named Untitled
+    if is_untitled_or_template or not als_path or not als_path.exists() or is_untitled_name(als_path.stem):
+        print(f"⚠️ Active project is Untitled or a template (Path: '{als_path}', Window: '{win_title}').", file=sys.stderr)
+        show_untitled_warning(win_title)
+        sys.exit(2)
 
     project_folder = als_path.parent
     current_set_name = als_path.stem

@@ -237,14 +237,22 @@ final class GlobalHotkeyManager: ObservableObject {
         process.waitUntilExit()
 
         let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let success = process.terminationStatus == 0
-        let summary = success
-            ? "Export triggered successfully"
-            : "Export script finished with errors"
-        lastResult = output.isEmpty ? summary : output
+        let isUntitled = process.terminationStatus == 2 || output.localizedCaseInsensitiveContains("untitled")
+        let success = process.terminationStatus == 0 && !isUntitled
+        let summary: String
+        if isUntitled {
+            summary = "⚠️ Track is Untitled — please save with a name first"
+        } else if success {
+            summary = "Export triggered successfully"
+        } else {
+            summary = "Export script finished with errors"
+        }
+        lastResult = summary
         isRunningExport = false
         AccountDiagnostics.record("\(summary): \(output.prefix(200))")
-        sendNotification(title: "goodvibrations HQ", body: summary)
+        if !isUntitled {
+            sendNotification(title: "goodvibrations HQ", body: summary)
+        }
     }
 
     // MARK: - Locate the Python script
