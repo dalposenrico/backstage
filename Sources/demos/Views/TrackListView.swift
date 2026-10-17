@@ -142,7 +142,7 @@ struct TrackListView: View {
                                 Image(systemName: item.icon)
                                     .font(.system(size: 11, weight: isSelected ? .bold : .medium))
                                     .foregroundColor(isSelected ? .accent : Color(white: 0.65))
-                                Text(item.title)
+                                Text(tabTitle(for: item))
                                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                                     .foregroundColor(isSelected ? .white : Color(white: 0.72))
                             }
@@ -412,6 +412,24 @@ struct TrackListView: View {
         .fixedSize()
         .help("More project actions")
     }
+
+    private func tabTitle(for item: ProjectInspectorSection) -> String {
+        switch item {
+        case .samples:
+            if let count = arrangement?.sampleRefs.count, count > 0 {
+                let uniqueCount = Set(arrangement!.sampleRefs.map(\.fileName)).count
+                return "Samples (\(uniqueCount))"
+            }
+            return "Samples"
+        case .midi:
+            if let count = arrangement?.midiClips.count, count > 0 {
+                return "MIDI (\(count))"
+            }
+            return "MIDI"
+        default:
+            return item.title
+        }
+    }
 }
 
 private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
@@ -432,7 +450,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
         switch self {
         case .arrangement: return "rectangle.split.3x1"
         case .midi: return "pianokeys"
-        case .samples: return "waveform.badge.magnifyingglass"
+        case .samples: return "waveform"
         case .overview: return "scope"
         case .workflow: return "checklist"
         case .files: return "folder"
