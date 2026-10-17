@@ -333,47 +333,7 @@ struct TrackListView: View {
     }
 
     private var arrangementLoadingView: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "waveform.badge.magnifyingglass")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.accent)
-                    Text("Parsing Arrangement")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primaryText)
-                    Spacer()
-                    Text("\(Int(parseProgress * 100))%")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.accent)
-                }
-
-                ProgressView(value: parseProgress, total: 1.0)
-                    .progressViewStyle(.linear)
-                    .tint(.accent)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondaryText)
-                    Text(parseStatus)
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.secondaryText)
-                        .lineLimit(1)
-                    Spacer()
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(width: 360)
-            .background(Color.sidebarBg.opacity(0.85), in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ArrangementParsingLoadingView(progress: parseProgress, status: parseStatus)
     }
 
     private var projectActionsMenu: some View {

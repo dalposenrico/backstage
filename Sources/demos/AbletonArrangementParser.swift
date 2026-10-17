@@ -123,16 +123,25 @@ public enum AbletonArrangementParser {
 
         var rawTrackMatches: [(location: Int, track: AbletonTrack)] = []
 
-        onProgress?(0.40, "Scanning MIDI tracks & piano rolls…")
-        let midiTracks = extractTracks(regex: midiTrackRegex, in: tracksSlice, type: .midi, projectFolderURL: projectFolderURL)
+        onProgress?(0.35, "Scanning MIDI tracks…")
+        let midiTracks = extractTracks(regex: midiTrackRegex, in: tracksSlice, type: .midi, projectFolderURL: projectFolderURL) { current, total, name in
+            let pct = 0.35 + (Double(current) / Double(max(1, total))) * 0.25
+            onProgress?(pct, "MIDI track \(current)/\(total): \(name)")
+        }
         rawTrackMatches.append(contentsOf: midiTracks)
 
-        onProgress?(0.65, "Scanning audio tracks & waveforms…")
-        let audioTracks = extractTracks(regex: audioTrackRegex, in: tracksSlice, type: .audio, projectFolderURL: projectFolderURL)
+        onProgress?(0.60, "Scanning audio tracks & waveforms…")
+        let audioTracks = extractTracks(regex: audioTrackRegex, in: tracksSlice, type: .audio, projectFolderURL: projectFolderURL) { current, total, name in
+            let pct = 0.60 + (Double(current) / Double(max(1, total))) * 0.22
+            onProgress?(pct, "Audio track \(current)/\(total): \(name)")
+        }
         rawTrackMatches.append(contentsOf: audioTracks)
 
         onProgress?(0.82, "Scanning group & return tracks…")
-        let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL)
+        let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL) { current, total, name in
+            let pct = 0.82 + (Double(current) / Double(max(1, total))) * 0.08
+            onProgress?(pct, "Group track \(current)/\(total): \(name)")
+        }
         rawTrackMatches.append(contentsOf: groupTracks)
 
         // Sort tracks by their exact document order in <Tracks>
@@ -177,18 +186,21 @@ public enum AbletonArrangementParser {
         regex: NSRegularExpression,
         in xml: String,
         type: AbletonTrackType,
-        projectFolderURL: URL?
+        projectFolderURL: URL?,
+        onTrackProgress: ((Int, Int, String) -> Void)? = nil
     ) -> [(location: Int, track: AbletonTrack)] {
         let nsString = xml as NSString
         let matches = regex.matches(in: xml, range: NSRange(location: 0, length: nsString.length))
+        let total = matches.count
 
-        return matches.compactMap { match in
+        return matches.enumerated().compactMap { index, match in
             let id = match.range(at: 1).location != NSNotFound
                 ? nsString.substring(with: match.range(at: 1))
                 : UUID().uuidString
             let body = nsString.substring(with: match.range(at: 2))
 
             let name = extractTrackName(from: body) ?? "\(type.rawValue) Track"
+            onTrackProgress?(index + 1, total, name)
             let colorIndex = extractColor(from: body) ?? 12
             let rawGroupId = extractAttribute(regex: trackGroupIdRegex, in: body)
             let trackGroupId = (rawGroupId != nil && rawGroupId != "-1") ? rawGroupId : nil
