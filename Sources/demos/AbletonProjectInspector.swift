@@ -189,7 +189,7 @@ enum AbletonProjectInspector {
     }
 }
 
-private enum Gunzip {
+enum Gunzip {
     private typealias GZFile = UnsafeMutableRawPointer
 
     @_silgen_name("gzopen") private static func gzopen(

@@ -18,6 +18,15 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                Picker("Project List Display", selection: $settings.showInlineWaveforms) {
+                    Label("Inline Waveforms", systemImage: "waveform").tag(true)
+                    Label("Icons & Artwork", systemImage: "photo").tag(false)
+                }
+                .pickerStyle(.segmented)
+                Text("Show inline audio waveforms with quick-play buttons for bounced tracks, like DAWbro.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
                 Label("Appearance", systemImage: "paintbrush")
                     .font(.headline)

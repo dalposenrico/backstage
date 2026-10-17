@@ -38,12 +38,17 @@ class SettingsStore: ObservableObject {
     @Published var sidebarWidth: CGFloat {
         didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: "sidebarWidth") }
     }
+    @Published var showInlineWaveforms: Bool {
+        didSet { UserDefaults.standard.set(showInlineWaveforms, forKey: "showInlineWaveforms") }
+    }
 
     init() {
         let rawMode  = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
         let rawWidth = UserDefaults.standard.double(forKey: "sidebarWidth")
+        let storedWaveforms = UserDefaults.standard.object(forKey: "showInlineWaveforms") as? Bool
 
         appearanceMode = AppearanceMode(rawValue: rawMode) ?? .system
         sidebarWidth   = rawWidth > 0 ? CGFloat(rawWidth) : 260
+        showInlineWaveforms = storedWaveforms ?? true
     }
 }

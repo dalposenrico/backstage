@@ -138,6 +138,7 @@ private struct ProjectShortcutBar: View {
 struct ProjectBrowserListView: View {
     @Binding var showProjectInspector: Bool
     @EnvironmentObject var store: AppStore
+    @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var collectionColors: CollectionColorStore
     @EnvironmentObject var progressStore: ProjectProgressStore
     @EnvironmentObject var metadataStore: ProjectMetadataStore
@@ -254,6 +255,14 @@ struct ProjectBrowserListView: View {
                         }
                         Button { viewStyle = "gallery" } label: {
                             Label("Gallery", systemImage: viewStyle == "gallery" ? "checkmark" : "square.grid.2x2")
+                        }
+                    }
+                    Section("Display") {
+                        Button { settings.showInlineWaveforms.toggle() } label: {
+                            Label(
+                                settings.showInlineWaveforms ? "Show Artwork Instead" : "Show Inline Waveforms",
+                                systemImage: settings.showInlineWaveforms ? "photo" : "waveform"
+                            )
                         }
                     }
                     Divider()
@@ -704,6 +713,7 @@ private struct BrowserProjectRow: View {
     @EnvironmentObject var collectionColors: CollectionColorStore
     @EnvironmentObject var artworkStore: ProjectArtworkStore
     @EnvironmentObject var metadataStore: ProjectMetadataStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.openWindow) private var openWindow
     @State private var hovered = false
 
@@ -722,38 +732,65 @@ private struct BrowserProjectRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Artwork with play button on hover or playing state
-            ZStack {
-                ProjectArtworkImage(project: project)
-                    .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
-                    .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: compact ? 6 : 8)
-                            .stroke(
-                                isCurrentOpenProject ? Color.accent.opacity(0.7) : Color.primary.opacity(selected ? 0.2 : 0.08),
-                                lineWidth: 1
-                            )
-                    }
-
-                if playing || hovered {
-                    Button {
-                        if playing {
-                            player.togglePlayPause()
-                        } else if let newestExport = project.sortedTracks.first {
-                            store.playTrack(newestExport)
+            if settings.showInlineWaveforms {
+                if let newestExport = project.sortedTracks.first {
+                    InlineProjectWaveformView(
+                        track: newestExport,
+                        isPlaying: playing && player.isPlaying,
+                        progress: playing ? player.progress : 0,
+                        onPlayToggle: {
+                            if playing {
+                                player.togglePlayPause()
+                            } else {
+                                store.playTrack(newestExport)
+                            }
                         }
-                    } label: {
-                        Image(systemName: playing && player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
-                            .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: compact ? 6 : 8))
+                    )
+                } else {
+                    HStack(spacing: 5) {
+                        Image(systemName: "waveform.slash")
+                            .font(.system(size: 9))
+                            .foregroundColor(.tertiaryText.opacity(0.8))
+                        Text("(no master)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.tertiaryText)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!project.hasExports)
+                    .frame(width: compact ? 90 : 116, alignment: .leading)
                 }
+            } else {
+                // Artwork with play button on hover or playing state
+                ZStack {
+                    ProjectArtworkImage(project: project)
+                        .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
+                        .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: compact ? 6 : 8)
+                                .stroke(
+                                    isCurrentOpenProject ? Color.accent.opacity(0.7) : Color.primary.opacity(selected ? 0.2 : 0.08),
+                                    lineWidth: 1
+                                )
+                        }
+
+                    if playing || hovered {
+                        Button {
+                            if playing {
+                                player.togglePlayPause()
+                            } else if let newestExport = project.sortedTracks.first {
+                                store.playTrack(newestExport)
+                            }
+                        } label: {
+                            Image(systemName: playing && player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
+                                .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: compact ? 6 : 8))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!project.hasExports)
+                    }
+                }
+                .accessibilityHidden(true)
             }
-            .accessibilityHidden(true)
 
             // Title & Collection
             VStack(alignment: .leading, spacing: 3) {
