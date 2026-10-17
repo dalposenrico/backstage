@@ -23,98 +23,74 @@ struct SidebarView: View {
     private var librarySidebar: some View {
         VStack(spacing: 0) {
 
-            // ── Header ──────────────────────────────────────────────────────
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 6) {
-                    Button { openSettings() } label: {
-                        HStack(spacing: 6) {
-                            Text("goodvibrations")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.primaryText)
-                        }
+            // ── Search bar (DAWbro style) ───────────────────────────────────
+            HStack(spacing: 6) {
+                if !store.searchQuery.isEmpty || store.selectedProject != nil {
+                    Button {
+                        store.searchQuery = ""
+                        store.selectedProject = nil
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 24, height: 24)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
                     }
                     .buttonStyle(.plain)
-                    .help("Settings (⌘,)")
-
-                    Spacer()
-
-                    Menu {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                showingFolderSearch.toggle()
-                                if !showingFolderSearch { folderSearchQuery = "" }
-                            }
-                        } label: {
-                            Label(showingFolderSearch ? "Close Folder Search" : "Search Folders", systemImage: "magnifyingglass")
-                        }
-                        if !store.folderTree.isEmpty && folderSearchQuery.isEmpty {
-                            Divider()
-                            Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                store.collapseAllCollections()
-                            }
-                        } label: {
-                                Label("Collapse All Folders", systemImage: "chevron.up.chevron.down")
-                        }
-                            Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                store.expandAllCollections()
-                            }
-                        } label: {
-                                Label("Expand All Folders", systemImage: "list.bullet.indent")
-                            }
-                        }
-                        Divider()
-                        Button { store.showHidden.toggle() } label: {
-                            Label(store.showHidden ? "Hide Archived Items" : "Show Archived Items", systemImage: store.showHidden ? "eye.slash" : "eye")
-                        }
-                        Button { Task { await store.scan() } } label: {
-                            Label("Refresh Library", systemImage: "arrow.clockwise")
-                        }
-                        .disabled(store.isScanning)
-                    } label: {
-                        if store.isScanning {
-                            ProgressView().controlSize(.small).frame(width: 26, height: 24)
-                        } else {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.secondaryText)
-                                .frame(width: 26, height: 24)
-                        }
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Folder options")
+                    .help("Back / Clear Search")
                 }
 
-                if showingFolderSearch {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder.badge.questionmark")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondaryText)
-                        TextField("Find a folder", text: $folderSearchQuery)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .foregroundColor(.primaryText)
-                        if !folderSearchQuery.isEmpty {
-                            Button { folderSearchQuery = "" } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundColor(.tertiaryText)
+
+                    TextField("Search projects", text: $store.searchQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundColor(.primaryText)
+
+                    if !store.searchQuery.isEmpty {
+                        Button { store.searchQuery = "" } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 11))
                                 .foregroundColor(.tertiaryText)
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                }
+
+                Menu {
+                    Button { store.showHidden.toggle() } label: {
+                        Label(store.showHidden ? "Hide Archived Items" : "Show Archived Items", systemImage: store.showHidden ? "eye.slash" : "eye")
+                    }
+                    Button { Task { await store.scan() } } label: {
+                        Label("Refresh Library", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(store.isScanning)
+                } label: {
+                    if store.isScanning {
+                        ProgressView().controlSize(.small).frame(width: 24, height: 24)
+                    } else {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 24, height: 24)
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Library options")
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 16)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
 
             Divider().background(Color.divider)
 
@@ -194,22 +170,80 @@ struct SidebarView: View {
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) {
-                        CollectionRow(
-                            name: "All Projects",
-                            count: store.visibleProjects.count,
-                            selected: store.selectedCollectionURL == nil,
-                            icon: "square.grid.2x2"
-                        ) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // 1. ALL PROJECTS
+                        Button {
                             store.selectedCollectionURL = nil
+                            store.selectedProject = nil
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "house.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(store.selectedCollectionURL == nil && store.selectedProject == nil ? .accent : .secondaryText)
+                                    .frame(width: 14)
+
+                                Text("ALL PROJECTS")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .tracking(0.8)
+                                    .foregroundColor(store.selectedCollectionURL == nil && store.selectedProject == nil ? .white : .primaryText)
+
+                                Spacer()
+
+                                Text("\(store.visibleProjects.count)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.tertiaryText)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 28)
+                            .background(
+                                store.selectedCollectionURL == nil && store.selectedProject == nil
+                                    ? Color(red: 0.18, green: 0.19, blue: 0.22)
+                                    : Color.clear
+                            )
+                            .overlay(alignment: .leading) {
+                                if store.selectedCollectionURL == nil && store.selectedProject == nil {
+                                    Rectangle().fill(Color.accent).frame(width: 2.5)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        // 2. RECENT
+                        if !store.recentProjects.isEmpty {
+                            SidebarSectionHeader(title: "RECENT", icon: "clock.fill", count: store.recentProjects.count)
+
+                            ForEach(store.recentProjects) { project in
+                                SidebarProjectItem(project: project, depth: 0)
+                            }
                         }
 
-                        ForEach(store.folderTree.filter { matchesFolderSearch($0, query: folderSearchQuery) }) { node in
-                            CollectionTreeItem(node: node, depth: 0, folderSearchQuery: folderSearchQuery)
+                        // 3. FAVORITES
+                        SidebarSectionHeader(title: "FAVORITES", icon: "star.fill", count: store.favouriteProjects.isEmpty ? nil : store.favouriteProjects.count)
+
+                        if store.favouriteProjects.isEmpty {
+                            Text("Click the star next to a project to keep it here.")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.tertiaryText)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                        } else {
+                            ForEach(store.favouriteProjects) { project in
+                                SidebarProjectItem(project: project, depth: 0)
+                            }
+                        }
+
+                        // 4. IMPORTED FOLDERS
+                        SidebarSectionHeader(
+                            title: "IMPORTED FOLDERS",
+                            icon: "folder.fill",
+                            count: store.visibleProjects.count
+                        )
+
+                        ForEach(store.folderTree) { node in
+                            CollectionTreeItem(node: node, depth: 0, folderSearchQuery: "")
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                 }
             }
 
@@ -291,6 +325,13 @@ private struct CollectionTreeItem: View {
         }
     }
 
+    private var childProjects: [FolderNode] {
+        node.children.filter {
+            $0.isProject
+                && (store.showHidden || ($0.project != nil && !store.isProjectHidden($0.project!)))
+        }
+    }
+
     private var expanded: Bool { !folderSearchQuery.isEmpty || store.expandedCollections.contains(node.url) }
 
     var body: some View {
@@ -301,7 +342,7 @@ private struct CollectionTreeItem: View {
                 selected: store.selectedCollectionURL == node.url,
                 icon: expanded ? "folder.fill" : "folder",
                 depth: depth,
-                expandable: !childCollections.isEmpty,
+                expandable: !childCollections.isEmpty || !childProjects.isEmpty,
                 expanded: expanded,
                 hidden: store.isFolderHidden(node.url),
                 collectionURL: node.url,
@@ -320,6 +361,11 @@ private struct CollectionTreeItem: View {
             if expanded {
                 ForEach(childCollections) { child in
                     CollectionTreeItem(node: child, depth: depth + 1, folderSearchQuery: folderSearchQuery)
+                }
+                ForEach(childProjects) { child in
+                    if let project = child.project {
+                        SidebarProjectItem(project: project, depth: depth + 1)
+                    }
                 }
             }
         }
@@ -788,5 +834,80 @@ struct ProjectRow: View {
         .onHover { isHovered = $0 }
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.15), value: isHovered)
+    }
+}
+
+struct SidebarSectionHeader: View {
+    let title: String
+    let icon: String
+    var count: Int? = nil
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondaryText)
+                .frame(width: 14)
+
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(0.8)
+                .foregroundColor(.secondaryText)
+
+            Spacer()
+
+            if let count {
+                Text("\(count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.tertiaryText)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+    }
+}
+
+struct SidebarProjectItem: View {
+    let project: Project
+    var depth: Int = 0
+    @EnvironmentObject var store: AppStore
+
+    private var isSelected: Bool {
+        store.selectedProject?.id == project.id
+    }
+
+    var body: some View {
+        Button {
+            store.selectedProject = project
+        } label: {
+            HStack(spacing: 7) {
+                AbletonBadgeView()
+
+                Text(project.name)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .white : .primaryText)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+            }
+            .padding(.leading, CGFloat(depth) * 12 + 12)
+            .padding(.trailing, 10)
+            .frame(height: 25)
+            .background(
+                isSelected
+                    ? Color(red: 0.22, green: 0.16, blue: 0.10)
+                    : Color.clear
+            )
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle()
+                        .fill(Color.accent)
+                        .frame(width: 2.5)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

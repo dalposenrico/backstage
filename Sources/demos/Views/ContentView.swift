@@ -19,12 +19,12 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                WorkspaceSidebar(selection: $workspaceSection, isCompact: $compactWorkspaceNavigation)
-                    .frame(width: compactWorkspaceNavigation ? 58 : 176)
+            // Top studio navigation bar (DAWbro style)
+            DawTopNavBar(selection: $workspaceSection)
 
-                Divider().background(Color.divider)
+            Divider().background(Color.divider)
 
+            Group {
                 switch workspaceSection {
                 case .home:
                     HomeDashboardView { project in
@@ -49,7 +49,6 @@ struct ContentView: View {
                     ToolsHubView()
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: compactWorkspaceNavigation)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider().background(Color.divider)

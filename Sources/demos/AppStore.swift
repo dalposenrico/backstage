@@ -95,6 +95,18 @@ class AppStore: ObservableObject {
         showHidden ? projects : projects.filter { !isProjectHidden($0) }
     }
 
+    var recentProjects: [Project] {
+        visibleProjects
+            .filter { $0.latestModification != .distantPast }
+            .sorted { $0.latestModification > $1.latestModification }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    var favouriteProjects: [Project] {
+        visibleProjects.filter { favourites.contains($0.folderURL) }
+    }
+
     var libraryLoadPresentation: LibraryLoadPresentation {
         .resolve(
             rootFolderURL: rootFolderURL,
