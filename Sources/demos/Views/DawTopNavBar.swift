@@ -46,6 +46,10 @@ struct DawTopNavBar: View {
                     section: .library
                 )
 
+                if let project = store.selectedProject {
+                    projectTabButton(project: project)
+                }
+
                 tabButton(
                     title: "Focus studio",
                     icon: "sparkles",
@@ -160,6 +164,69 @@ struct DawTopNavBar: View {
         .buttonStyle(.plain)
         .onHover { isOver in
             hoveredSection = isOver ? section : nil
+        }
+    }
+
+    private func projectTabButton(project: Project) -> some View {
+        let isSelected = selection == .project
+        let isHovered = hoveredSection == .project
+
+        return HStack(spacing: 0) {
+            Button {
+                selection = .project
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(isSelected ? .accent : .secondaryText)
+                    Text(project.name)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                        .lineLimit(1)
+                }
+                .foregroundColor(isSelected ? .white : (isHovered ? Color(white: 0.95) : Color.secondaryText))
+                .padding(.leading, 11)
+                .padding(.trailing, 6)
+                .frame(height: 30)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                store.closeProjectTab()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(isSelected ? Color.white.opacity(0.8) : Color.secondaryText)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 6)
+            .help("Close project tab")
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(
+                    isSelected
+                        ? Color(red: 0.17, green: 0.18, blue: 0.22)
+                        : (isHovered ? Color(red: 0.13, green: 0.14, blue: 0.16) : Color(red: 0.10, green: 0.105, blue: 0.12))
+                )
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(
+                    isSelected
+                        ? Color.accent
+                        : (isHovered ? Color.white.opacity(0.32) : Color.white.opacity(0.14)),
+                    lineWidth: isSelected ? 1.2 : 1.0
+                )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onHover { isHovered in
+            if isHovered {
+                hoveredSection = .project
+            } else if hoveredSection == .project {
+                hoveredSection = nil
+            }
         }
     }
 }

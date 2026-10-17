@@ -192,3 +192,39 @@ struct TrackGroup: Identifiable {
 
     var isSingle: Bool { tracks.count == 1 }
 }
+
+// MARK: - Navigation & Sidebar Models
+
+enum SidebarSection: Equatable {
+    case all
+    case recents
+    case favorites
+    case folder(URL)
+}
+
+enum WorkspaceSection: String, CaseIterable, Identifiable {
+    case library, project, home, releases, tools
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .library: return "Library"
+        case .project: return "Project"
+        case .home: return "Focus studio"
+        case .releases: return "Releases"
+        case .tools: return "Tools"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .library: return "line.3.horizontal"
+        case .project: return "waveform"
+        case .home: return "sparkles"
+        case .releases: return "shippingbox"
+        case .tools: return "wrench.and.screwdriver"
+        }
+    }
+}
+

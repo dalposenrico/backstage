@@ -216,7 +216,7 @@ struct CurrentSessionBar: View {
             .disabled(!project.hasExports)
 
             Button(action: openDetails) {
-                Label("Open project", systemImage: "arrow.up.left.and.arrow.down.right")
+                Label("View project details", systemImage: "arrow.up.left.and.arrow.down.right")
                     .frame(maxWidth: .infinity)
             }
                 .buttonStyle(.borderedProminent)

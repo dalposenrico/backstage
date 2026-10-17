@@ -266,8 +266,12 @@ struct ProjectBrowserListView: View {
                         }
                     }
                     Divider()
-                    Button { showProjectInspector.toggle() } label: {
-                        Label(showProjectInspector ? "Close Project Details" : "Open Project Details", systemImage: "rectangle.center.inset.filled")
+                    Button {
+                        if let selected = store.selectedProject {
+                            store.openProjectTab(selected)
+                        }
+                    } label: {
+                        Label("View Project Details", systemImage: "rectangle.center.inset.filled")
                     }
                     .disabled(store.selectedProject == nil)
                 } label: {
@@ -372,8 +376,16 @@ struct ProjectBrowserListView: View {
     }
 
     private var collectionTitle: String {
-        guard let url = store.selectedCollectionURL else { return "All Projects" }
-        return store.folderTree.findNode(at: url)?.name ?? "Projects"
+        switch store.selectedSidebarSection {
+        case .all:
+            return "All Projects"
+        case .recents:
+            return "Recent Projects"
+        case .favorites:
+            return "Favorite Projects"
+        case .folder(let url):
+            return store.folderTree.findNode(at: url)?.name ?? "Projects"
+        }
     }
 
     private var selectedCategoryColor: CollectionColor? {
@@ -402,19 +414,18 @@ struct ProjectBrowserListView: View {
     }
 
     private func selectAllProjects() {
-        store.selectedCollectionURL = nil
+        store.selectedSidebarSection = .all
     }
 
     private func selectCollection(_ url: URL) {
-        store.selectedCollectionURL = url
+        store.selectedSidebarSection = .folder(url)
         if let first = store.folderTree.findNode(at: url)?.allProjects().first {
             store.selectedProject = first
         }
     }
 
     private func toggleProjectInspector(for project: Project) {
-        store.selectedProject = project
-        showProjectInspector = true
+        store.openProjectTab(project)
     }
 }
 
@@ -627,7 +638,7 @@ private struct ProjectGalleryView: View {
                                     Button("Remove Artwork") { artworkStore.remove(for: project) }
                                 }
                                 Divider()
-                                Button("Open Project Folder") { NSWorkspace.shared.open(project.folderURL) }
+                                Button("Show in Finder") { NSWorkspace.shared.open(project.folderURL) }
                             } label: {
                                 Image(systemName: "ellipsis")
                                     .font(.system(size: 14, weight: .semibold))
@@ -654,8 +665,7 @@ private struct ProjectGalleryView: View {
     }
 
     private func toggleProjectInspector(for project: Project) {
-        store.selectedProject = project
-        showProjectInspector = true
+        store.openProjectTab(project)
     }
 }
 
@@ -859,7 +869,7 @@ private struct BrowserProjectRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(project.newestAbletonVersion == nil)
-                    .help("Open in Ableton")
+                    .help("Open in Ableton Live")
 
                     Button { NSWorkspace.shared.open(project.folderURL) } label: {
                         Image(systemName: "folder")
@@ -885,9 +895,9 @@ private struct BrowserProjectRow: View {
         .opacity(store.isProjectHidden(project) ? 0.5 : 1)
         .contextMenu {
             if let version = project.newestAbletonVersion {
-                Button("Open in Ableton") { store.openInAbleton(project, version: version) }
+                Button("Open in Ableton Live") { store.openInAbleton(project, version: version) }
             }
-            Button(notes.note(for: project).isEmpty ? "Add Project Note" : "Open Project Note") {
+            Button(notes.note(for: project).isEmpty ? "Add Project Note" : "View Project Notes") {
                 store.selectedProject = project
                 openWindow(id: "project-notes")
                 WindowPresenter.showProjectNotes()

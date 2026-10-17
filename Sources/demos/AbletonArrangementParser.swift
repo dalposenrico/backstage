@@ -17,11 +17,29 @@ public enum AbletonArrangementParser {
     private static let groupTrackRegex = try! NSRegularExpression(
         pattern: #"<GroupTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</GroupTrack>"#
     )
+    private static let returnTrackRegex = try! NSRegularExpression(
+        pattern: #"<ReturnTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</ReturnTrack>"#
+    )
+    private static let masterTrackRegex = try! NSRegularExpression(
+        pattern: #"<MasterTrack(?:\s+Id=\"([^\"]*)\"[^>]*)?>([\s\S]*?)</MasterTrack>"#
+    )
     private static let midiClipRegex = try! NSRegularExpression(
         pattern: #"<MidiClip(?:\s+[^>]*)?Time=\"([0-9]+(?:\.[0-9]+)?)\"[\s\S]*?>([\s\S]*?)</MidiClip>"#
     )
     private static let audioClipRegex = try! NSRegularExpression(
         pattern: #"<AudioClip(?:\s+[^>]*)?Time=\"([0-9]+(?:\.[0-9]+)?)\"[\s\S]*?>([\s\S]*?)</AudioClip>"#
+    )
+    private static let pluginNameRegex = try! NSRegularExpression(
+        pattern: #"<(?:PlugName|Name|ProductName)\s+Value=\"([^\"]+)\""#
+    )
+    private static let pluginVendorRegex = try! NSRegularExpression(
+        pattern: #"<Manufacturer\s+Value=\"([^\"]+)\""#
+    )
+    private static let userNameRegex = try! NSRegularExpression(
+        pattern: #"<UserName\s+Value=\"([^\"]+)\""#
+    )
+    private static let isOnRegex = try! NSRegularExpression(
+        pattern: #"<(?:On|IsOn)>[\s\S]*?<Manual\s+Value=\"([^\"]+)\""#
     )
     private static let trackNamePatterns = [
         try! NSRegularExpression(pattern: #"<UserName\s+Value=\"([^\"]+)\""#),
@@ -100,6 +118,19 @@ public enum AbletonArrangementParser {
         let groupTracks = extractTracks(regex: groupTrackRegex, in: tracksSlice, type: .group, projectFolderURL: projectFolderURL)
         tracks.append(contentsOf: groupTracks)
 
+        // Extract MasterTrack
+        let masterTrack = extractMasterTrack(in: xml)
+
+        // Extract ReturnTracks
+        let returnTracks: [AbletonTrack]
+        if let returnStart = xml.range(of: "<ReturnTracks>"),
+           let returnEnd = xml.range(of: "</ReturnTracks>", range: returnStart.upperBound..<xml.endIndex) {
+            let returnSlice = String(xml[returnStart.lowerBound..<returnEnd.upperBound])
+            returnTracks = extractTracks(regex: returnTrackRegex, in: returnSlice, type: .returnMaster, projectFolderURL: projectFolderURL)
+        } else {
+            returnTracks = extractTracks(regex: returnTrackRegex, in: xml, type: .returnMaster, projectFolderURL: projectFolderURL)
+        }
+
         // Calculate total arrangement length in beats
         let allClips = tracks.flatMap(\.clips)
         let maxClipEnd = allClips.map(\.endBeat).max() ?? 64.0
@@ -110,7 +141,9 @@ public enum AbletonArrangementParser {
             timeSignatureNumerator: num,
             timeSignatureDenominator: denom,
             tracks: tracks,
-            totalLengthBeats: totalLength
+            totalLengthBeats: totalLength,
+            masterTrack: masterTrack,
+            returnTracks: returnTracks
         )
     }
 
@@ -134,15 +167,300 @@ public enum AbletonArrangementParser {
             let name = extractTrackName(from: body) ?? "\(type.rawValue) Track"
             let colorIndex = extractColor(from: body) ?? 12
             let clips = extractClips(from: body, type: type, projectFolderURL: projectFolderURL)
+            let devices = extractDevices(from: body)
 
             return AbletonTrack(
                 id: id,
                 name: name,
                 type: type,
                 colorIndex: colorIndex,
-                clips: clips
+                clips: clips,
+                devices: devices
             )
         }
+    }
+
+    private static func extractMasterTrack(in xml: String) -> AbletonTrack? {
+        let nsString = xml as NSString
+        guard let match = masterTrackRegex.firstMatch(in: xml, range: NSRange(location: 0, length: nsString.length)) else {
+            return nil
+        }
+        let id = match.range(at: 1).location != NSNotFound
+            ? nsString.substring(with: match.range(at: 1))
+            : "master"
+        let body = nsString.substring(with: match.range(at: 2))
+        let name = extractTrackName(from: body) ?? "Master"
+        let colorIndex = extractColor(from: body) ?? 0
+        let devices = extractDevices(from: body)
+
+        return AbletonTrack(
+            id: id,
+            name: name,
+            type: .returnMaster,
+            colorIndex: colorIndex,
+            clips: [],
+            devices: devices
+        )
+    }
+
+    // MARK: - Known Native Devices
+    private static let knownNativeDevices: [String: String] = [
+        "Eq8": "EQ Eight",
+        "ChannelEq": "Channel EQ",
+        "Compressor2": "Compressor",
+        "GlueCompressor": "Glue Compressor",
+        "Limiter": "Limiter",
+        "Saturator": "Saturator",
+        "UtilityDevice": "Utility",
+        "StereoGain": "Utility",
+        "Delay": "Delay",
+        "Reverb": "Reverb",
+        "Echo": "Echo",
+        "AutoFilter": "Auto Filter",
+        "DrumBuss": "Drum Buss",
+        "Overdrive": "Overdrive",
+        "Pedal": "Pedal",
+        "Chorus2": "Chorus-Ensemble",
+        "Chorus": "Chorus",
+        "PhaserNew": "Phaser-Flanger",
+        "Phaser": "Phaser",
+        "Redux2": "Redux",
+        "Redux": "Redux",
+        "Amp": "Amp",
+        "Cabinet": "Cabinet",
+        "Corpus": "Corpus",
+        "MultibandDynamics": "Multiband Dynamics",
+        "Gate": "Gate",
+        "Vocoder": "Vocoder",
+        "Tuner": "Tuner",
+        "Spectrum": "Spectrum",
+        "AudioEffectGroupDevice": "Audio Effect Rack",
+        "MidiEffectGroupDevice": "MIDI Effect Rack",
+        "InstrumentGroupDevice": "Instrument Rack",
+        "OriginalSimpler": "Simpler",
+        "MultiSampler": "Sampler",
+        "UltraAnalog": "Analog",
+        "Operator": "Operator",
+        "Wavetable": "Wavetable",
+        "Drift": "Drift",
+        "Roar": "Roar",
+        "SpectralResonator": "Spectral Resonator",
+        "SpectralTime": "Spectral Time",
+        "Hybrid": "Hybrid Reverb",
+        "Shifter": "Shifter",
+        "MidiArpeggiator": "Arpeggiator",
+        "MidiChord": "Chord",
+        "MidiPitcher": "Pitch",
+        "MidiRandom": "Random",
+        "MidiScale": "Scale",
+        "MidiVelocitySlider": "Velocity",
+        "MidiNoteLength": "Note Length"
+    ]
+
+    // MARK: - Device Extraction
+
+    private static func extractDevices(from trackXml: String) -> [AbletonDevice] {
+        guard let chainRange = trackXml.range(of: "<DeviceChain>") else { return [] }
+        let afterChain = trackXml[chainRange.upperBound...]
+        guard let devOpenRange = afterChain.range(of: "<Devices>") else { return [] }
+        let contentStart = devOpenRange.upperBound
+
+        // Match the closing </Devices> corresponding to this opening <Devices>
+        var nestedCount = 0
+        var searchIndex = contentStart
+        var devCloseRange: Range<String.Index>?
+
+        while searchIndex < afterChain.endIndex {
+            let nextOpen = afterChain.range(of: "<Devices>", range: searchIndex..<afterChain.endIndex)
+            let nextClose = afterChain.range(of: "</Devices>", range: searchIndex..<afterChain.endIndex)
+
+            guard let close = nextClose else { break }
+
+            if let open = nextOpen, open.lowerBound < close.lowerBound {
+                nestedCount += 1
+                searchIndex = open.upperBound
+            } else {
+                if nestedCount == 0 {
+                    devCloseRange = close
+                    break
+                } else {
+                    nestedCount -= 1
+                    searchIndex = close.upperBound
+                }
+            }
+        }
+
+        guard let closeRange = devCloseRange else { return [] }
+        let devicesString = String(afterChain[contentStart..<closeRange.lowerBound])
+        return parseDeviceElements(devicesString)
+    }
+
+    private static func parseDeviceElements(_ devicesXml: String) -> [AbletonDevice] {
+        var devices: [AbletonDevice] = []
+        var currentIndex = devicesXml.startIndex
+        var slotIndex = 0
+
+        while currentIndex < devicesXml.endIndex {
+            guard let openBracket = devicesXml.range(of: "<", range: currentIndex..<devicesXml.endIndex) else {
+                break
+            }
+            let afterOpen = openBracket.upperBound
+            if afterOpen >= devicesXml.endIndex { break }
+
+            if devicesXml[afterOpen] == "/" || devicesXml[afterOpen] == "!" || devicesXml[afterOpen] == "?" {
+                guard let closeBracket = devicesXml.range(of: ">", range: afterOpen..<devicesXml.endIndex) else { break }
+                currentIndex = closeBracket.upperBound
+                continue
+            }
+
+            var tagEnd = afterOpen
+            while tagEnd < devicesXml.endIndex,
+                  devicesXml[tagEnd] != " " && devicesXml[tagEnd] != "\t" &&
+                  devicesXml[tagEnd] != "\n" && devicesXml[tagEnd] != "\r" &&
+                  devicesXml[tagEnd] != ">" && devicesXml[tagEnd] != "/" {
+                tagEnd = devicesXml.index(after: tagEnd)
+            }
+            let tagName = String(devicesXml[afterOpen..<tagEnd])
+            guard !tagName.isEmpty else {
+                currentIndex = devicesXml.index(after: afterOpen)
+                continue
+            }
+
+            guard let openTagEnd = devicesXml.range(of: ">", range: tagEnd..<devicesXml.endIndex) else {
+                break
+            }
+
+            let tagHeader = devicesXml[openBracket.lowerBound..<openTagEnd.upperBound]
+            if tagHeader.hasSuffix("/>") {
+                let dev = parseSingleDevice(tag: tagName, xml: String(tagHeader), slotIndex: slotIndex)
+                devices.append(dev)
+                slotIndex += 1
+                currentIndex = openTagEnd.upperBound
+                continue
+            }
+
+            let closingPattern = "</\(tagName)>"
+            let openingPrefix = "<\(tagName)"
+            var depth = 1
+            var scanIdx = openTagEnd.upperBound
+            var foundEnd: Range<String.Index>?
+
+            while scanIdx < devicesXml.endIndex {
+                let nextClose = devicesXml.range(of: closingPattern, range: scanIdx..<devicesXml.endIndex)
+                guard let close = nextClose else { break }
+
+                let nextOpen = devicesXml.range(of: openingPrefix, range: scanIdx..<close.lowerBound)
+                if let open = nextOpen {
+                    let afterOpenIdx = open.upperBound
+                    if afterOpenIdx < devicesXml.endIndex {
+                        let c = devicesXml[afterOpenIdx]
+                        if c == " " || c == ">" || c == "/" {
+                            if let tagClose = devicesXml.range(of: ">", range: afterOpenIdx..<close.lowerBound) {
+                                let subTag = devicesXml[open.lowerBound..<tagClose.upperBound]
+                                if !subTag.hasSuffix("/>") {
+                                    depth += 1
+                                }
+                                scanIdx = tagClose.upperBound
+                                continue
+                            }
+                        }
+                    }
+                }
+
+                depth -= 1
+                if depth == 0 {
+                    foundEnd = close
+                    break
+                } else {
+                    scanIdx = close.upperBound
+                }
+            }
+
+            guard let endMatch = foundEnd else {
+                currentIndex = openTagEnd.upperBound
+                continue
+            }
+
+            let fullDeviceXml = String(devicesXml[openBracket.lowerBound..<endMatch.upperBound])
+            let dev = parseSingleDevice(tag: tagName, xml: fullDeviceXml, slotIndex: slotIndex)
+            devices.append(dev)
+            slotIndex += 1
+            currentIndex = endMatch.upperBound
+        }
+
+        return devices
+    }
+
+    private static func parseSingleDevice(tag: String, xml: String, slotIndex: Int) -> AbletonDevice {
+        let isEnabled: Bool
+        if let onMatch = isOnRegex.firstMatch(in: xml, range: NSRange(location: 0, length: (xml as NSString).length)) {
+            let val = (xml as NSString).substring(with: onMatch.range(at: 1)).lowercased()
+            isEnabled = (val != "false" && val != "0")
+        } else {
+            isEnabled = true
+        }
+
+        let customName = extractFirstRegex(regex: userNameRegex, in: xml)
+
+        if tag == "AuPluginDevice" {
+            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "Audio Unit"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            return AbletonDevice(
+                name: customName ?? name,
+                vendor: vendor,
+                type: .au,
+                isEnabled: isEnabled,
+                slotIndex: slotIndex
+            )
+        } else if tag == "Vst3PluginDevice" {
+            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "VST3 Plugin"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            return AbletonDevice(
+                name: customName ?? name,
+                vendor: vendor,
+                type: .vst3,
+                isEnabled: isEnabled,
+                slotIndex: slotIndex
+            )
+        } else if tag == "VstPluginDevice" {
+            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "VST Plugin"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            return AbletonDevice(
+                name: customName ?? name,
+                vendor: vendor,
+                type: .vst2,
+                isEnabled: isEnabled,
+                slotIndex: slotIndex
+            )
+        } else if tag.starts(with: "MxDevice") {
+            let name = customName ?? extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "Max for Live"
+            return AbletonDevice(
+                name: name,
+                vendor: "Cycling '74",
+                type: .maxForLive,
+                isEnabled: isEnabled,
+                slotIndex: slotIndex
+            )
+        } else {
+            let standardName = knownNativeDevices[tag] ?? tag
+            let displayName = customName != nil ? "\(customName!) (\(standardName))" : standardName
+            return AbletonDevice(
+                name: displayName,
+                vendor: "Ableton",
+                type: .native,
+                isEnabled: isEnabled,
+                slotIndex: slotIndex
+            )
+        }
+    }
+
+    private static func extractFirstRegex(regex: NSRegularExpression, in text: String) -> String? {
+        let nsText = text as NSString
+        guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: nsText.length)),
+              match.range(at: 1).location != NSNotFound else { return nil }
+        let raw = nsText.substring(with: match.range(at: 1))
+        let decoded = decodeXMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        return decoded.isEmpty ? nil : decoded
     }
 
     private static func extractTrackName(from text: String) -> String? {

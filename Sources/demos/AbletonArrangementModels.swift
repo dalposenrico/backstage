@@ -99,25 +99,71 @@ public struct AbletonClip: Sendable, Identifiable, Equatable {
     }
 }
 
+public enum AbletonDeviceType: String, Sendable, Codable {
+    case native = "Native"
+    case au = "AU"
+    case vst2 = "VST2"
+    case vst3 = "VST3"
+    case maxForLive = "M4L"
+
+    public var badgeColor: Color {
+        switch self {
+        case .native: return Color.accent
+        case .au: return Color.orange
+        case .vst2: return Color.cyan
+        case .vst3: return Color.blue
+        case .maxForLive: return Color.purple
+        }
+    }
+}
+
+public struct AbletonDevice: Sendable, Identifiable, Equatable, Hashable {
+    public let id: String
+    public let name: String
+    public let vendor: String?
+    public let type: AbletonDeviceType
+    public let isEnabled: Bool
+    public let slotIndex: Int
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        vendor: String? = nil,
+        type: AbletonDeviceType = .native,
+        isEnabled: Bool = true,
+        slotIndex: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.vendor = vendor
+        self.type = type
+        self.isEnabled = isEnabled
+        self.slotIndex = slotIndex
+    }
+}
+
 public struct AbletonTrack: Sendable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let type: AbletonTrackType
     public let colorIndex: Int
     public let clips: [AbletonClip]
+    public let devices: [AbletonDevice]
 
     public init(
         id: String = UUID().uuidString,
         name: String,
         type: AbletonTrackType,
         colorIndex: Int = 12,
-        clips: [AbletonClip] = []
+        clips: [AbletonClip] = [],
+        devices: [AbletonDevice] = []
     ) {
         self.id = id
         self.name = name
         self.type = type
         self.colorIndex = colorIndex
         self.clips = clips
+        self.devices = devices
     }
 
     public var color: Color {
@@ -135,19 +181,34 @@ public struct AbletonArrangement: Sendable, Equatable {
     public let timeSignatureDenominator: Int
     public let tracks: [AbletonTrack]
     public let totalLengthBeats: Double
+    public let masterTrack: AbletonTrack?
+    public let returnTracks: [AbletonTrack]
 
     public init(
         tempo: Double = 120.0,
         timeSignatureNumerator: Int = 4,
         timeSignatureDenominator: Int = 4,
         tracks: [AbletonTrack] = [],
-        totalLengthBeats: Double = 128.0
+        totalLengthBeats: Double = 128.0,
+        masterTrack: AbletonTrack? = nil,
+        returnTracks: [AbletonTrack] = []
     ) {
         self.tempo = tempo
         self.timeSignatureNumerator = timeSignatureNumerator
         self.timeSignatureDenominator = timeSignatureDenominator
         self.tracks = tracks
         self.totalLengthBeats = totalLengthBeats
+        self.masterTrack = masterTrack
+        self.returnTracks = returnTracks
+    }
+
+    public var allConsoleTracks: [AbletonTrack] {
+        var list = tracks
+        list.append(contentsOf: returnTracks)
+        if let master = masterTrack {
+            list.append(master)
+        }
+        return list
     }
 
     public var midiClips: [AbletonClip] {

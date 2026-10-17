@@ -13,14 +13,13 @@ struct ContentView: View {
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @Environment(\.openWindow) private var openWindow
     @AppStorage("compactWorkspaceNavigation") private var compactWorkspaceNavigation = false
-    @State private var workspaceSection: WorkspaceSection = .home
     @State private var showProjectInspector = false
     @State private var projectWorkspaceExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Top studio navigation bar (DAWbro style)
-            DawTopNavBar(selection: $workspaceSection)
+            DawTopNavBar(selection: $store.activeWorkspaceSection)
 
             Divider().background(Color.divider)
 
@@ -29,30 +28,37 @@ struct ContentView: View {
                     showProjectInspector: $showProjectInspector,
                     projectWorkspaceExpanded: $projectWorkspaceExpanded
                 )
-                .opacity(workspaceSection == .library ? 1 : 0)
-                .allowsHitTesting(workspaceSection == .library)
+                .opacity(store.activeWorkspaceSection == .library ? 1 : 0)
+                .allowsHitTesting(store.activeWorkspaceSection == .library)
+
+                if let project = store.selectedProject {
+                    ProjectFullWorkspaceView(project: project) {
+                        store.closeProjectTab()
+                    }
+                    .background(Color.appBg)
+                    .opacity(store.activeWorkspaceSection == .project ? 1 : 0)
+                    .allowsHitTesting(store.activeWorkspaceSection == .project)
+                }
 
                 HomeDashboardView { project in
-                    store.selectedProject = project
-                    showProjectInspector = true
-                    workspaceSection = .library
+                    store.openProjectTab(project)
                 }
                 .background(Color.appBg)
-                .opacity(workspaceSection == .home ? 1 : 0)
-                .allowsHitTesting(workspaceSection == .home)
+                .opacity(store.activeWorkspaceSection == .home ? 1 : 0)
+                .allowsHitTesting(store.activeWorkspaceSection == .home)
 
                 ReleasesHubView {
-                    workspaceSection = .library
+                    store.activeWorkspaceSection = .library
                     showProjectInspector = true
                 }
                 .background(Color.appBg)
-                .opacity(workspaceSection == .releases ? 1 : 0)
-                .allowsHitTesting(workspaceSection == .releases)
+                .opacity(store.activeWorkspaceSection == .releases ? 1 : 0)
+                .allowsHitTesting(store.activeWorkspaceSection == .releases)
 
                 ToolsHubView()
                     .background(Color.appBg)
-                    .opacity(workspaceSection == .tools ? 1 : 0)
-                    .allowsHitTesting(workspaceSection == .tools)
+                    .opacity(store.activeWorkspaceSection == .tools ? 1 : 0)
+                    .allowsHitTesting(store.activeWorkspaceSection == .tools)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -352,27 +358,15 @@ private struct ProjectWorkspaceDock: View {
     }
 }
 
-enum WorkspaceSection: String, CaseIterable, Identifiable {
-    case home, library, releases, tools
+struct ProjectFullWorkspaceView: View {
+    let project: Project
+    let close: () -> Void
 
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .home: return "Home"
-        case .library: return "Library"
-        case .releases: return "Releases"
-        case .tools: return "Tools"
+    var body: some View {
+        VStack(spacing: 0) {
+            TrackListView(project: project, allowsExpandedWorkspace: false)
         }
-    }
-
-    var icon: String {
-        switch self {
-        case .home: return "house"
-        case .library: return "music.note.list"
-        case .releases: return "shippingbox"
-        case .tools: return "wrench.and.screwdriver"
-        }
+        .background(Color.appBg)
     }
 }
 

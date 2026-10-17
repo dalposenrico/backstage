@@ -472,7 +472,7 @@ struct FavouritesMenuView: View {
                         .foregroundStyle(store.favourites.contains(project.folderURL) ? Color.accentColor : .secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(project.name).lineLimit(1)
-                        Text(project.latestSavedItem?.name ?? "Open project folder")
+                        Text(project.latestSavedItem?.name ?? "Show in Finder")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         if let saved = project.latestSavedItem?.date {
                             Text("Saved \(saved.menuSavedDate)")
@@ -491,7 +491,7 @@ struct FavouritesMenuView: View {
                 Image(systemName: "macwindow.on.rectangle")
             }
             .buttonStyle(.borderless)
-            .help("Open project in goodvibrations HQ")
+            .help("View project in goodvibrations HQ")
 
             if let latestExport = project.sortedTracks.first {
                 untitledMenu(track: latestExport, project: project)

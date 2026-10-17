@@ -172,53 +172,46 @@ struct SidebarView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         // 1. ALL PROJECTS
-                        Button {
-                            store.selectedCollectionURL = nil
-                            store.selectedProject = nil
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "house.fill")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(store.selectedCollectionURL == nil && store.selectedProject == nil ? .accent : .secondaryText)
-                                    .frame(width: 14)
-
-                                Text("ALL PROJECTS")
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .tracking(0.8)
-                                    .foregroundColor(store.selectedCollectionURL == nil && store.selectedProject == nil ? .white : .primaryText)
-
-                                Spacer()
-
-                                Text("\(store.visibleProjects.count)")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.tertiaryText)
+                        sidebarSectionButton(
+                            title: "ALL PROJECTS",
+                            icon: "house.fill",
+                            count: store.visibleProjects.count,
+                            isSelected: store.selectedSidebarSection == .all,
+                            action: {
+                                store.selectedSidebarSection = .all
+                                store.selectedCollectionURL = nil
                             }
-                            .padding(.horizontal, 12)
-                            .frame(height: 28)
-                            .background(
-                                store.selectedCollectionURL == nil && store.selectedProject == nil
-                                    ? Color(red: 0.18, green: 0.19, blue: 0.22)
-                                    : Color.clear
-                            )
-                            .overlay(alignment: .leading) {
-                                if store.selectedCollectionURL == nil && store.selectedProject == nil {
-                                    Rectangle().fill(Color.accent).frame(width: 2.5)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
+                        )
 
-                        // 2. RECENT
+                        // 2. RECENT (Clickable to show in middle list)
                         if !store.recentProjects.isEmpty {
-                            SidebarSectionHeader(title: "RECENT", icon: "clock.fill", count: store.recentProjects.count)
+                            sidebarSectionButton(
+                                title: "RECENT",
+                                icon: "clock.fill",
+                                count: store.recentProjects.count,
+                                isSelected: store.selectedSidebarSection == .recents,
+                                action: {
+                                    store.selectedSidebarSection = .recents
+                                    store.selectedCollectionURL = nil
+                                }
+                            )
 
                             ForEach(store.recentProjects) { project in
                                 SidebarProjectItem(project: project, depth: 0)
                             }
                         }
 
-                        // 3. FAVORITES
-                        SidebarSectionHeader(title: "FAVORITES", icon: "star.fill", count: store.favouriteProjects.isEmpty ? nil : store.favouriteProjects.count)
+                        // 3. FAVORITES (Clickable to show in middle list)
+                        sidebarSectionButton(
+                            title: "FAVORITES",
+                            icon: "star.fill",
+                            count: store.favouriteProjects.isEmpty ? nil : store.favouriteProjects.count,
+                            isSelected: store.selectedSidebarSection == .favorites,
+                            action: {
+                                store.selectedSidebarSection = .favorites
+                                store.selectedCollectionURL = nil
+                            }
+                        )
 
                         if store.favouriteProjects.isEmpty {
                             Text("Click the star next to a project to keep it here.")
@@ -300,6 +293,50 @@ struct SidebarView: View {
         .frame(maxHeight: .infinity)
     }
 
+    private func sidebarSectionButton(
+        title: String,
+        icon: String,
+        count: Int?,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(isSelected ? .accent : .secondaryText)
+                    .frame(width: 14)
+
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundColor(isSelected ? .white : .primaryText)
+
+                Spacer()
+
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.tertiaryText)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(
+                isSelected
+                    ? Color(red: 0.18, green: 0.19, blue: 0.22)
+                    : Color.clear
+            )
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle().fill(Color.accent).frame(width: 2.5)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func matchesFolderSearch(_ node: FolderNode, query: String) -> Bool {
         guard !node.isProject else { return false }
         guard !query.isEmpty else { return true }
@@ -367,6 +404,7 @@ private struct CollectionTreeItem: View {
                 },
                 toggleHidden: { store.toggleFolderHidden(node.url) }
             ) {
+                store.selectedSidebarSection = .folder(node.url)
                 store.selectedCollectionURL = node.url
                 if let first = node.allProjects().first { store.selectedProject = first }
             }
@@ -885,6 +923,9 @@ struct ProjectRow: View {
         )
         .onHover { isHovered = $0 }
         .contentShape(Rectangle())
+        .onTapGesture {
+            store.openProjectTab(project)
+        }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
 }

@@ -76,7 +76,17 @@ class AppStore: ObservableObject {
     @Published private(set) var scanProgress: ProjectScanProgress?
     @Published var refreshingProjects: Set<URL> = []
     @Published var searchQuery = ""
-    @Published var selectedCollectionURL: URL?
+    @Published var selectedCollectionURL: URL? {
+        didSet {
+            if let selectedCollectionURL {
+                selectedSidebarSection = .folder(selectedCollectionURL)
+            } else if case .folder = selectedSidebarSection {
+                selectedSidebarSection = .all
+            }
+        }
+    }
+    @Published var selectedSidebarSection: SidebarSection = .all
+    @Published var activeWorkspaceSection: WorkspaceSection = .library
     @Published var sortOrder: SortOrder = .recentlyEdited {
         didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") }
     }
@@ -85,6 +95,18 @@ class AppStore: ObservableObject {
     }
 
     let audioPlayer = AudioPlayer()
+
+    // MARK: - Tab Navigation Helpers
+
+    func openProjectTab(_ project: Project) {
+        selectedProject = project
+        activeWorkspaceSection = .project
+    }
+
+    func closeProjectTab() {
+        activeWorkspaceSection = .library
+        selectedProject = nil
+    }
 
     // Flat list of all projects, derived from tree
     var projects: [Project] {
@@ -119,12 +141,23 @@ class AppStore: ObservableObject {
 
     // Filtered + sorted flat list (used during search and for playback ordering)
     var filteredProjects: [Project] {
-        let collectionProjects = selectedCollectionURL.flatMap { collectionURL in
-            folderTree.findNode(at: collectionURL)?.allProjects()
-        } ?? visibleProjects
+        let baseList: [Project]
+        switch selectedSidebarSection {
+        case .all:
+            baseList = visibleProjects
+        case .recents:
+            baseList = visibleProjects
+                .filter { $0.latestModification != .distantPast }
+                .sorted { $0.latestModification > $1.latestModification }
+        case .favorites:
+            baseList = visibleProjects.filter { favourites.contains($0.folderURL) }
+        case .folder(let collectionURL):
+            baseList = folderTree.findNode(at: collectionURL)?.allProjects() ?? visibleProjects
+        }
+
         let visibleCollectionProjects = showHidden
-            ? collectionProjects
-            : collectionProjects.filter { !isProjectHidden($0) }
+            ? baseList
+            : baseList.filter { !isProjectHidden($0) }
         let base = searchQuery.isEmpty ? visibleCollectionProjects : visibleCollectionProjects.filter {
             $0.name.localizedCaseInsensitiveContains(searchQuery)
         }
@@ -588,7 +621,8 @@ class AppStore: ObservableObject {
     }
 
     func openInMainWindow(_ project: Project) {
-        selectedProject = projects.first(where: { $0.folderURL == project.folderURL }) ?? project
+        let target = projects.first(where: { $0.folderURL == project.folderURL }) ?? project
+        openProjectTab(target)
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows
             .first(where: { $0.canBecomeMain && !($0 is NSPanel) })?
