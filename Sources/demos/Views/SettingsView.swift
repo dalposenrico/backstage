@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
+    @EnvironmentObject var dragScroll: AbletonDragScrollManager
     @StateObject private var launchAtLogin = LaunchAtLoginManager()
 
     var body: some View {
@@ -100,6 +101,20 @@ struct SettingsView: View {
                 }
             } header: {
                 Label("Ableton Export Hotkey", systemImage: "keyboard")
+                    .font(.headline)
+            }
+
+            Divider()
+
+            // MARK: Ableton Drag Navigation (W/S)
+            Section {
+                Toggle("Drag-scroll tracks with W and S", isOn: $dragScroll.isEnabled)
+
+                Text("While dragging a track, clip, or sample in Ableton Live (mouse held down), press **W** to scroll up (Page Up) and **S** to scroll down (Page Down). Normal typing in Ableton search and other apps is never interrupted.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Ableton Drag Navigation", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
                     .font(.headline)
             }
 
