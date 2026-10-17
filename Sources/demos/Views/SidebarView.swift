@@ -430,58 +430,94 @@ private struct CollectionTreeItem: View {
 }
 
 /// Minimal, high-contrast DAW folder icon inspired by DAWbro.
-/// Renders a sharp outline with a top-left tab and slit when closed,
-/// and a solid filled body with an outline tab when open.
+/// Renders a sharp, flat outline when closed, and an unmistakable 3D open
+/// pocket with an angled front flap and interior sheet when open.
 struct DawFolderIcon: View {
     let isOpen: Bool
     var color: Color = Color(white: 0.88)
 
     var body: some View {
         Canvas { context, _ in
-            let w: CGFloat = 14.5
-            let h: CGFloat = 11.5
-            let tabW: CGFloat = 6.0
-            let tabH: CGFloat = 3.2
-            let r: CGFloat = 1.5
-            let strokeW: CGFloat = 1.25
+            let w: CGFloat = 16.0
+            let h: CGFloat = 13.0
+            let strokeW: CGFloat = 1.15
 
             if isOpen {
-                // Open folder: Tab behind + filled body in front
-                var tabPath = Path()
-                tabPath.move(to: CGPoint(x: 1, y: tabH))
-                tabPath.addLine(to: CGPoint(x: 1, y: 1))
-                tabPath.addQuadCurve(to: CGPoint(x: 2, y: 0), control: CGPoint(x: 1, y: 0))
-                tabPath.addLine(to: CGPoint(x: tabW - 1, y: 0))
-                tabPath.addQuadCurve(to: CGPoint(x: tabW + 1.2, y: tabH), control: CGPoint(x: tabW, y: tabH * 0.4))
-                context.stroke(tabPath, with: .color(color), lineWidth: strokeW)
+                // ── 3D OPEN FOLDER ──
+                // 1. Back wall & tab standing upright
+                var back = Path()
+                back.move(to: CGPoint(x: 1.5, y: 3.2))
+                back.addLine(to: CGPoint(x: 1.5, y: 1.2))
+                back.addQuadCurve(to: CGPoint(x: 2.5, y: 0.5), control: CGPoint(x: 1.5, y: 0.5))
+                back.addLine(to: CGPoint(x: 6.5, y: 0.5))
+                back.addQuadCurve(to: CGPoint(x: 7.8, y: 3.2), control: CGPoint(x: 7.2, y: 1.5))
+                back.addLine(to: CGPoint(x: w - 2.0, y: 3.2))
+                back.addQuadCurve(to: CGPoint(x: w - 1.2, y: 4.0), control: CGPoint(x: w - 1.2, y: 3.2))
+                back.addLine(to: CGPoint(x: w - 1.2, y: h - 1.5))
+                back.addLine(to: CGPoint(x: 1.5, y: h - 1.5))
+                back.closeSubpath()
 
-                let bodyRect = CGRect(x: 0.5, y: tabH - 0.5, width: w - 1, height: h - tabH + 0.5)
-                context.fill(Path(roundedRect: bodyRect, cornerRadius: r), with: .color(color))
+                // Dark interior cavity shadow
+                context.fill(back, with: .color(color.opacity(0.35)))
+                context.stroke(back, with: .color(color.opacity(0.6)), lineWidth: 1.0)
+
+                // 2. Crisp project paper sheet sticking up out of the open folder
+                let paperRect = CGRect(x: 3.5, y: 1.6, width: w - 7.0, height: 5.2)
+                context.fill(Path(roundedRect: paperRect, cornerRadius: 1.0), with: .color(Color.white.opacity(0.92)))
+                context.stroke(Path(roundedRect: paperRect, cornerRadius: 1.0), with: .color(Color.black.opacity(0.5)), lineWidth: 0.7)
+
+                // Mini header line on the paper
+                var paperLine = Path()
+                paperLine.move(to: CGPoint(x: 5.5, y: 3.4))
+                paperLine.addLine(to: CGPoint(x: w - 5.5, y: 3.4))
+                context.stroke(paperLine, with: .color(Color.black.opacity(0.25)), lineWidth: 0.75)
+
+                // 3. Front flap (swung forward in 3D perspective towards viewer)
+                var frontFlap = Path()
+                frontFlap.move(to: CGPoint(x: 0.5, y: 5.8))
+                frontFlap.addLine(to: CGPoint(x: w - 0.5, y: 5.8))
+                frontFlap.addLine(to: CGPoint(x: w - 2.0, y: h - 0.5))
+                frontFlap.addLine(to: CGPoint(x: 2.0, y: h - 0.5))
+                frontFlap.closeSubpath()
+
+                // Solid bright front flap
+                context.fill(frontFlap, with: .color(color))
+                context.stroke(frontFlap, with: .color(Color.black.opacity(0.4)), lineWidth: 0.8)
+
+                // Crisp top rim highlight on the open flap
+                var flapRim = Path()
+                flapRim.move(to: CGPoint(x: 0.5, y: 5.8))
+                flapRim.addLine(to: CGPoint(x: w - 0.5, y: 5.8))
+                context.stroke(flapRim, with: .color(Color.white.opacity(0.95)), lineWidth: 1.1)
+
             } else {
-                // Closed folder: Clean minimal outline with top slit line
-                var outline = Path()
-                outline.move(to: CGPoint(x: 0.5, y: h - r))
-                outline.addLine(to: CGPoint(x: 0.5, y: 1))
-                outline.addQuadCurve(to: CGPoint(x: 1.5, y: 0), control: CGPoint(x: 0.5, y: 0))
-                outline.addLine(to: CGPoint(x: tabW - 1, y: 0))
-                outline.addQuadCurve(to: CGPoint(x: tabW + 1.2, y: tabH), control: CGPoint(x: tabW, y: tabH * 0.5))
-                outline.addLine(to: CGPoint(x: w - 1.5, y: tabH))
-                outline.addQuadCurve(to: CGPoint(x: w - 0.5, y: tabH + 1), control: CGPoint(x: w - 0.5, y: tabH))
-                outline.addLine(to: CGPoint(x: w - 0.5, y: h - r))
-                outline.addQuadCurve(to: CGPoint(x: w - 1.5, y: h), control: CGPoint(x: w - 0.5, y: h))
-                outline.addLine(to: CGPoint(x: 1.5, y: h))
-                outline.addQuadCurve(to: CGPoint(x: 0.5, y: h - r), control: CGPoint(x: 0.5, y: h))
+                // ── CLEAN CLOSED FOLDER ──
+                // Tab at top left
+                var tab = Path()
+                tab.move(to: CGPoint(x: 1.5, y: 3.4))
+                tab.addLine(to: CGPoint(x: 1.5, y: 1.2))
+                tab.addQuadCurve(to: CGPoint(x: 2.5, y: 0.5), control: CGPoint(x: 1.5, y: 0.5))
+                tab.addLine(to: CGPoint(x: 6.5, y: 0.5))
+                tab.addQuadCurve(to: CGPoint(x: 7.8, y: 3.4), control: CGPoint(x: 7.2, y: 1.5))
+                context.stroke(tab, with: .color(color.opacity(0.8)), lineWidth: strokeW)
 
-                context.stroke(outline, with: .color(color), lineWidth: strokeW)
+                // Main closed folder body
+                let bodyRect = CGRect(x: 1.2, y: 3.4, width: w - 2.4, height: h - 4.2)
+                let bodyPath = Path(roundedRect: bodyRect, cornerRadius: 1.8)
 
-                // Top flap line across the body
+                // Translucent fill
+                context.fill(bodyPath, with: .color(color.opacity(0.18)))
+                // Sharp outline
+                context.stroke(bodyPath, with: .color(color), lineWidth: strokeW)
+
+                // Front flap seam line across the closed face
                 var slit = Path()
-                slit.move(to: CGPoint(x: 1, y: tabH + 0.5))
-                slit.addLine(to: CGPoint(x: w - 1.5, y: tabH + 0.5))
-                context.stroke(slit, with: .color(color), lineWidth: strokeW * 0.85)
+                slit.move(to: CGPoint(x: 2.2, y: 4.8))
+                slit.addLine(to: CGPoint(x: w - 2.2, y: 4.8))
+                context.stroke(slit, with: .color(color.opacity(0.7)), lineWidth: strokeW * 0.8)
             }
         }
-        .frame(width: 15, height: 12)
+        .frame(width: 16, height: 13)
     }
 }
 
@@ -783,9 +819,10 @@ struct FolderRow: View {
                 .foregroundColor(.tertiaryText)
                 .frame(width: 10)
 
-            Image(systemName: isExpanded ? "folder.open.fill" : "folder.fill")
-                .font(.system(size: 12))
-                .foregroundColor(isHovered ? .accent.opacity(0.8) : .secondaryText)
+            DawFolderIcon(
+                isOpen: isExpanded,
+                color: isHovered ? .accent : Color(white: 0.72)
+            )
 
             Text(node.name)
                 .font(.system(size: 13, weight: .medium))
