@@ -310,12 +310,29 @@ struct SidebarView: View {
     }
 }
 
+/// Tree guide lines connecting nested folders and projects, inspired by DAWbro.
+private struct TreeIndentGuides: View {
+    let depth: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<depth, id: \.self) { _ in
+                ZStack {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 1)
+                }
+                .frame(width: 14)
+            }
+        }
+    }
+}
+
 private struct CollectionTreeItem: View {
     let node: FolderNode
     let depth: Int
     let folderSearchQuery: String
     @EnvironmentObject var store: AppStore
-    @EnvironmentObject var collectionColors: CollectionColorStore
 
     private var childCollections: [FolderNode] {
         node.children.filter {
@@ -340,14 +357,13 @@ private struct CollectionTreeItem: View {
                 name: node.name,
                 count: store.visibleProjectCount(in: node),
                 selected: store.selectedCollectionURL == node.url,
-                icon: expanded ? "folder.fill" : "folder",
                 depth: depth,
                 expandable: !childCollections.isEmpty || !childProjects.isEmpty,
                 expanded: expanded,
                 hidden: store.isFolderHidden(node.url),
                 collectionURL: node.url,
                 toggleExpansion: {
-                    withAnimation(.easeInOut(duration: 0.16)) {
+                    withAnimation(.easeInOut(duration: 0.14)) {
                         store.toggleCollectionExpansion(node.url)
                     }
                 },
@@ -356,7 +372,6 @@ private struct CollectionTreeItem: View {
                 store.selectedCollectionURL = node.url
                 if let first = node.allProjects().first { store.selectedProject = first }
             }
-            .padding(.leading, CGFloat(depth) * 10)
 
             if expanded {
                 ForEach(childCollections) { child in
@@ -382,7 +397,6 @@ private struct CollectionRow: View {
     let name: String
     let count: Int
     let selected: Bool
-    let icon: String
     var depth: Int = 0
     var expandable = false
     var expanded = false
@@ -392,95 +406,77 @@ private struct CollectionRow: View {
     var toggleHidden: () -> Void = {}
     let action: () -> Void
     @State private var hovered = false
-    @State private var showColorPalette = false
-    @EnvironmentObject private var collectionColors: CollectionColorStore
-
-    private var categoryColor: CollectionColor? {
-        collectionURL.flatMap { collectionColors.resolvedColor(for: $0) }
-    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            if expandable {
-                Button(action: toggleExpansion) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.tertiaryText)
-                        .frame(width: 12, height: 20)
+        Button(action: action) {
+            HStack(spacing: 5) {
+                // Indent guide lines for nested subfolders
+                if depth > 0 {
+                    TreeIndentGuides(depth: depth)
                 }
-                .buttonStyle(.plain)
-            } else if collectionURL != nil {
-                Color.clear.frame(width: 12)
-            }
-            if let collectionURL {
-                Button { showColorPalette = true } label: {
-                    Image(systemName: icon)
-                        .font(.system(size: 11))
-                        .foregroundColor(categoryColor?.color.opacity(selected ? 0.82 : 0.48) ?? (selected ? .accent : .secondaryText))
-                        .frame(width: 14, height: 20)
+
+                // Disclosure chevron
+                if expandable {
+                    Button(action: toggleExpansion) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(hovered ? .white : Color(white: 0.55))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                            .frame(width: 12, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear.frame(width: 12)
                 }
-                .buttonStyle(.plain)
-                .help("Choose a color for \(name)")
-                .popover(isPresented: $showColorPalette, arrowEdge: .leading) {
-                    CollectionColorPalette(name: name, url: collectionURL)
-                }
-            } else {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                    .foregroundColor(selected ? .accent : .secondaryText)
+
+                // High-contrast clean outline/fill folder icon (monochrome, no rainbow tint)
+                Image(systemName: expanded ? "folder.fill" : "folder")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(selected ? .white : Color(white: 0.85))
                     .frame(width: 14)
-            }
-            Text(name)
-                .font(.system(size: 13, weight: selected || depth == 0 ? .semibold : .regular))
-                .foregroundColor(selected ? .primaryText : .secondaryText)
-                .lineLimit(1)
-            if let emoji = collectionURL.flatMap({ collectionColors.resolvedEmoji(for: $0) }) {
-                Text(emoji).font(.system(size: 13))
-            }
-            Spacer()
-            if hidden {
-                Image(systemName: "eye.slash.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(.orange)
-            }
-            Text("\(count)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.tertiaryText)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 7).fill(
-                selected
-                    ? Color.selectedBg
-                    : (hovered ? Color.hoverBg : .clear)
-            )
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
-        .onHover { hovered = $0 }
-        .opacity(hidden ? 0.55 : 1)
-        .contextMenu {
-            if icon != "square.grid.2x2" {
-                Button(hidden ? "Unhide Folder" : "Hide Folder") { toggleHidden() }
-            }
-            if let collectionURL {
-                Divider()
-                Menu("Color") {
-                    Button {
-                        collectionColors.setColor(nil, for: collectionURL)
-                    } label: {
-                        Label("None", systemImage: collectionColors.exactColor(for: collectionURL) == nil ? "checkmark.circle.fill" : "circle")
-                    }
-                    Divider()
-                    ForEach(CollectionColor.allCases) { option in
-                        Button {
-                            collectionColors.setColor(option, for: collectionURL)
-                        } label: {
-                            Label(option.title, systemImage: collectionColors.exactColor(for: collectionURL) == option ? "checkmark.circle.fill" : "circle.fill")
-                        }
-                    }
+
+                // High-contrast clean folder name
+                Text(name)
+                    .font(.system(size: 12, weight: selected || depth == 0 ? .semibold : .medium))
+                    .foregroundColor(selected ? .white : Color(white: 0.92))
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                if hidden {
+                    Image(systemName: "eye.slash.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundColor(.orange)
                 }
+
+                // High-contrast clean count
+                Text("\(count)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Color(white: 0.45))
+            }
+            .padding(.leading, depth == 0 ? 10 : 4)
+            .padding(.trailing, 10)
+            .frame(height: 26)
+            .background(
+                selected
+                    ? Color(red: 0.22, green: 0.16, blue: 0.10)
+                    : (hovered ? Color.white.opacity(0.04) : Color.clear)
+            )
+            .overlay(alignment: .leading) {
+                if selected {
+                    Rectangle()
+                        .fill(Color.accent)
+                        .frame(width: 2.5)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .contextMenu {
+            if let collectionURL {
+                Button(hidden ? "Unhide Folder" : "Hide Folder") { toggleHidden() }
+                Button("Show in Finder") { NSWorkspace.shared.open(collectionURL) }
             }
         }
         .help(expandable ? "Select this folder, or use the chevron to show nested folders" : "Show projects in this folder")
@@ -872,32 +868,58 @@ struct SidebarProjectItem: View {
     let project: Project
     var depth: Int = 0
     @EnvironmentObject var store: AppStore
+    @State private var hovered = false
 
     private var isSelected: Bool {
         store.selectedProject?.id == project.id
+    }
+
+    private var isFavourite: Bool {
+        store.favourites.contains(project.folderURL)
     }
 
     var body: some View {
         Button {
             store.selectedProject = project
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
+                // Indent guide lines for nested subfolder hierarchy
+                if depth > 0 {
+                    TreeIndentGuides(depth: depth)
+                }
+
+                // Meaningful Version / Stage badge
                 ProjectBadgeView(project: project)
 
+                // High-contrast project title
                 Text(project.name)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .foregroundColor(isSelected ? .white : .primaryText)
+                    .foregroundColor(isSelected ? .white : Color(white: 0.90))
                     .lineLimit(1)
 
                 Spacer(minLength: 4)
+
+                // Favorite star button (matches DAWbro Image 2)
+                if hovered || isFavourite {
+                    Button {
+                        store.toggleFavourite(project)
+                    } label: {
+                        Image(systemName: isFavourite ? "star.fill" : "star")
+                            .font(.system(size: 9.5))
+                            .foregroundColor(isFavourite ? .accent : Color(white: 0.55))
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isFavourite ? "Remove from favorites" : "Add to favorites")
+                }
             }
-            .padding(.leading, CGFloat(depth) * 12 + 12)
+            .padding(.leading, depth == 0 ? 12 : 4)
             .padding(.trailing, 10)
             .frame(height: 25)
             .background(
                 isSelected
                     ? Color(red: 0.22, green: 0.16, blue: 0.10)
-                    : Color.clear
+                    : (hovered ? Color.white.opacity(0.04) : Color.clear)
             )
             .overlay(alignment: .leading) {
                 if isSelected {
@@ -909,5 +931,6 @@ struct SidebarProjectItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
