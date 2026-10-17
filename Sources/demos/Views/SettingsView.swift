@@ -3,7 +3,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var settings: SettingsStore
-    @EnvironmentObject var checkInAssistant: StudioCheckInAssistant
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @StateObject private var launchAtLogin = LaunchAtLoginManager()
 
@@ -75,44 +74,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Label("Startup", systemImage: "power")
-                    .font(.headline)
-            }
-
-            Divider()
-
-            Section {
-                Toggle("Studio check-in reminders", isOn: Binding(
-                    get: { checkInAssistant.isEnabled },
-                    set: { enabled in
-                        if enabled { Task { await checkInAssistant.enable() } }
-                        else { checkInAssistant.isEnabled = false }
-                    }
-                ))
-
-                TextField("Calendar event contains", text: $checkInAssistant.calendarMatch)
-                TextField("Required Wi-Fi", text: $checkInAssistant.requiredWiFiName)
-                TextField("SAE portal", text: $checkInAssistant.portalURLText)
-
-                HStack {
-                    Circle()
-                        .fill(checkInAssistant.isOnRequiredWiFi ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(checkInAssistant.currentNetworkName.map { "Currently on \($0)" } ?? "Current Wi-Fi name unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Refresh") { Task { await checkInAssistant.refresh() } }
-                }
-
-                if let error = checkInAssistant.lastError {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                } else {
-                    Text("Reminds you every 2 minutes from 10 minutes before until 15 minutes after the booking starts. Marking it checked in stops the reminders.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Label("Studio Check-in", systemImage: "checkmark.circle")
                     .font(.headline)
             }
 

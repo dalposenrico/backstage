@@ -27,7 +27,6 @@ struct demosApp: App {
     @StateObject private var settings      = SettingsStore()
     @StateObject private var updateChecker = UpdateChecker()
     @StateObject private var toolLaunchers = ToolLauncherStore()
-    @StateObject private var checkInAssistant = StudioCheckInAssistant()
     @StateObject private var untitledSync = UntitledSyncStore()
     @StateObject private var projectNotes = ProjectNotesStore()
     @StateObject private var references = ReferenceStore()
@@ -53,7 +52,6 @@ struct demosApp: App {
                 .environmentObject(store.audioPlayer)
                 .environmentObject(settings)
                 .environmentObject(updateChecker)
-                .environmentObject(checkInAssistant)
                 .environmentObject(untitledSync)
                 .environmentObject(projectNotes)
                 .environmentObject(references)
@@ -236,7 +234,6 @@ struct demosApp: App {
             SettingsView()
                 .environmentObject(store)
                 .environmentObject(settings)
-                .environmentObject(checkInAssistant)
                 .environmentObject(globalHotkey)
         }
 
@@ -245,7 +242,6 @@ struct demosApp: App {
             FavouritesMenuView()
                 .environmentObject(store)
                 .environmentObject(toolLaunchers)
-                .environmentObject(checkInAssistant)
                 .environmentObject(untitledSync)
                 .environmentObject(projectNotes)
                 .environmentObject(references)

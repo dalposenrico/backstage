@@ -9,7 +9,6 @@ private enum QuickAccessTab: String, CaseIterable {
 struct FavouritesMenuView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var toolLaunchers: ToolLauncherStore
-    @EnvironmentObject private var checkInAssistant: StudioCheckInAssistant
     @EnvironmentObject private var untitledSync: UntitledSyncStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject private var dailyFocus: DailyFocusStore
@@ -65,10 +64,6 @@ struct FavouritesMenuView: View {
             || "Planner".localizedCaseInsensitiveContains(searchText)
     }
 
-    private var showsStudioCheckIn: Bool {
-        searchText.isEmpty || "Studio Check-in".localizedCaseInsensitiveContains(searchText)
-    }
-
     private var showsCrashAnalyzer: Bool {
         searchText.isEmpty || "Ableton Crash Analyzer".localizedCaseInsensitiveContains(searchText)
     }
@@ -86,7 +81,6 @@ struct FavouritesMenuView: View {
             + (showsProjectNotes ? 1 : 0)
             + (showsUntitledSync ? 1 : 0)
             + (showsFocusStudio ? 1 : 0)
-            + (showsStudioCheckIn ? 1 : 0)
             + (showsNameWorlds ? 1 : 0)
             + (showsCrashAnalyzer ? 1 : 0)
     }
@@ -158,7 +152,6 @@ struct FavouritesMenuView: View {
                             if showsProjectNotes { projectNotesRow }
                             if showsUntitledSync { untitledAutomationRow }
                             if showsFocusStudio { focusStudioRow }
-                            if showsStudioCheckIn { studioCheckInRow }
                             if showsNameWorlds { nameWorldsRow }
                             if showsCrashAnalyzer { crashAnalyzerRow }
                             ForEach(tools) { toolRow($0) }
@@ -395,69 +388,6 @@ struct FavouritesMenuView: View {
         .contentShape(Rectangle())
         .onTapGesture { toolLaunchers.launchAbletonCrashAnalyzer() }
         .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
-    }
-
-    private var studioCheckInRow: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(checkInAssistant.isEnabled ? Color.green : .secondary)
-                    .frame(width: 24, height: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Studio Check-in")
-                    Text(studioCheckInSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { checkInAssistant.isEnabled },
-                    set: { enabled in
-                        if enabled { Task { await checkInAssistant.enable() } }
-                        else { checkInAssistant.isEnabled = false }
-                    }
-                ))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            }
-
-            if checkInAssistant.isEnabled, let booking = checkInAssistant.nextRelevantBooking {
-                HStack {
-                    Button("Open SAE") { checkInAssistant.openPortal() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    if !checkInAssistant.isCompleted(booking) {
-                        Button("I'm checked in") { checkInAssistant.markCheckedIn(booking) }
-                            .controlSize(.small)
-                    } else {
-                        Label("Checked in — reminders stopped", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    }
-                    Spacer()
-                }
-                .padding(.leading, 34)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
-    }
-
-    private var studioCheckInSubtitle: String {
-        guard checkInAssistant.isEnabled else { return "Calendar and Wi-Fi reminders · Off" }
-        if let booking = checkInAssistant.nextRelevantBooking {
-            if checkInAssistant.isCompleted(booking) {
-                return "Checked in · No more reminders for this booking"
-            }
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return "\(booking.title) at \(formatter.string(from: booking.startDate)) · \(checkInAssistant.isOnRequiredWiFi ? "SAE Wi-Fi" : "Waiting for SAE Wi-Fi")"
-        }
-        return "On · No upcoming studio bookings"
     }
 
     private func songRow(_ project: Project) -> some View {
