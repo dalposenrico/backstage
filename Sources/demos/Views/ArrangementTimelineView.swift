@@ -6,8 +6,12 @@ struct ArrangementTimelineView: View {
     let projectName: String
     @StateObject private var midiPlayer = MidiClipPlayer.shared
     @State private var selectedClip: AbletonClip?
-    @State private var zoomLevel: Double = 1.0 // 0.5 to 3.0
+    @State private var zoomLevel: Double = 1.0 // 0.04 to 4.0
     @State private var hoveredClipId: String?
+    @State private var viewportWidth: CGFloat = 800
+    @State private var hasInitializedZoom = false
+    @State private var isPinching = false
+    @State private var initialPinchZoom: Double = 1.0
 
     private let trackHeaderWidth: CGFloat = 175
     private let trackHeight: CGFloat = 42
@@ -19,13 +23,35 @@ struct ArrangementTimelineView: View {
     }
 
     private var totalTimelineWidth: CGFloat {
-        max(600, CGFloat(arrangement.totalLengthBeats) * pixelsPerBeat)
+        max(viewportWidth - trackHeaderWidth, CGFloat(arrangement.totalLengthBeats) * pixelsPerBeat)
     }
 
     init(arrangement: AbletonArrangement, projectName: String) {
         self.arrangement = arrangement
         self.projectName = projectName
         _selectedClip = State(initialValue: arrangement.midiClips.first ?? arrangement.tracks.first?.clips.first)
+    }
+
+    private func zoomIn() {
+        withAnimation(.easeInOut(duration: 0.12)) {
+            zoomLevel = min(4.0, zoomLevel * 1.3)
+        }
+    }
+
+    private func zoomOut() {
+        withAnimation(.easeInOut(duration: 0.12)) {
+            zoomLevel = max(0.04, zoomLevel / 1.3)
+        }
+    }
+
+    private func fitTimeline(availableWidth: CGFloat) {
+        let availableTimelineWidth = max(200, availableWidth - trackHeaderWidth - 32)
+        let totalBeats = max(16.0, arrangement.totalLengthBeats)
+        let targetPixelsPerBeat = availableTimelineWidth / CGFloat(totalBeats)
+        let calculatedZoom = Double(targetPixelsPerBeat / 18.0)
+        withAnimation(.easeInOut(duration: 0.18)) {
+            zoomLevel = max(0.04, min(3.0, calculatedZoom))
+        }
     }
 
     public var body: some View {
@@ -51,33 +77,54 @@ struct ArrangementTimelineView: View {
                 Spacer()
 
                 // Zoom & Fit controls
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Button {
-                        zoomLevel = max(0.5, zoomLevel - 0.25)
+                        zoomOut()
                     } label: {
                         Image(systemName: "minus.magnifyingglass")
                             .font(.system(size: 11))
                     }
                     .buttonStyle(.plain)
-                    .help("Zoom out timeline")
+                    .keyboardShortcut("-", modifiers: .command)
+                    .help("Zoom out (⌘-)")
+
+                    Slider(value: $zoomLevel, in: 0.04...3.0)
+                        .frame(width: 80)
+                        .help("Zoom timeline")
+
+                    Button {
+                        zoomIn()
+                    } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("=", modifiers: .command)
+                    .help("Zoom in (⌘+)")
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            zoomLevel = 1.0
+                        }
+                    } label: {
+                        Text("\(Int(round(zoomLevel * 100)))%")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Click to reset zoom to 100%")
 
                     Button("Fit") {
-                        zoomLevel = 1.0
+                        fitTimeline(availableWidth: viewportWidth)
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 10, weight: .semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(Color.elevatedBg, in: RoundedRectangle(cornerRadius: 4))
-
-                    Button {
-                        zoomLevel = min(3.0, zoomLevel + 0.25)
-                    } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Zoom in timeline")
+                    .keyboardShortcut("0", modifiers: .command)
+                    .help("Fit entire arrangement to window (⌘0)")
                 }
                 .foregroundColor(.secondaryText)
             }
@@ -87,25 +134,82 @@ struct ArrangementTimelineView: View {
 
             Divider().background(Color.divider)
 
-            // Timeline area
-            ScrollView([.horizontal, .vertical]) {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Ruler bar
-                    timelineRuler
-                        .frame(width: trackHeaderWidth + totalTimelineWidth, height: barHeaderHeight)
-                        .background(Color(red: 0.08, green: 0.085, blue: 0.10))
+            // Timeline area with pinned track headers and synchronized vertical scrolling
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: true) {
+                    HStack(alignment: .top, spacing: 0) {
+                        // 1. PINNED LEFT COLUMN: Track Headers
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack {
+                                Text("TRACKS")
+                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.tertiaryText)
+                                Spacer()
+                            }
+                            .padding(.leading, 14)
+                            .frame(width: trackHeaderWidth, height: barHeaderHeight)
+                            .background(Color(red: 0.08, green: 0.085, blue: 0.10))
 
-                    Divider().background(Color.divider)
+                            Divider().background(Color.divider)
 
-                    // Track swimlanes
-                    ForEach(arrangement.tracks) { track in
-                        trackRow(track)
-                            .frame(height: trackHeight)
-                        Divider().background(Color.white.opacity(0.04))
+                            ForEach(arrangement.tracks) { track in
+                                trackHeader(track)
+                                    .frame(width: trackHeaderWidth, height: trackHeight)
+                                Divider().background(Color.white.opacity(0.04))
+                            }
+                        }
+                        .frame(width: trackHeaderWidth)
+                        .background(Color.sidebarBg.opacity(0.65))
+                        .overlay(alignment: .trailing) {
+                            Rectangle().fill(Color.divider).frame(width: 1)
+                        }
+
+                        // 2. RIGHT COLUMN: Horizontally scrollable timeline & ruler
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                // Ruler bar
+                                timelineRuler
+                                    .frame(width: totalTimelineWidth, height: barHeaderHeight)
+                                    .background(Color(red: 0.08, green: 0.085, blue: 0.10))
+
+                                Divider().background(Color.divider)
+
+                                // Track swimlanes
+                                ForEach(arrangement.tracks) { track in
+                                    trackSwimlane(track)
+                                        .frame(width: totalTimelineWidth, height: trackHeight)
+                                    Divider().background(Color.white.opacity(0.04))
+                                }
+                            }
+                            .frame(width: totalTimelineWidth)
+                        }
                     }
                 }
+                .background(Color.appBg)
+                .simultaneousGesture(
+                    MagnificationGesture()
+                        .onChanged { scale in
+                            if !isPinching {
+                                isPinching = true
+                                initialPinchZoom = zoomLevel
+                            }
+                            zoomLevel = max(0.04, min(4.0, initialPinchZoom * Double(scale)))
+                        }
+                        .onEnded { _ in
+                            isPinching = false
+                        }
+                )
+                .onAppear {
+                    viewportWidth = geo.size.width
+                    if !hasInitializedZoom {
+                        hasInitializedZoom = true
+                        fitTimeline(availableWidth: geo.size.width)
+                    }
+                }
+                .onChange(of: geo.size.width) { _, newWidth in
+                    viewportWidth = newWidth
+                }
             }
-            .background(Color.appBg)
 
             // Footer with selected clip inspection & Drag to DAW
             if let clip = selectedClip {
@@ -115,126 +219,141 @@ struct ArrangementTimelineView: View {
         }
     }
 
-    // MARK: - Ruler View
+    // MARK: - Ruler View (Adaptive interval based on zoom)
 
     private var timelineRuler: some View {
-        HStack(spacing: 0) {
-            Text("TRACKS")
-                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                .foregroundColor(.tertiaryText)
-                .frame(width: trackHeaderWidth, alignment: .leading)
-                .padding(.leading, 14)
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(Color.divider).frame(width: 1)
-                }
+        let barWidth = beatsPerBar * pixelsPerBeat
+        let totalBars = max(1, Int(ceil(arrangement.totalLengthBeats / beatsPerBar)))
 
-            ZStack(alignment: .leading) {
-                // Ruler tick marks
-                Canvas { context, size in
-                    let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
-                    for bar in 0...totalBars {
-                        let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
-                        var tick = Path()
-                        let isMajor = (bar % 4 == 0)
-                        tick.move(to: CGPoint(x: x, y: size.height - (isMajor ? 8 : 4)))
-                        tick.addLine(to: CGPoint(x: x, y: size.height))
-                        context.stroke(
-                            tick,
-                            with: .color(isMajor ? Color.white.opacity(0.35) : Color.white.opacity(0.15)),
-                            lineWidth: 1
-                        )
-                    }
-                }
+        // Adaptive step so bar labels never collide
+        let step: Int = {
+            let ideal = 65.0 / max(0.5, barWidth)
+            if ideal <= 1.0 { return 1 }
+            if ideal <= 2.0 { return 2 }
+            if ideal <= 4.0 { return 4 }
+            if ideal <= 8.0 { return 8 }
+            if ideal <= 16.0 { return 16 }
+            if ideal <= 32.0 { return 32 }
+            return 64
+        }()
 
-                // Bar numbers and time
-                let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
-                let step = zoomLevel >= 1.5 ? 2 : (zoomLevel <= 0.6 ? 8 : 4)
-                ForEach(Array(stride(from: 0, to: totalBars, by: step)), id: \.self) { bar in
-                    let barNumber = bar + 1
-                    let xPos = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
-                    let totalSeconds = (Double(bar * 4) / arrangement.tempo) * 60.0
-                    let minutes = Int(totalSeconds) / 60
-                    let seconds = Int(totalSeconds) % 60
-                    HStack(spacing: 4) {
-                        Text("\(barNumber)")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(.primaryText)
+        return ZStack(alignment: .leading) {
+            // Ruler tick marks
+            Canvas { context, size in
+                for bar in 0...totalBars {
+                    let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
+                    guard x <= size.width else { break }
+                    let isMajor = (bar % step == 0)
+                    let isMinor = (step > 1 && bar % max(1, step / 4) == 0)
+                    guard isMajor || isMinor || step <= 2 else { continue }
+
+                    var tick = Path()
+                    let tickH: CGFloat = isMajor ? 8.0 : 4.0
+                    tick.move(to: CGPoint(x: x, y: size.height - tickH))
+                    tick.addLine(to: CGPoint(x: x, y: size.height))
+                    let opacity = isMajor ? 0.35 : 0.15
+                    context.stroke(
+                        tick,
+                        with: .color(Color.white.opacity(opacity)),
+                        lineWidth: 1
+                    )
+                }
+            }
+
+            // Bar numbers and time
+            ForEach(Array(stride(from: 0, to: totalBars, by: step)), id: \.self) { bar in
+                let barNumber = bar + 1
+                let xPos = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
+                let totalSeconds = (Double(bar * 4) / max(20.0, arrangement.tempo)) * 60.0
+                let minutes = Int(totalSeconds) / 60
+                let seconds = Int(totalSeconds) % 60
+                HStack(spacing: 3) {
+                    Text("\(barNumber)")
+                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                        .foregroundColor(.primaryText)
+                    if barWidth * CGFloat(step) >= 70 {
                         Text(String(format: "%d:%02d", minutes, seconds))
                             .font(.system(size: 8.5, design: .monospaced))
                             .foregroundColor(.tertiaryText)
                     }
-                    .offset(x: xPos + 3)
                 }
+                .offset(x: xPos + 3)
             }
-            .frame(width: totalTimelineWidth, height: barHeaderHeight, alignment: .leading)
         }
     }
 
-    // MARK: - Track Row
+    // MARK: - Track Header
 
-    private func trackRow(_ track: AbletonTrack) -> some View {
+    private func trackHeader(_ track: AbletonTrack) -> some View {
         let isChild = track.trackGroupId != nil
 
-        return HStack(spacing: 0) {
-            // Track Header
-            HStack(spacing: 7) {
-                // Left color accent bar
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(track.color)
-                    .frame(width: 4, height: trackHeight - 8)
+        return HStack(spacing: 7) {
+            // Left color accent bar
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(track.color)
+                .frame(width: 4, height: trackHeight - 8)
 
-                if isChild {
-                    Rectangle()
-                        .fill(track.color.opacity(0.45))
-                        .frame(width: 1.5, height: trackHeight - 12)
-                        .padding(.leading, 2)
-                }
-
-                Image(systemName: track.type.systemIcon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(track.color)
-                    .frame(width: 14)
-
-                Text(track.name)
-                    .font(.system(size: 11.5, weight: track.type == .group ? .bold : .medium))
-                    .foregroundColor(track.type == .group ? .primaryText : Color(white: 0.9))
-                    .lineLimit(1)
-
-                Spacer(minLength: 4)
-            }
-            .padding(.leading, isChild ? 16 : 8)
-            .padding(.trailing, 6)
-            .frame(width: trackHeaderWidth, height: trackHeight, alignment: .leading)
-            .background(Color.sidebarBg.opacity(0.55))
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(Color.divider).frame(width: 1)
+            if isChild {
+                Rectangle()
+                    .fill(track.color.opacity(0.45))
+                    .frame(width: 1.5, height: trackHeight - 12)
+                    .padding(.leading, 2)
             }
 
-            // Timeline Track Area
-            ZStack(alignment: .leading) {
-                // Background grid lines (hardware-accelerated Canvas)
-                Canvas { context, size in
-                    let totalBars = Int(ceil(arrangement.totalLengthBeats / beatsPerBar))
-                    for bar in 0...totalBars {
-                        let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
-                        var path = Path()
-                        path.move(to: CGPoint(x: x, y: 0))
-                        path.addLine(to: CGPoint(x: x, y: size.height))
-                        let isMajor = (bar % 4 == 0)
-                        context.stroke(
-                            path,
-                            with: .color(isMajor ? Color.white.opacity(0.08) : Color.white.opacity(0.035)),
-                            lineWidth: isMajor ? 1.0 : 0.5
-                        )
-                    }
-                }
+            Image(systemName: track.type.systemIcon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(track.color)
+                .frame(width: 14)
 
-                // Clips
-                ForEach(track.clips) { clip in
-                    clipView(clip, track: track)
+            Text(track.name)
+                .font(.system(size: 11.5, weight: track.type == .group ? .bold : .medium))
+                .foregroundColor(track.type == .group ? .primaryText : Color(white: 0.9))
+                .lineLimit(1)
+
+            Spacer(minLength: 4)
+        }
+        .padding(.leading, isChild ? 16 : 8)
+        .padding(.trailing, 6)
+        .frame(width: trackHeaderWidth, height: trackHeight, alignment: .leading)
+        .background(Color.sidebarBg.opacity(0.55))
+    }
+
+    // MARK: - Track Swimlane (Clips & Adaptive Grid)
+
+    private func trackSwimlane(_ track: AbletonTrack) -> some View {
+        let barWidth = beatsPerBar * pixelsPerBeat
+        let gridStep: Int = {
+            if barWidth >= 30 { return 1 }
+            if barWidth >= 15 { return 2 }
+            if barWidth >= 7.5 { return 4 }
+            if barWidth >= 3.5 { return 8 }
+            if barWidth >= 1.8 { return 16 }
+            return 32
+        }()
+
+        return ZStack(alignment: .leading) {
+            // Background grid lines (hardware-accelerated Canvas)
+            Canvas { context, size in
+                let totalBars = max(1, Int(ceil(arrangement.totalLengthBeats / beatsPerBar)))
+                for bar in stride(from: 0, through: totalBars, by: gridStep) {
+                    let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
+                    guard x <= size.width else { break }
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                    let isMajor = (bar % (gridStep * 4) == 0)
+                    context.stroke(
+                        path,
+                        with: .color(isMajor ? Color.white.opacity(0.08) : Color.white.opacity(0.035)),
+                        lineWidth: isMajor ? 1.0 : 0.5
+                    )
                 }
             }
-            .frame(width: totalTimelineWidth, height: trackHeight, alignment: .leading)
+
+            // Clips
+            ForEach(track.clips) { clip in
+                clipView(clip, track: track)
+            }
         }
     }
 
@@ -242,40 +361,45 @@ struct ArrangementTimelineView: View {
 
     private func clipView(_ clip: AbletonClip, track: AbletonTrack) -> some View {
         let x = CGFloat(clip.startTimeBeats) * pixelsPerBeat
-        let width = max(24.0, CGFloat(clip.durationBeats) * pixelsPerBeat)
+        let width = max(2.0, CGFloat(clip.durationBeats) * pixelsPerBeat)
         let isSelected = selectedClip?.id == clip.id
         let isPlaying = midiPlayer.isPlaying && midiPlayer.currentClipId == clip.id
+        let showHeader = width >= 28.0
 
         return VStack(spacing: 0) {
-            // 1. Clip Header (dark strip with clip name, DAWbro style)
-            HStack(spacing: 4) {
-                Text(clip.name)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(Color.white.opacity(0.95))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 4)
-            .frame(height: 11)
-            .background(Color.black.opacity(0.38))
+            if showHeader {
+                // 1. Clip Header (dark strip with clip name, DAWbro style)
+                HStack(spacing: 4) {
+                    Text(clip.name)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Color.white.opacity(0.95))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 4)
+                .frame(height: 11)
+                .background(Color.black.opacity(0.38))
 
-            Divider().background(Color.black.opacity(0.2))
+                Divider().background(Color.black.opacity(0.2))
+            }
 
             // 2. Clip Content: Oscilloscope Waveform (Audio) or Mini Piano Roll (MIDI)
             ZStack {
-                if clip.isMidi {
-                    MidiPianoRollCanvas(clip: clip, trackName: track.name, width: width, height: trackHeight - 17)
-                } else {
-                    SampleWaveformCanvas(clip: clip, trackName: track.name, width: width, height: trackHeight - 17)
+                if width >= 10.0 {
+                    if clip.isMidi {
+                        MidiPianoRollCanvas(clip: clip, trackName: track.name, width: width, height: showHeader ? trackHeight - 17 : trackHeight - 5)
+                    } else {
+                        SampleWaveformCanvas(clip: clip, trackName: track.name, width: width, height: showHeader ? trackHeight - 17 : trackHeight - 5)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: width, height: trackHeight - 5)
         .background(clip.color.opacity(isSelected ? 0.95 : 0.82))
-        .clipShape(RoundedRectangle(cornerRadius: 3.5))
+        .clipShape(RoundedRectangle(cornerRadius: min(3.5, width / 2.0)))
         .overlay {
-            RoundedRectangle(cornerRadius: 3.5)
+            RoundedRectangle(cornerRadius: min(3.5, width / 2.0))
                 .stroke(
                     isPlaying
                         ? Color.white
@@ -293,6 +417,7 @@ struct ArrangementTimelineView: View {
         }
         .help("\(clip.name) (\(clip.isMidi ? "MIDI" : "Audio")) · Click to inspect, drag to Ableton Live")
     }
+
 
     // MARK: - Footer & Drag-to-DAW
 
