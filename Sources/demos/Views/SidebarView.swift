@@ -9,6 +9,7 @@ struct SidebarView: View {
     @EnvironmentObject var updateChecker: UpdateChecker
     @EnvironmentObject var collectionColors: CollectionColorStore
     @Environment(\.openSettings) private var openSettings
+    @FocusState private var isSearchFocused: Bool
     @State private var showingFolderSearch = false
     @State private var folderSearchQuery = ""
     @AppStorage("librarySidebarMode") private var sidebarMode = "library"
@@ -16,6 +17,7 @@ struct SidebarView: View {
     var body: some View {
         librarySidebar
             .onAppear {
+                isSearchFocused = false
                 if sidebarMode != "library" { sidebarMode = "library" }
             }
     }
@@ -49,6 +51,9 @@ struct SidebarView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundColor(.primaryText)
+                        .focused($isSearchFocused)
+                        .textContentType(nil)
+                        .autocorrectionDisabled(true)
 
                     if !store.searchQuery.isEmpty {
                         Button { store.searchQuery = "" } label: {

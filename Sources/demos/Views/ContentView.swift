@@ -94,6 +94,13 @@ struct ContentView: View {
             focusCalendar.checkForDueEvent()
             if let event = focusCalendar.dueEvent { presentScheduledFocus(event) }
         }
+        .onAppear {
+            DispatchQueue.main.async {
+                if let window = NSApp.keyWindow, window.firstResponder is NSTextView || window.firstResponder is NSTextField {
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
         .frame(minWidth: 940, minHeight: 560)
         .onOpenURL { url in

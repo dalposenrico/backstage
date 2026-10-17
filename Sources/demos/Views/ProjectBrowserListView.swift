@@ -219,6 +219,8 @@ struct ProjectBrowserListView: View {
                     TextField("Search projects in \(collectionTitle)", text: $store.searchQuery)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14))
+                        .textContentType(nil)
+                        .autocorrectionDisabled(true)
                     if !store.searchQuery.isEmpty {
                         Button { store.searchQuery = "" } label: {
                             Image(systemName: "xmark.circle.fill")
