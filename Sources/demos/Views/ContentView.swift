@@ -29,34 +29,32 @@ struct ContentView: View {
                 .opacity(store.activeWorkspaceSection == .library ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .library)
 
-                if let project = store.selectedProject {
+                if store.activeWorkspaceSection == .project, let project = store.selectedProject {
                     ProjectFullWorkspaceView(project: project) {
                         store.closeProjectTab()
                     }
                     .background(Color.appBg)
-                    .opacity(store.activeWorkspaceSection == .project ? 1 : 0)
-                    .allowsHitTesting(store.activeWorkspaceSection == .project)
                 }
 
-                HomeDashboardView { project in
-                    store.openProjectTab(project)
-                }
-                .background(Color.appBg)
-                .opacity(store.activeWorkspaceSection == .home ? 1 : 0)
-                .allowsHitTesting(store.activeWorkspaceSection == .home)
-
-                ReleasesHubView {
-                    store.activeWorkspaceSection = .library
-                    showProjectInspector = true
-                }
-                .background(Color.appBg)
-                .opacity(store.activeWorkspaceSection == .releases ? 1 : 0)
-                .allowsHitTesting(store.activeWorkspaceSection == .releases)
-
-                ToolsHubView()
+                if store.activeWorkspaceSection == .home {
+                    HomeDashboardView { project in
+                        store.openProjectTab(project)
+                    }
                     .background(Color.appBg)
-                    .opacity(store.activeWorkspaceSection == .tools ? 1 : 0)
-                    .allowsHitTesting(store.activeWorkspaceSection == .tools)
+                }
+
+                if store.activeWorkspaceSection == .releases {
+                    ReleasesHubView {
+                        store.activeWorkspaceSection = .library
+                        showProjectInspector = true
+                    }
+                    .background(Color.appBg)
+                }
+
+                if store.activeWorkspaceSection == .tools {
+                    ToolsHubView()
+                        .background(Color.appBg)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

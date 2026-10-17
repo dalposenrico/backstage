@@ -3,8 +3,8 @@ import SwiftUI
 /// Minimal, connected DAW tab outline shape (open at bottom).
 struct DawTabOutline: Shape {
     var cornerRadius: CGFloat = 5
-    var strokeWidth: CGFloat = 1.2
-    var bottomExtension: CGFloat = 1.0
+    var strokeWidth: CGFloat = 2.0
+    var bottomExtension: CGFloat = 2.0
 
     func path(in rect: CGRect) -> Path {
         let half = strokeWidth / 2.0
@@ -30,10 +30,10 @@ struct DawTabOutline: Shape {
     }
 }
 
-/// Solid tab background fill (extends 1px down to seamlessly cover baseline divider).
+/// Solid tab background fill (extends down to seamlessly cover baseline divider).
 struct DawTabFill: Shape {
     var cornerRadius: CGFloat = 5
-    var bottomExtension: CGFloat = 1.0
+    var bottomExtension: CGFloat = 2.0
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -75,10 +75,10 @@ struct DawTopNavBar: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Horizontal baseline across the entire navbar width
+            // Horizontal baseline across the entire navbar width forming the top outline of the selected page
             Rectangle()
-                .fill(Color.divider)
-                .frame(height: 1)
+                .fill(Color.white.opacity(0.24))
+                .frame(height: 2)
                 .frame(maxWidth: .infinity)
 
             HStack(spacing: 14) {
@@ -229,7 +229,11 @@ struct DawTopNavBar: View {
         let isHovered = hoveredSection == section
 
         return Button {
-            selection = section
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selection = section
+            }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: icon)
@@ -243,7 +247,7 @@ struct DawTopNavBar: View {
             .frame(height: 35)
             .background {
                 if isSelected {
-                    DawTabFill(cornerRadius: 5)
+                    DawTabFill(cornerRadius: 5, bottomExtension: 2.0)
                         .fill(activeTabBackground)
                 } else if isHovered {
                     DawTabFill(cornerRadius: 5, bottomExtension: 0)
@@ -252,8 +256,8 @@ struct DawTopNavBar: View {
             }
             .overlay {
                 if isSelected {
-                    DawTabOutline(cornerRadius: 5, strokeWidth: 1.2)
-                        .stroke(Color.accent, lineWidth: 1.2)
+                    DawTabOutline(cornerRadius: 5, strokeWidth: 2.0, bottomExtension: 2.0)
+                        .stroke(Color.accent, lineWidth: 2.0)
                 } else if isHovered {
                     DawTabFill(cornerRadius: 5, bottomExtension: 0)
                         .stroke(Color.white.opacity(0.18), lineWidth: 1.0)
@@ -273,7 +277,11 @@ struct DawTopNavBar: View {
 
         return HStack(spacing: 0) {
             Button {
-                selection = .project
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection = .project
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "waveform")
@@ -307,7 +315,7 @@ struct DawTopNavBar: View {
         .frame(height: 35)
         .background {
             if isSelected {
-                DawTabFill(cornerRadius: 5)
+                DawTabFill(cornerRadius: 5, bottomExtension: 2.0)
                     .fill(Color.appBg)
             } else if isHovered {
                 DawTabFill(cornerRadius: 5, bottomExtension: 0)
@@ -316,8 +324,8 @@ struct DawTopNavBar: View {
         }
         .overlay {
             if isSelected {
-                DawTabOutline(cornerRadius: 5, strokeWidth: 1.2)
-                    .stroke(Color.accent, lineWidth: 1.2)
+                DawTabOutline(cornerRadius: 5, strokeWidth: 2.0, bottomExtension: 2.0)
+                    .stroke(Color.accent, lineWidth: 2.0)
             } else if isHovered {
                 DawTabFill(cornerRadius: 5, bottomExtension: 0)
                     .stroke(Color.white.opacity(0.18), lineWidth: 1.0)

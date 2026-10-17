@@ -118,19 +118,23 @@ struct TrackListView: View {
             .padding(.top, 20)
             .padding(.bottom, 18)
 
-            Divider().background(Color.divider)
+            Divider().background(Color.white.opacity(0.18))
 
             ZStack(alignment: .bottom) {
                 Rectangle()
-                    .fill(Color.divider)
-                    .frame(height: 1)
+                    .fill(Color.white.opacity(0.24))
+                    .frame(height: 2)
                     .frame(maxWidth: .infinity)
 
                 HStack(alignment: .bottom, spacing: 4) {
                     ForEach(ProjectInspectorSection.allCases) { item in
                         let isSelected = section == item
                         Button {
-                            section = item
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                section = item
+                            }
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: item.icon)
@@ -144,14 +148,14 @@ struct TrackListView: View {
                             .frame(height: 32)
                             .background {
                                 if isSelected {
-                                    DawTabFill(cornerRadius: 5)
+                                    DawTabFill(cornerRadius: 5, bottomExtension: 2.0)
                                         .fill(Color.appBg)
                                 }
                             }
                             .overlay {
                                 if isSelected {
-                                    DawTabOutline(cornerRadius: 5, strokeWidth: 1.2)
-                                        .stroke(Color.accent, lineWidth: 1.2)
+                                    DawTabOutline(cornerRadius: 5, strokeWidth: 2.0, bottomExtension: 2.0)
+                                        .stroke(Color.accent, lineWidth: 2.0)
                                 }
                             }
                             .contentShape(Rectangle())
@@ -166,82 +170,80 @@ struct TrackListView: View {
             .background(Color.sidebarBg.opacity(0.45))
 
             // ── Content ──────────────────────────────────────────────────────
-            ZStack {
-                // Overview, Workflow, Files
-                HStack(spacing: 0) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            switch section {
-                            case .overview:
-                                ProjectProgressSection(project: project)
-                                ProjectTodoSection(project: project)
-                                ProjectNotesSection(project: project)
-                                StreamingReferencesSection(project: project)
-                                    .padding(.vertical, 8)
+            Group {
+                switch section {
+                case .overview, .workflow, .files:
+                    HStack(spacing: 0) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                switch section {
+                                case .overview:
+                                    ProjectProgressSection(project: project)
+                                    ProjectTodoSection(project: project)
+                                    ProjectNotesSection(project: project)
+                                    StreamingReferencesSection(project: project)
+                                        .padding(.vertical, 8)
 
-                            case .workflow:
-                                ProductionChecklistView(project: project)
+                                case .workflow:
+                                    ProductionChecklistView(project: project)
 
-                            case .files:
-                                PluginsUsedSection(plugins: project.plugins)
-                                if !project.tracks.isEmpty {
-                                    ListSectionHeader(title: "Exports", count: project.tracks.count)
+                                case .files:
+                                    PluginsUsedSection(plugins: project.plugins)
+                                    if !project.tracks.isEmpty {
+                                        ListSectionHeader(title: "Exports", count: project.tracks.count)
 
-                                    ForEach(project.exportGroups) { group in
-                                        if !group.folder.isEmpty {
-                                            ExportFolderHeader(path: group.folder, count: group.tracks.count)
+                                        ForEach(project.exportGroups) { group in
+                                            if !group.folder.isEmpty {
+                                                ExportFolderHeader(path: group.folder, count: group.tracks.count)
+                                            }
+                                            ForEach(group.tracks) { track in
+                                                TrackRow(track: track, project: project)
+                                                    .padding(.leading, group.folder.isEmpty ? 0 : 14)
+                                                    .onTapGesture {
+                                                        player.currentTrack?.id == track.id
+                                                            ? player.togglePlayPause()
+                                                            : store.playTrack(track)
+                                                    }
+                                            }
                                         }
-                                        ForEach(group.tracks) { track in
-                                            TrackRow(track: track, project: project)
-                                                .padding(.leading, group.folder.isEmpty ? 0 : 14)
-                                                .onTapGesture {
-                                                    player.currentTrack?.id == track.id
-                                                        ? player.togglePlayPause()
-                                                        : store.playTrack(track)
-                                                }
+                                    } else {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "square.dashed")
+                                                .font(.system(size: 13))
+                                                .foregroundColor(.tertiaryText)
+                                            Text("No audio exports found in this project folder")
+                                                .font(.system(size: 13))
+                                                .foregroundColor(.tertiaryText)
+                                        }
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 20)
+                                    }
+
+                                    if !project.versions.isEmpty {
+                                        ListSectionHeader(title: "Project Files", count: project.versions.count)
+                                            .padding(.top, project.tracks.isEmpty ? 4 : 0)
+
+                                        ForEach(project.versions) { version in
+                                            AbletonVersionRow(version: version)
                                         }
                                     }
-                                } else {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "square.dashed")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.tertiaryText)
-                                        Text("No audio exports found in this project folder")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.tertiaryText)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 20)
+
+                                default:
+                                    EmptyView()
                                 }
-
-                                if !project.versions.isEmpty {
-                                    ListSectionHeader(title: "Project Files", count: project.versions.count)
-                                        .padding(.top, project.tracks.isEmpty ? 4 : 0)
-
-                                    ForEach(project.versions) { version in
-                                        AbletonVersionRow(version: version)
-                                    }
-                                }
-
-                            default:
-                                EmptyView()
                             }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 16)
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 16)
+
+                        if allowsExpandedWorkspace && workspaceExpanded {
+                            Divider().background(Color.divider)
+                            ProjectDetailsPanel(project: project)
+                                .frame(width: 320)
+                        }
                     }
 
-                    if allowsExpandedWorkspace && workspaceExpanded {
-                        Divider().background(Color.divider)
-                        ProjectDetailsPanel(project: project)
-                            .frame(width: 320)
-                    }
-                }
-                .opacity((section == .overview || section == .workflow || section == .files) ? 1 : 0)
-                .allowsHitTesting(section == .overview || section == .workflow || section == .files)
-
-                // Arrangement
-                Group {
+                case .arrangement:
                     if let arrangement {
                         ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -264,12 +266,8 @@ struct TrackListView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                }
-                .opacity(section == .arrangement ? 1 : 0)
-                .allowsHitTesting(section == .arrangement)
 
-                // MIDI
-                Group {
+                case .midi:
                     if let arrangement {
                         MidiClipVaultView(arrangement: arrangement, projectName: project.name)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -284,12 +282,8 @@ struct TrackListView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                }
-                .opacity(section == .midi ? 1 : 0)
-                .allowsHitTesting(section == .midi)
 
-                // Samples
-                Group {
+                case .samples:
                     if let arrangement {
                         SampleHealthAuditorView(arrangement: arrangement, project: project)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -305,8 +299,6 @@ struct TrackListView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .opacity(section == .samples ? 1 : 0)
-                .allowsHitTesting(section == .samples)
             }
                 .overlay(alignment: .bottomTrailing) {
                     if allowsExpandedWorkspace {

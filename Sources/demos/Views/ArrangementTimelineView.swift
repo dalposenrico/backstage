@@ -426,7 +426,7 @@ struct SampleWaveformCanvas: View {
                                 combined.contains("loop") || combined.contains("synth") ||
                                 combined.contains("lead") || combined.contains("guitar")
 
-            let step: CGFloat = 1.8 // Fine oscilloscope slice resolution
+            let step: CGFloat = 2.4 // Balanced oscilloscope slice resolution
             let sampleCount = Int(size.width / step)
             guard sampleCount > 0 else { return }
 
