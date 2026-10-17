@@ -14,17 +14,10 @@ struct SidebarView: View {
     @AppStorage("librarySidebarMode") private var sidebarMode = "library"
 
     var body: some View {
-        Group {
-            if sidebarMode == "today" {
-                DailyFocusSidebarView {
-                    withAnimation(.easeInOut(duration: 0.2)) { sidebarMode = "library" }
-                }
-                .transition(.opacity.combined(with: .move(edge: .leading)))
-            } else {
-                librarySidebar
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+        librarySidebar
+            .onAppear {
+                if sidebarMode != "library" { sidebarMode = "library" }
             }
-        }
     }
 
     private var librarySidebar: some View {
@@ -34,25 +27,16 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     Button { openSettings() } label: {
-                        Text("[demos]")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primaryText)
+                        HStack(spacing: 6) {
+                            Text("goodvibrations")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.primaryText)
+                        }
                     }
                     .buttonStyle(.plain)
                     .help("Settings (⌘,)")
 
                     Spacer()
-
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { sidebarMode = "today" }
-                    } label: {
-                        Image(systemName: "timer")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.secondaryText)
-                            .frame(width: 26, height: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open Today focus")
 
                     Menu {
                         Button {

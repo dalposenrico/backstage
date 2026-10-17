@@ -147,6 +147,11 @@ struct ProjectBrowserListView: View {
     @State private var ratingFilter: ProjectRating?
     @State private var dateFilter: ProjectDateFilter = .anytime
     @State private var rediscoverEnabled = false
+    @State private var showFilters = false
+
+    private var hasActiveFilters: Bool {
+        stageFilter != nil || priorityFilter != nil || ratingFilter != nil || dateFilter != .anytime || rediscoverEnabled
+    }
 
     private var displayedProjects: [Project] {
         let filtered = store.filteredProjects.filter { project in
@@ -161,10 +166,6 @@ struct ProjectBrowserListView: View {
             ? filtered.sorted { rediscoveryScore($0) > rediscoveryScore($1) }
             : filtered
         return ordered
-    }
-
-    private var collectionLegendItems: [CollectionLegendItem] {
-        collectionColors.legendItems(for: displayedProjects.map(\.folderURL))
     }
 
     var body: some View {
@@ -231,9 +232,21 @@ struct ProjectBrowserListView: View {
                 .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
 
                 Spacer(minLength: 10)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) { showFilters.toggle() }
+                } label: {
+                    Image(systemName: (showFilters || hasActiveFilters) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 15))
+                        .foregroundColor(hasActiveFilters ? .accent : .secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help(showFilters ? "Hide filters" : "Filter projects")
+
                 Text("\(displayedProjects.count)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.tertiaryText)
+
                 Menu {
                     Section("Layout") {
                         Button { viewStyle = "list" } label: {
@@ -263,26 +276,20 @@ struct ProjectBrowserListView: View {
 
             Divider().background(Color.divider)
 
-            ProjectFilterBar(
-                stage: $stageFilter,
-                priority: $priorityFilter,
-                rating: $ratingFilter,
-                date: $dateFilter,
-                rediscoverEnabled: $rediscoverEnabled,
-                clear: clearFilters
-            )
-
-            Divider().background(Color.divider)
-
-            if !collectionLegendItems.isEmpty {
-                CollectionLegendBar(items: collectionLegendItems)
+            if showFilters || hasActiveFilters {
+                ProjectFilterBar(
+                    stage: $stageFilter,
+                    priority: $priorityFilter,
+                    rating: $ratingFilter,
+                    date: $dateFilter,
+                    rediscoverEnabled: $rediscoverEnabled,
+                    clear: clearFilters
+                )
+                Divider().background(Color.divider)
             }
 
             if viewStyle == "list" {
                 GeometryReader { proxy in
-                    // The workspace rail and project inspector leave less room for the
-                    // browser than the full window size suggests. Switch earlier so the
-                    // flexible project-name column never gets squeezed behind actions.
                     let compact = proxy.size.width < 820
                     VStack(spacing: 0) {
                         ProjectListHeader(compact: compact)
@@ -303,8 +310,6 @@ struct ProjectBrowserListView: View {
                     showProjectInspector: $showProjectInspector
                 )
             }
-
-            ProjectShortcutBar()
         }
         .background {
             ZStack {
@@ -650,21 +655,19 @@ private struct ProjectListHeader: View {
     @EnvironmentObject var store: AppStore
 
     var body: some View {
-        HStack(spacing: 10) {
-            sortHeader("ACTIVITY", order: .activity, width: compact ? 48 : 66, alignment: .leading)
+        HStack(spacing: 12) {
             Color.clear.frame(width: compact ? 28 : 36)
             sortHeader("PROJECT", order: .name, alignment: .leading)
-            sortHeader("BPM", order: .bpm, width: compact ? 36 : 48, alignment: .trailing)
-            if !compact { sortHeader("WORK", order: .work, width: 72, alignment: .trailing) }
-            sortHeader("MODIFIED", order: .recentlyEdited, width: compact ? 72 : 100, alignment: .trailing)
-            Color.clear.frame(width: compact ? 104 : 132)
+            sortHeader("BPM", order: .bpm, width: compact ? 42 : 54, alignment: .trailing)
+            sortHeader("MODIFIED", order: .recentlyEdited, width: compact ? 80 : 100, alignment: .trailing)
+            Color.clear.frame(width: compact ? 70 : 88)
         }
         .font(.system(size: 9, weight: .semibold))
         .tracking(0.6)
         .foregroundColor(.tertiaryText)
-        .padding(.horizontal, 17)
-        .frame(height: 30)
-        .background(Color.sidebarBg.opacity(0.5))
+        .padding(.horizontal, 16)
+        .frame(height: 28)
+        .background(Color.sidebarBg.opacity(0.35))
         .overlay(alignment: .bottom) { Divider().background(Color.divider) }
     }
 
@@ -691,42 +694,6 @@ private struct ProjectListHeader: View {
     }
 }
 
-private struct CollectionLegendBar: View {
-    let items: [CollectionLegendItem]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                Text("COLLECTION DOTS")
-                    .font(.system(size: 8, weight: .bold))
-                    .tracking(0.7)
-                    .foregroundColor(.tertiaryText)
-
-                ForEach(items) { item in
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(item.color.color.opacity(0.58))
-                            .frame(width: 7, height: 7)
-                        Text(item.title)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.secondaryText)
-                            .lineLimit(1)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(item.title) collection")
-                    .help("This dot marks projects in \(item.title)")
-                }
-            }
-            .padding(.horizontal, 17)
-        }
-        .frame(height: 28)
-        .background(Color.sidebarBg.opacity(0.28))
-        .overlay(alignment: .bottom) {
-            Divider().background(Color.divider)
-        }
-    }
-}
-
 private struct BrowserProjectRow: View {
     let project: Project
     let compact: Bool
@@ -746,196 +713,138 @@ private struct BrowserProjectRow: View {
         guard let current = player.currentTrack else { return false }
         return project.tracks.contains { $0.id == current.id }
     }
-    private var progress: ProjectProgress { progressStore.progress(for: project) }
     private var collectionColorHelp: String {
         guard let sourceURL = collectionColors.resolvedColorSourceURL(for: project.folderURL) else {
             return "Collection color"
         }
         return "Collection: \(sourceURL.lastPathComponent)"
     }
+
     var body: some View {
-        HStack(spacing: isCurrentOpenProject ? 12 : 9) {
-            ActivityMeter(
-                percent: project.activity.activityPercent,
-                backupCount: project.activity.backupCount,
-                color: playing ? .accent : effortColor
-            )
-            .frame(width: compact ? 48 : 66)
-            ProjectArtworkImage(project: project)
-                .frame(
-                    width: isCurrentOpenProject ? (compact ? 42 : 52) : (compact ? 28 : 36),
-                    height: isCurrentOpenProject ? (compact ? 42 : 52) : (compact ? 28 : 36)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: isCurrentOpenProject ? 11 : (compact ? 6 : 7)))
-                .overlay {
-                    RoundedRectangle(cornerRadius: isCurrentOpenProject ? 11 : (compact ? 6 : 7))
-                        .stroke(
-                            isCurrentOpenProject ? Color.accent.opacity(0.72) : Color.primary.opacity(selected ? 0.18 : 0.07),
-                            lineWidth: isCurrentOpenProject ? 1.5 : 1
-                        )
+        HStack(spacing: 12) {
+            // Artwork with play button on hover or playing state
+            ZStack {
+                ProjectArtworkImage(project: project)
+                    .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
+                    .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: compact ? 6 : 8)
+                            .stroke(
+                                isCurrentOpenProject ? Color.accent.opacity(0.7) : Color.primary.opacity(selected ? 0.2 : 0.08),
+                                lineWidth: 1
+                            )
+                    }
+
+                if playing || hovered {
+                    Button {
+                        if playing {
+                            player.togglePlayPause()
+                        } else if let newestExport = project.sortedTracks.first {
+                            store.playTrack(newestExport)
+                        }
+                    } label: {
+                        Image(systemName: playing && player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: compact ? 28 : 36, height: compact ? 28 : 36)
+                            .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: compact ? 6 : 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!project.hasExports)
                 }
-                .shadow(color: isCurrentOpenProject ? Color.accent.opacity(0.22) : .clear, radius: 10)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+            }
+            .accessibilityHidden(true)
+
+            // Title & Collection
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     if let category = collectionColors.resolvedColor(for: project.folderURL) {
                         Circle()
-                            .fill(category.color.opacity(0.58))
+                            .fill(category.color.opacity(0.75))
                             .frame(width: 6, height: 6)
                             .help(collectionColorHelp)
                     }
                     Text(project.name)
-                        .font(.system(size: isCurrentOpenProject ? 15 : 13, weight: selected || isCurrentOpenProject ? .semibold : .regular))
+                        .font(.system(size: 13, weight: selected || isCurrentOpenProject ? .semibold : .medium))
                         .foregroundColor(.primaryText)
                         .lineLimit(1)
+
                     if isCurrentOpenProject {
-                        Label("CURRENT OPEN PROJECT", systemImage: "waveform")
+                        Text("LIVE")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(.accent)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
                             .background(Color.accent.opacity(0.14), in: Capsule())
-                            .overlay { Capsule().stroke(Color.accent.opacity(0.48)) }
-                            .lineLimit(1)
                     }
-                    if let priority = metadataStore.metadata(for: project).priority {
-                        Text("PRIORITY \(priority.title)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.orange)
-                    }
-                    if let rating = metadataStore.metadata(for: project).rating {
-                        Text("RATING \(rating.rawValue)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.accent)
-                    }
+
                     if let key = metadataStore.metadata(for: project).musicalKey {
                         Text(key.uppercased())
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundColor(.secondaryText)
                     }
                 }
+
                 Text(project.folderURL.deletingLastPathComponent().lastPathComponent)
-                    .font(.system(size: isCurrentOpenProject ? 12 : 11))
+                    .font(.system(size: 11))
                     .foregroundColor(.tertiaryText)
                     .lineLimit(1)
-                HStack(spacing: 7) {
-                    CompactRunway(progress: progress)
-                    if !compact && !progress.nextMove.isEmpty {
-                        Text("·")
-                            .foregroundColor(.tertiaryText)
-                        Text(progress.nextMove)
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondaryText)
-                            .lineLimit(1)
-                    }
-                }
             }
 
             Spacer(minLength: 8)
 
+            // BPM
             Text(project.bpmLabel ?? "—")
-                .frame(width: compact ? 36 : 48, alignment: .trailing)
-            if !compact {
-                Text(project.activity.backupCount > 0
-                     ? project.activity.estimatedWorkTime.estimatedWorkLabel
-                     : "—")
-                    .frame(width: 72, alignment: .trailing)
-            }
-            Group {
-                if project.latestModification == .distantPast {
-                    Text("—")
-                } else {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(project.latestModification.compactAge)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondaryText)
-                        Text(project.latestModification.compactCalendarDate)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.tertiaryText)
-                    }
-                }
-            }
-            .frame(width: compact ? 72 : 100, alignment: .trailing)
-            
-            HStack(spacing: compact ? 5 : 8) {
-                Button {
-                    if playing {
-                        player.togglePlayPause()
-                    } else if let newestExport = project.sortedTracks.first {
-                        store.playTrack(newestExport)
-                    }
-                } label: {
-                    Image(systemName: playing && player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(project.hasExports ? (playing ? .accent : .primaryText) : .tertiaryText)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(project.hasExports ? Color.white.opacity(0.07) : Color.clear))
-                }
-                .buttonStyle(.plain)
-                .disabled(!project.hasExports)
-                .help(project.hasExports ? (playing ? "Play or pause this project" : "Play newest export") : "No audio exports")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondaryText)
+                .frame(width: compact ? 42 : 54, alignment: .trailing)
 
-                Button {
-                    store.openInAbleton(project)
-                } label: {
-                    Image(systemName: "doc.badge.gearshape")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(project.newestAbletonVersion == nil ? .tertiaryText : .accent)
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(.plain)
-                .disabled(project.newestAbletonVersion == nil)
-                .help(project.newestAbletonVersion.map { "Open \($0.displayName) in Ableton" } ?? "No Ableton project file")
+            // Modified date
+            Text(project.latestModification == .distantPast ? "—" : project.latestModification.compactAge)
+                .font(.system(size: 11))
+                .foregroundColor(.tertiaryText)
+                .frame(width: compact ? 80 : 100, alignment: .trailing)
 
-                Button { NSWorkspace.shared.open(project.folderURL) } label: {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondaryText)
-                        .frame(width: compact ? 16 : nil, height: 20)
-                }
-                .buttonStyle(.plain)
-                .help("Open project folder in Finder")
-
-                Button {
-                    store.selectedProject = project
-                    openWindow(id: "project-notes")
-                    WindowPresenter.showProjectNotes()
-                } label: {
-                    Image(systemName: "note.text")
-                        .font(.system(size: 11))
-                        .foregroundColor(notes.note(for: project).isEmpty ? .secondaryText : .accent)
-                        .frame(width: compact ? 16 : nil, height: 20)
-                }
-                .buttonStyle(.plain)
-                .help(notes.note(for: project).isEmpty ? "Add project note" : "Open project note")
-
+            // Hover actions
+            HStack(spacing: 6) {
                 if store.favourites.contains(project.folderURL) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: 10))
                         .foregroundColor(.accent)
-                        .frame(width: 9)
-                } else {
-                    Color.clear.frame(width: 9)
                 }
+
+                Group {
+                    Button { store.openInAbleton(project) } label: {
+                        Image(systemName: "doc.badge.gearshape")
+                            .font(.system(size: 11))
+                            .foregroundColor(project.newestAbletonVersion == nil ? .tertiaryText : .accent)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(project.newestAbletonVersion == nil)
+                    .help("Open in Ableton")
+
+                    Button { NSWorkspace.shared.open(project.folderURL) } label: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reveal in Finder")
+                }
+                .opacity(hovered ? 1 : 0)
             }
-            .frame(width: compact ? 104 : 132, alignment: .trailing)
+            .frame(width: compact ? 70 : 88, alignment: .trailing)
         }
-        .font(.system(size: 11))
-        .foregroundColor(.secondaryText)
-        .padding(.horizontal, 9)
-        .padding(.vertical, isCurrentOpenProject ? 15 : 8)
-        .background {
-            RoundedRectangle(cornerRadius: 9)
-                .fill(isCurrentOpenProject
-                      ? Color.accent.opacity(0.13)
-                      : (selected ? Color.primary.opacity(0.045) : (hovered ? Color.hoverBg : .clear)))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 9)
-                .stroke(isCurrentOpenProject ? Color.accent.opacity(0.62) : Color.clear, lineWidth: 1.5)
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selected ? Color.white.opacity(0.08) : (hovered ? Color.white.opacity(0.035) : Color.clear))
+        )
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
+        .onHover { isHovered in hovered = isHovered }
         .opacity(store.isProjectHidden(project) ? 0.5 : 1)
         .contextMenu {
             if let version = project.newestAbletonVersion {

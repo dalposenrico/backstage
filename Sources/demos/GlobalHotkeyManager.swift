@@ -16,6 +16,7 @@ final class GlobalHotkeyManager: ObservableObject {
             isEnabled ? install() : uninstall()
         }
     }
+    @Published var isRunningExport = false
     @Published private(set) var lastResult: String?
 
     private static let enabledKey = "abletonExportHotkeyEnabled"
@@ -23,7 +24,9 @@ final class GlobalHotkeyManager: ObservableObject {
     private var localMonitor: Any?
 
     init() {
-        self.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        // Default to enabled so F1 works out of the box
+        let saved = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool
+        self.isEnabled = saved ?? true
         if isEnabled { install() }
     }
 
@@ -36,9 +39,13 @@ final class GlobalHotkeyManager: ObservableObject {
 
     private func install() {
         guard globalMonitor == nil else { return }
+        
+        // Prompt for accessibility if needed so global keyboard monitoring works
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+
         // Global monitor fires when the app is NOT the key application (i.e.
-        // when Ableton Live is in front). Local monitor fires when HQ itself
-        // is in front, so we install both.
+        // when Ableton Live is in front).
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
         }
@@ -72,8 +79,11 @@ final class GlobalHotkeyManager: ObservableObject {
 
     @discardableResult
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        guard event.keyCode == UInt16(kVK_F1),
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else {
+        // Only ignore if Command, Option, Control, or Shift are pressed.
+        // DO NOT check deviceIndependentFlagsMask because the fn/function flag
+        // is always set on MacBook keyboards when pressing F1!
+        let disallowedModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard event.keyCode == UInt16(kVK_F1), disallowedModifiers.isEmpty else {
             return false
         }
         Task { await runExport() }
@@ -83,13 +93,16 @@ final class GlobalHotkeyManager: ObservableObject {
     // MARK: - Script execution
 
     private func runExport() async {
-        lastResult = nil
+        isRunningExport = true
+        lastResult = "⚡ Running Ableton auto-export..."
         AccountDiagnostics.record("F1 pressed — launching Ableton export script")
+        sendNotification(title: "goodvibrations HQ", body: "⚡ F1 triggered: Preparing Ableton auto-export...")
 
         let scriptPath = locateScript()
         guard let scriptPath else {
             let msg = "Could not locate ableton_version_export.py"
             lastResult = msg
+            isRunningExport = false
             AccountDiagnostics.record(msg)
             sendNotification(title: "goodvibrations HQ", body: msg)
             return
@@ -107,6 +120,7 @@ final class GlobalHotkeyManager: ObservableObject {
         } catch {
             let msg = "Failed to launch export script: \(error.localizedDescription)"
             lastResult = msg
+            isRunningExport = false
             AccountDiagnostics.record(msg)
             sendNotification(title: "goodvibrations HQ", body: msg)
             return
@@ -122,7 +136,9 @@ final class GlobalHotkeyManager: ObservableObject {
             ? "Export triggered successfully"
             : "Export script finished with errors"
         lastResult = output.isEmpty ? summary : output
+        isRunningExport = false
         AccountDiagnostics.record("\(summary): \(output.prefix(200))")
+        sendNotification(title: "goodvibrations HQ", body: summary)
     }
 
     // MARK: - Locate the Python script

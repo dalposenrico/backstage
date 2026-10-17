@@ -10,6 +10,7 @@ struct ContentView: View {
     @EnvironmentObject var projectTodos: ProjectTodoStore
     @EnvironmentObject var dailyFocus: DailyFocusStore
     @EnvironmentObject var focusCalendar: FocusCalendarStore
+    @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @Environment(\.openWindow) private var openWindow
     @AppStorage("compactWorkspaceNavigation") private var compactWorkspaceNavigation = false
     @State private var workspaceSection: WorkspaceSection = .home
@@ -55,16 +56,27 @@ struct ContentView: View {
             PlayerBarView()
         }
         .background(Color.appBg)
+        .overlay(alignment: .top) {
+            if globalHotkey.isRunningExport {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(globalHotkey.lastResult ?? "⚡ Running Ableton auto-export...")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primaryText)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Color.elevatedBg, in: Capsule())
+                .overlay(Capsule().stroke(Color.accent.opacity(0.4), lineWidth: 1))
+                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                .padding(.top, 14)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: globalHotkey.isRunningExport)
         .animation(.easeInOut(duration: 0.2), value: store.currentOpenProjectURL)
         .onChange(of: showProjectInspector) { _, isShowing in
             if !isShowing { projectWorkspaceExpanded = false }
-        }
-        .onChange(of: store.selectedProject?.id) { previousID, selectedID in
-            guard workspaceSection == .library,
-                  previousID != selectedID,
-                  selectedID != nil else { return }
-            projectWorkspaceExpanded = false
-            showProjectInspector = true
         }
         .onChange(of: focusCalendar.dueEvent) { _, event in
             if let event { presentScheduledFocus(event) }
@@ -129,7 +141,7 @@ private struct LibraryWorkspace: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var settings: SettingsStore
     @AppStorage(ProjectDockSizing.storageKey) private var projectDockHeight = ProjectDockSizing.defaultHeight
-    @AppStorage(ProjectDockSizing.expansionStorageKey) private var isProjectDockExpanded = true
+    @AppStorage(ProjectDockSizing.expansionStorageKey) private var isProjectDockExpanded = false
 
     var body: some View {
         GeometryReader { proxy in
