@@ -41,6 +41,7 @@ struct demosApp: App {
     @StateObject private var dailyFocus = DailyFocusStore()
     @StateObject private var focusCalendar = FocusCalendarStore()
     @StateObject private var globalHotkey = GlobalHotkeyManager()
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(ProjectDockSizing.storageKey) private var projectDockHeight = ProjectDockSizing.defaultHeight
 
     var body: some Scene {
@@ -79,6 +80,66 @@ struct demosApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                 Button("Previous Track")  { store.playPrevious() }
                     .keyboardShortcut(.leftArrow,  modifiers: .command)
+            }
+
+            CommandMenu("Tools") {
+                Button("Ableton Auto-Export") {
+                    globalHotkey.triggerExport()
+                }
+                .keyboardShortcut(.f1, modifiers: [])
+
+                Button("Ableton Auto-Export (Alternative)") {
+                    globalHotkey.triggerExport()
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Versions (A/B Compare)…") {
+                    openWindow(id: "ab-compare")
+                    WindowPresenter.showABCompare()
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+
+                Button("Project Notes…") {
+                    openWindow(id: "project-notes")
+                    WindowPresenter.showProjectNotes()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+                Button("[untitled] Automation…") {
+                    openWindow(id: "untitled-automation")
+                    WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: false)
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+
+                Button("Name Generator…") {
+                    openWindow(id: "name-generator")
+                    WindowPresenter.showNameGenerator(dismissingMenuBarPanel: false)
+                }
+
+                Button("Workflow Editor…") {
+                    openWindow(id: "studio-companion")
+                    WindowPresenter.showWorkflowEditor()
+                }
+
+                Divider()
+
+                Button("Focus Timer…") {
+                    openWindow(id: "focus-timer")
+                    WindowPresenter.showFocusTimer(pinned: dailyFocus.keepsTimerOnTop)
+                }
+
+                Button("Focus Planner…") {
+                    openWindow(id: "focus-planner")
+                    WindowPresenter.showFocusPlanner()
+                }
+
+                Divider()
+
+                Button("Ableton Crash Analyzer…") {
+                    toolLaunchers.launchAbletonCrashAnalyzer()
+                }
             }
 
             CommandMenu("Project Panel") {
@@ -189,6 +250,8 @@ struct demosApp: App {
                 .environmentObject(projectNotes)
                 .environmentObject(references)
                 .environmentObject(studioWorkflow)
+                .environmentObject(globalHotkey)
+                .environmentObject(dailyFocus)
         } label: {
             Image(systemName: "music.note")
         }

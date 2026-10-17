@@ -182,3 +182,10 @@ extension TimeInterval {
         return remainder == 0 ? "~\(hours)h" : "~\(hours)h \(remainder)m"
     }
 }
+
+// MARK: - KeyEquivalent helpers
+
+extension KeyEquivalent {
+    static let f1 = KeyEquivalent(Character(UnicodeScalar(NSF1FunctionKey)!))
+}
+

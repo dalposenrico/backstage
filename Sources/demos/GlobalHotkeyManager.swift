@@ -41,7 +41,11 @@ final class GlobalHotkeyManager: ObservableObject {
     }
 
     deinit {
-        uninstall()
+        if let carbonHotKeyRefF1 { UnregisterEventHotKey(carbonHotKeyRefF1) }
+        if let carbonHotKeyRefAlt { UnregisterEventHotKey(carbonHotKeyRefAlt) }
+        if let carbonEventHandlerRef { RemoveEventHandler(carbonEventHandlerRef) }
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
     }
 
     // MARK: - Install / Uninstall

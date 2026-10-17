@@ -11,6 +11,8 @@ struct FavouritesMenuView: View {
     @EnvironmentObject private var toolLaunchers: ToolLauncherStore
     @EnvironmentObject private var checkInAssistant: StudioCheckInAssistant
     @EnvironmentObject private var untitledSync: UntitledSyncStore
+    @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
+    @EnvironmentObject private var dailyFocus: DailyFocusStore
     @Environment(\.openWindow) private var openWindow
     @State private var selectedTab: QuickAccessTab = .songs
     @State private var searchText = ""
@@ -31,6 +33,38 @@ struct FavouritesMenuView: View {
         }
     }
 
+    private var showsAbletonExport: Bool {
+        searchText.isEmpty
+            || "Ableton Auto-Export".localizedCaseInsensitiveContains(searchText)
+            || "Export".localizedCaseInsensitiveContains(searchText)
+            || "F1".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsABCompare: Bool {
+        searchText.isEmpty
+            || "Versions".localizedCaseInsensitiveContains(searchText)
+            || "A/B Compare".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsProjectNotes: Bool {
+        searchText.isEmpty
+            || "Project Notes".localizedCaseInsensitiveContains(searchText)
+            || "Notes".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsUntitledSync: Bool {
+        searchText.isEmpty
+            || "untitled".localizedCaseInsensitiveContains(searchText)
+            || "Automation".localizedCaseInsensitiveContains(searchText)
+    }
+
+    private var showsFocusStudio: Bool {
+        searchText.isEmpty
+            || "Focus".localizedCaseInsensitiveContains(searchText)
+            || "Timer".localizedCaseInsensitiveContains(searchText)
+            || "Planner".localizedCaseInsensitiveContains(searchText)
+    }
+
     private var showsStudioCheckIn: Bool {
         searchText.isEmpty || "Studio Check-in".localizedCaseInsensitiveContains(searchText)
     }
@@ -47,6 +81,11 @@ struct FavouritesMenuView: View {
 
     private var visibleToolCount: Int {
         tools.count
+            + (showsAbletonExport ? 1 : 0)
+            + (showsABCompare ? 1 : 0)
+            + (showsProjectNotes ? 1 : 0)
+            + (showsUntitledSync ? 1 : 0)
+            + (showsFocusStudio ? 1 : 0)
             + (showsStudioCheckIn ? 1 : 0)
             + (showsNameWorlds ? 1 : 0)
             + (showsCrashAnalyzer ? 1 : 0)
@@ -114,6 +153,11 @@ struct FavouritesMenuView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
+                            if showsAbletonExport { abletonExportRow }
+                            if showsABCompare { abCompareRow }
+                            if showsProjectNotes { projectNotesRow }
+                            if showsUntitledSync { untitledAutomationRow }
+                            if showsFocusStudio { focusStudioRow }
                             if showsStudioCheckIn { studioCheckInRow }
                             if showsNameWorlds { nameWorldsRow }
                             if showsCrashAnalyzer { crashAnalyzerRow }
@@ -123,6 +167,181 @@ struct FavouritesMenuView: View {
                 }
             }
         }
+    }
+
+    private var abletonExportRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.orange)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Ableton Auto-Export")
+                    Text("F1")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.accent)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(Color.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+                }
+                Text(globalHotkey.isRunningExport ? "Exporting from active Live session…" : (globalHotkey.lastResult ?? "Auto-versions & exports current Live set"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button(globalHotkey.isRunningExport ? "Running…" : "Run F1") {
+                globalHotkey.triggerExport()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(globalHotkey.isRunningExport)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !globalHotkey.isRunningExport {
+                globalHotkey.triggerExport()
+            }
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var abCompareRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "slider.horizontal.2.square")
+                .font(.system(size: 18))
+                .foregroundStyle(.tint)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Versions")
+                    Text("⇧⌘V")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text("A/B version compare & mix evolution")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Launch") {
+                openWindow(id: "ab-compare")
+                WindowPresenter.showABCompare()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openWindow(id: "ab-compare")
+            WindowPresenter.showABCompare()
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var projectNotesRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "note.text")
+                .font(.system(size: 18))
+                .foregroundStyle(.yellow)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Project Notes")
+                    Text("⇧⌘N")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Floating scratchpad synced to selected project")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Open") {
+                openWindow(id: "project-notes")
+                WindowPresenter.showProjectNotes()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openWindow(id: "project-notes")
+            WindowPresenter.showProjectNotes()
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var untitledAutomationRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.blue)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("[untitled] Automation")
+                    Text("⇧⌘U")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Auto-upload exported mixes to [untitled]")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Open") {
+                openWindow(id: "untitled-automation")
+                WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: true)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openWindow(id: "untitled-automation")
+            WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: true)
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var focusStudioRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "timer")
+                .font(.system(size: 18))
+                .foregroundStyle(.mint)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Focus Timer & Planner")
+                Text("Daily sprint timer and session goals")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Open") {
+                openWindow(id: "focus-timer")
+                WindowPresenter.showFocusTimer(pinned: dailyFocus.keepsTimerOnTop)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openWindow(id: "focus-timer")
+            WindowPresenter.showFocusTimer(pinned: dailyFocus.keepsTimerOnTop)
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
     }
 
     private var nameWorldsRow: some View {
