@@ -100,11 +100,18 @@ class AppStore: ObservableObject {
 
     let audioPlayer = AudioPlayer()
 
+    @Published var initialProjectInspectorSection: String? = nil
+
     // MARK: - Tab Navigation Helpers
 
     func openProjectTab(_ project: Project) {
         selectedProject = project
         activeWorkspaceSection = .project
+    }
+
+    func openProjectMixer(_ project: Project) {
+        initialProjectInspectorSection = "mixer"
+        openProjectTab(project)
     }
 
     func closeProjectTab() {

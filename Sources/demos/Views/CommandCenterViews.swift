@@ -145,6 +145,11 @@ struct ToolsHubView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     toolSection("PROJECT TOOLS") {
+                        ToolHubButton(title: "Mixer & Inserts", detail: "Pro Tools rack, plugin overview & batch plugins", icon: "slider.vertical.3") {
+                            if let p = store.selectedProject ?? store.projects.first {
+                                store.openProjectMixer(p)
+                            }
+                        }
                         ToolHubButton(title: "Versions", detail: "Arrange and compare sections", icon: "rectangle.split.2x1") {
                             openWindow(id: "ab-compare")
                         }

@@ -443,6 +443,18 @@ struct TrackListView: View {
             }
             isLoadingArrangement = false
         }
+        .onAppear {
+            if let target = store.initialProjectInspectorSection, target == "mixer" {
+                section = .mixer
+                store.initialProjectInspectorSection = nil
+            }
+        }
+        .onChange(of: store.initialProjectInspectorSection) { _, target in
+            if target == "mixer" {
+                section = .mixer
+                store.initialProjectInspectorSection = nil
+            }
+        }
     }
 
     private func selectSection(_ item: ProjectInspectorSection) {
