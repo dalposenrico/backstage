@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BatchPluginModalView: View {
     let project: Project
+    var targetAlsURL: URL? = nil
     let onComplete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -13,9 +14,10 @@ struct BatchPluginModalView: View {
     @State private var isExecuting: Bool = false
     @State private var resultMessage: String? = nil
     @State private var errorMessage: String? = nil
+    @State private var selectedAlsUrl: URL? = nil
 
     private var projectAlsUrl: URL? {
-        project.versions.first?.url
+        selectedAlsUrl ?? targetAlsURL ?? project.newestAbletonVersion?.url ?? project.versions.first?.url
     }
 
     var body: some View {
@@ -69,6 +71,25 @@ struct BatchPluginModalView: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.accent.opacity(0.25), lineWidth: 1)
+                    }
+
+                    if project.versions.count > 1 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("TARGET LIVE SET")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundColor(.tertiaryText)
+
+                            Picker("Live Set", selection: Binding(
+                                get: { projectAlsUrl ?? project.versions.first?.url },
+                                set: { selectedAlsUrl = $0 }
+                            )) {
+                                ForEach(project.versions) { version in
+                                    Text(version.displayName + ".als").tag(Optional(version.url))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
                     }
 
                     // Choose Plugin Preset

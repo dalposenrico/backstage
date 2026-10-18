@@ -23,6 +23,7 @@ enum MixerTrackFilter: String, CaseIterable, Identifiable {
 struct ProToolsMixerOverviewView: View {
     let arrangement: AbletonArrangement
     let project: Project
+    var targetAlsURL: URL? = nil
     let onReloadArrangement: () -> Void
 
     @StateObject private var mixingStore = MixingActionStore.shared
@@ -120,7 +121,7 @@ struct ProToolsMixerOverviewView: View {
         }
         .background(Color.appBg)
         .sheet(isPresented: $showBatchModal) {
-            BatchPluginModalView(project: project) {
+            BatchPluginModalView(project: project, targetAlsURL: targetAlsURL) {
                 onReloadArrangement()
             }
         }

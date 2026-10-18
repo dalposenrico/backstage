@@ -153,12 +153,18 @@ public enum AbletonArrangementParser {
 
         // Extract ReturnTracks
         let returnTracks: [AbletonTrack]
-        if let returnStart = xml.range(of: "<ReturnTracks>"),
-           let returnEnd = xml.range(of: "</ReturnTracks>", range: returnStart.upperBound..<xml.endIndex) {
-            let returnSlice = String(xml[returnStart.lowerBound..<returnEnd.upperBound])
-            returnTracks = extractTracks(regex: returnTrackRegex, in: returnSlice, type: .returnMaster, projectFolderURL: projectFolderURL).map(\.track)
+        let nsXml = xml as NSString
+        let returnStart = nsXml.range(of: "<ReturnTracks>")
+        if returnStart.location != NSNotFound {
+            let returnEnd = nsXml.range(of: "</ReturnTracks>", options: [], range: NSRange(location: returnStart.location, length: nsXml.length - returnStart.location))
+            if returnEnd.location != NSNotFound {
+                let returnSlice = nsXml.substring(with: NSRange(location: returnStart.location, length: (returnEnd.location + returnEnd.length) - returnStart.location))
+                returnTracks = extractTracks(regex: returnTrackRegex, in: returnSlice, type: .returnMaster, projectFolderURL: projectFolderURL).map(\.track)
+            } else {
+                returnTracks = []
+            }
         } else {
-            returnTracks = extractTracks(regex: returnTrackRegex, in: xml, type: .returnMaster, projectFolderURL: projectFolderURL).map(\.track)
+            returnTracks = []
         }
 
         // Calculate total arrangement length in beats
@@ -221,17 +227,20 @@ public enum AbletonArrangementParser {
     }
 
     private static func extractMasterTrack(in xml: String) -> AbletonTrack? {
-        let nsString = xml as NSString
-        guard let match = masterTrackRegex.firstMatch(in: xml, range: NSRange(location: 0, length: nsString.length)) else {
-            return nil
-        }
-        let id = match.range(at: 1).location != NSNotFound
-            ? nsString.substring(with: match.range(at: 1))
+        let ns = xml as NSString
+        let openRange = ns.range(of: "<MasterTrack")
+        guard openRange.location != NSNotFound else { return nil }
+        let closeRange = ns.range(of: "</MasterTrack>", options: [], range: NSRange(location: openRange.location, length: ns.length - openRange.location))
+        guard closeRange.location != NSNotFound else { return nil }
+
+        let masterSlice = ns.substring(with: NSRange(location: openRange.location, length: (closeRange.location + closeRange.length) - openRange.location))
+        let idMatch = masterTrackRegex.firstMatch(in: masterSlice, range: NSRange(location: 0, length: (masterSlice as NSString).length))
+        let id = (idMatch != nil && idMatch!.range(at: 1).location != NSNotFound)
+            ? (masterSlice as NSString).substring(with: idMatch!.range(at: 1))
             : "master"
-        let body = nsString.substring(with: match.range(at: 2))
-        let name = extractTrackName(from: body) ?? "Master"
-        let colorIndex = extractColor(from: body) ?? 0
-        let devices = extractDevices(from: body)
+        let name = extractTrackName(from: masterSlice) ?? "Master"
+        let colorIndex = extractColor(from: masterSlice) ?? 0
+        let devices = extractDevices(from: masterSlice)
 
         return AbletonTrack(
             id: id,
@@ -300,151 +309,184 @@ public enum AbletonArrangementParser {
     // MARK: - Device Extraction
 
     private static func extractDevices(from trackXml: String) -> [AbletonDevice] {
-        guard let chainRange = trackXml.range(of: "<DeviceChain>") else { return [] }
-        let afterChain = trackXml[chainRange.upperBound...]
-        guard let devOpenRange = afterChain.range(of: "<Devices>") else { return [] }
-        let contentStart = devOpenRange.upperBound
+        let ns = trackXml as NSString
+        let chainRange = ns.range(of: "<DeviceChain>")
+        guard chainRange.location != NSNotFound else { return [] }
 
-        // Match the closing </Devices> corresponding to this opening <Devices>
+        let afterChainLoc = chainRange.location + chainRange.length
+        let afterChainLen = ns.length - afterChainLoc
+        let devOpenRange = ns.range(of: "<Devices>", options: [], range: NSRange(location: afterChainLoc, length: afterChainLen))
+        guard devOpenRange.location != NSNotFound else { return [] }
+
+        var searchLoc = devOpenRange.location + devOpenRange.length
         var nestedCount = 0
-        var searchIndex = contentStart
-        var devCloseRange: Range<String.Index>?
+        var devCloseLoc: Int?
 
-        while searchIndex < afterChain.endIndex {
-            let nextOpen = afterChain.range(of: "<Devices>", range: searchIndex..<afterChain.endIndex)
-            let nextClose = afterChain.range(of: "</Devices>", range: searchIndex..<afterChain.endIndex)
+        while searchLoc < ns.length {
+            let remainRange = NSRange(location: searchLoc, length: ns.length - searchLoc)
+            let nextClose = ns.range(of: "</Devices>", options: [], range: remainRange)
+            guard nextClose.location != NSNotFound else { break }
 
-            guard let close = nextClose else { break }
+            let betweenRange = NSRange(location: searchLoc, length: nextClose.location - searchLoc)
+            let nextOpen = ns.range(of: "<Devices>", options: [], range: betweenRange)
 
-            if let open = nextOpen, open.lowerBound < close.lowerBound {
+            if nextOpen.location != NSNotFound {
                 nestedCount += 1
-                searchIndex = open.upperBound
+                searchLoc = nextOpen.location + nextOpen.length
             } else {
                 if nestedCount == 0 {
-                    devCloseRange = close
+                    devCloseLoc = nextClose.location
                     break
                 } else {
                     nestedCount -= 1
-                    searchIndex = close.upperBound
+                    searchLoc = nextClose.location + nextClose.length
                 }
             }
         }
 
-        guard let closeRange = devCloseRange else { return [] }
-        let devicesString = String(afterChain[contentStart..<closeRange.lowerBound])
-        return parseDeviceElements(devicesString)
+        guard let closeLoc = devCloseLoc else { return [] }
+        let devicesContent = ns.substring(with: NSRange(location: devOpenRange.location + devOpenRange.length, length: closeLoc - (devOpenRange.location + devOpenRange.length)))
+        return parseDeviceElements(devicesContent)
     }
 
     private static func parseDeviceElements(_ devicesXml: String) -> [AbletonDevice] {
+        let ns = devicesXml as NSString
         var devices: [AbletonDevice] = []
-        var currentIndex = devicesXml.startIndex
+        var loc = 0
         var slotIndex = 0
 
-        while currentIndex < devicesXml.endIndex {
-            guard let openBracket = devicesXml.range(of: "<", range: currentIndex..<devicesXml.endIndex) else {
-                break
-            }
-            let afterOpen = openBracket.upperBound
-            if afterOpen >= devicesXml.endIndex { break }
+        while loc < ns.length {
+            let openBracket = ns.range(of: "<", options: [], range: NSRange(location: loc, length: ns.length - loc))
+            guard openBracket.location != NSNotFound else { break }
 
-            if devicesXml[afterOpen] == "/" || devicesXml[afterOpen] == "!" || devicesXml[afterOpen] == "?" {
-                guard let closeBracket = devicesXml.range(of: ">", range: afterOpen..<devicesXml.endIndex) else { break }
-                currentIndex = closeBracket.upperBound
+            let afterOpen = openBracket.location + 1
+            guard afterOpen < ns.length else { break }
+
+            let firstChar = ns.character(at: afterOpen)
+            // Skip comments (<!), closing tags (</), directives (<?)
+            if firstChar == 47 /* / */ || firstChar == 33 /* ! */ || firstChar == 63 /* ? */ {
+                let closeBracket = ns.range(of: ">", options: [], range: NSRange(location: afterOpen, length: ns.length - afterOpen))
+                guard closeBracket.location != NSNotFound else { break }
+                loc = closeBracket.location + 1
                 continue
             }
 
-            var tagEnd = afterOpen
-            while tagEnd < devicesXml.endIndex,
-                  devicesXml[tagEnd] != " " && devicesXml[tagEnd] != "\t" &&
-                  devicesXml[tagEnd] != "\n" && devicesXml[tagEnd] != "\r" &&
-                  devicesXml[tagEnd] != ">" && devicesXml[tagEnd] != "/" {
-                tagEnd = devicesXml.index(after: tagEnd)
+            // Find end of tag name
+            var nameEnd = afterOpen
+            while nameEnd < ns.length {
+                let c = ns.character(at: nameEnd)
+                if c == 32 || c == 9 || c == 10 || c == 13 || c == 62 || c == 47 {
+                    break
+                }
+                nameEnd += 1
             }
-            let tagName = String(devicesXml[afterOpen..<tagEnd])
+
+            let tagName = ns.substring(with: NSRange(location: afterOpen, length: nameEnd - afterOpen))
             guard !tagName.isEmpty else {
-                currentIndex = devicesXml.index(after: afterOpen)
+                loc = afterOpen + 1
                 continue
             }
 
-            guard let openTagEnd = devicesXml.range(of: ">", range: tagEnd..<devicesXml.endIndex) else {
-                break
-            }
+            // Find end of the opening tag '>'
+            let openTagEnd = ns.range(of: ">", options: [], range: NSRange(location: nameEnd, length: ns.length - nameEnd))
+            guard openTagEnd.location != NSNotFound else { break }
 
-            let tagHeader = devicesXml[openBracket.lowerBound..<openTagEnd.upperBound]
-            if tagHeader.hasSuffix("/>") {
-                let dev = parseSingleDevice(tag: tagName, xml: String(tagHeader), slotIndex: slotIndex)
+            // Check if self-closing: e.g. <Tag /> or <Tag/>
+            let isSelfClosing = (openTagEnd.location > openBracket.location && ns.character(at: openTagEnd.location - 1) == 47 /* / */)
+
+            if isSelfClosing {
+                let tagXml = ns.substring(with: NSRange(location: openBracket.location, length: openTagEnd.location + 1 - openBracket.location))
+                let dev = parseSingleDevice(tag: tagName, xml: tagXml, slotIndex: slotIndex)
                 devices.append(dev)
                 slotIndex += 1
-                currentIndex = openTagEnd.upperBound
+                loc = openTagEnd.location + 1
                 continue
             }
 
-            let closingPattern = "</\(tagName)>"
-            let openingPrefix = "<\(tagName)"
+            // Search for matching closing tag </tagName>
+            let closePattern = "</\(tagName)>"
+            let openPattern = "<\(tagName)"
             var depth = 1
-            var scanIdx = openTagEnd.upperBound
-            var foundEnd: Range<String.Index>?
+            var scanLoc = openTagEnd.location + 1
+            var foundEndLoc: Int?
 
-            while scanIdx < devicesXml.endIndex {
-                let nextClose = devicesXml.range(of: closingPattern, range: scanIdx..<devicesXml.endIndex)
-                guard let close = nextClose else { break }
+            while scanLoc < ns.length {
+                let remainRange = NSRange(location: scanLoc, length: ns.length - scanLoc)
+                let nextClose = ns.range(of: closePattern, options: [], range: remainRange)
+                guard nextClose.location != NSNotFound else { break }
 
-                let nextOpen = devicesXml.range(of: openingPrefix, range: scanIdx..<close.lowerBound)
-                if let open = nextOpen {
-                    let afterOpenIdx = open.upperBound
-                    if afterOpenIdx < devicesXml.endIndex {
-                        let c = devicesXml[afterOpenIdx]
-                        if c == " " || c == ">" || c == "/" {
-                            if let tagClose = devicesXml.range(of: ">", range: afterOpenIdx..<close.lowerBound) {
-                                let subTag = devicesXml[open.lowerBound..<tagClose.upperBound]
-                                if !subTag.hasSuffix("/>") {
+                // Check for any nested opening tags between scanLoc and nextClose.location
+                var subScan = scanLoc
+                while subScan < nextClose.location {
+                    let betweenRange = NSRange(location: subScan, length: nextClose.location - subScan)
+                    let nextOpen = ns.range(of: openPattern, options: [], range: betweenRange)
+                    guard nextOpen.location != NSNotFound else { break }
+
+                    let charAfter = nextOpen.location + openPattern.count
+                    if charAfter < ns.length {
+                        let c = ns.character(at: charAfter)
+                        if c == 32 || c == 9 || c == 10 || c == 13 || c == 62 || c == 47 {
+                            // Find tag close to check if self-closing
+                            let subTagClose = ns.range(of: ">", options: [], range: NSRange(location: charAfter, length: nextClose.location - charAfter))
+                            if subTagClose.location != NSNotFound {
+                                let prevC = ns.character(at: subTagClose.location - 1)
+                                if prevC != 47 {
                                     depth += 1
                                 }
-                                scanIdx = tagClose.upperBound
+                                subScan = subTagClose.location + 1
                                 continue
                             }
                         }
                     }
+                    subScan = nextOpen.location + openPattern.count
                 }
 
                 depth -= 1
                 if depth == 0 {
-                    foundEnd = close
+                    foundEndLoc = nextClose.location + nextClose.length
                     break
                 } else {
-                    scanIdx = close.upperBound
+                    scanLoc = nextClose.location + nextClose.length
                 }
             }
 
-            guard let endMatch = foundEnd else {
-                currentIndex = openTagEnd.upperBound
+            guard let endLoc = foundEndLoc else {
+                loc = openTagEnd.location + 1
                 continue
             }
 
-            let fullDeviceXml = String(devicesXml[openBracket.lowerBound..<endMatch.upperBound])
+            let fullDeviceXml = ns.substring(with: NSRange(location: openBracket.location, length: endLoc - openBracket.location))
             let dev = parseSingleDevice(tag: tagName, xml: fullDeviceXml, slotIndex: slotIndex)
             devices.append(dev)
             slotIndex += 1
-            currentIndex = endMatch.upperBound
+            loc = endLoc
         }
 
         return devices
     }
 
     private static func parseSingleDevice(tag: String, xml: String, slotIndex: Int) -> AbletonDevice {
+        // Optimize search range to first 32KB of device xml (names/state are always near the top, avoiding megabytes of preset blobs)
+        let searchXml: String
+        if xml.count > 32768 {
+            searchXml = String(xml.prefix(32768))
+        } else {
+            searchXml = xml
+        }
+
         let isEnabled: Bool
-        if let onMatch = isOnRegex.firstMatch(in: xml, range: NSRange(location: 0, length: (xml as NSString).length)) {
-            let val = (xml as NSString).substring(with: onMatch.range(at: 1)).lowercased()
+        if let onMatch = isOnRegex.firstMatch(in: searchXml, range: NSRange(location: 0, length: (searchXml as NSString).length)) {
+            let val = (searchXml as NSString).substring(with: onMatch.range(at: 1)).lowercased()
             isEnabled = (val != "false" && val != "0")
         } else {
             isEnabled = true
         }
 
-        let customName = extractFirstRegex(regex: userNameRegex, in: xml)
+        let customName = extractFirstRegex(regex: userNameRegex, in: searchXml)
 
         if tag == "AuPluginDevice" {
-            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "Audio Unit"
-            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            let name = extractFirstRegex(regex: pluginNameRegex, in: searchXml) ?? "Audio Unit"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: searchXml)
             return AbletonDevice(
                 name: customName ?? name,
                 vendor: vendor,
@@ -453,8 +495,8 @@ public enum AbletonArrangementParser {
                 slotIndex: slotIndex
             )
         } else if tag == "Vst3PluginDevice" {
-            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "VST3 Plugin"
-            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            let name = extractFirstRegex(regex: pluginNameRegex, in: searchXml) ?? "VST3 Plugin"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: searchXml)
             return AbletonDevice(
                 name: customName ?? name,
                 vendor: vendor,
@@ -463,8 +505,8 @@ public enum AbletonArrangementParser {
                 slotIndex: slotIndex
             )
         } else if tag == "VstPluginDevice" {
-            let name = extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "VST Plugin"
-            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: xml)
+            let name = extractFirstRegex(regex: pluginNameRegex, in: searchXml) ?? "VST Plugin"
+            let vendor = extractFirstRegex(regex: pluginVendorRegex, in: searchXml)
             return AbletonDevice(
                 name: customName ?? name,
                 vendor: vendor,
@@ -473,7 +515,7 @@ public enum AbletonArrangementParser {
                 slotIndex: slotIndex
             )
         } else if tag.starts(with: "MxDevice") {
-            let name = customName ?? extractFirstRegex(regex: pluginNameRegex, in: xml) ?? "Max for Live"
+            let name = customName ?? extractFirstRegex(regex: pluginNameRegex, in: searchXml) ?? "Max for Live"
             return AbletonDevice(
                 name: name,
                 vendor: "Cycling '74",

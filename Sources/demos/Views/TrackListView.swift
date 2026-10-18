@@ -17,7 +17,22 @@ struct TrackListView: View {
     @State private var isLoadingArrangement = false
     @State private var parseProgress: Double = 0.0
     @State private var parseStatus: String = "Reading Ableton set…"
+    @State private var selectedVersionURL: URL? = nil
     @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
+
+    private var sortedVersions: [AbletonVersion] {
+        project.versions.sorted {
+            ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast)
+        }
+    }
+
+    private var activeVersion: AbletonVersion? {
+        if let selectedVersionURL,
+           let match = project.versions.first(where: { $0.url == selectedVersionURL }) {
+            return match
+        }
+        return project.newestAbletonVersion ?? project.versions.first
+    }
 
     private var collectionColorHelp: String {
         guard let sourceURL = collectionColors.resolvedColorSourceURL(for: project.folderURL) else {
@@ -71,7 +86,7 @@ struct TrackListView: View {
                             ProjectHeaderWaveformView(track: export, project: project)
                         }
 
-                        if let version = project.newestAbletonVersion {
+                        if let version = activeVersion ?? project.newestAbletonVersion {
                             Button { store.openInAbleton(project, version: version) } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.up.forward.app.fill")
@@ -256,6 +271,9 @@ struct TrackListView: View {
                         })
                     }
                     Spacer(minLength: 0)
+
+                    alsVersionPicker
+                        .padding(.bottom, 4)
                 }
                 .padding(.horizontal, 20)
             }
@@ -343,33 +361,47 @@ struct TrackListView: View {
                     } else if isLoadingArrangement {
                         arrangementLoadingView
                     } else {
-                        VStack(spacing: 10) {
+                        VStack(spacing: 12) {
                             Image(systemName: "rectangle.split.3x1")
-                                .font(.system(size: 26))
+                                .font(.system(size: 28))
                                 .foregroundColor(.tertiaryText)
-                            Text("No Ableton Live set (.als) available to inspect")
-                                .font(.system(size: 12, weight: .medium))
+                            Text(project.versions.isEmpty ? "No Ableton Live set (.als) found in this project" : "Unable to load arrangement from \(activeVersion?.displayName ?? "this set")")
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.secondaryText)
+
+                            if project.versions.count > 1 {
+                                Text("Try choosing another .als version:")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.tertiaryText)
+                                alsVersionPicker
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                 case .mixer:
                     if let arrangement {
-                        ProToolsMixerOverviewView(arrangement: arrangement, project: project) {
+                        ProToolsMixerOverviewView(arrangement: arrangement, project: project, targetAlsURL: activeVersion?.url) {
                             reloadArrangement()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if isLoadingArrangement {
                         arrangementLoadingView
                     } else {
-                        VStack(spacing: 10) {
+                        VStack(spacing: 12) {
                             Image(systemName: "slider.vertical.3")
-                                .font(.system(size: 26))
+                                .font(.system(size: 28))
                                 .foregroundColor(.tertiaryText)
-                            Text("No Ableton Live set (.als) available to inspect")
-                                .font(.system(size: 12, weight: .medium))
+                            Text(project.versions.isEmpty ? "No Ableton Live set (.als) found in this project" : "Unable to load mixer from \(activeVersion?.displayName ?? "this set")")
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.secondaryText)
+
+                            if project.versions.count > 1 {
+                                Text("Try choosing another .als version:")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.tertiaryText)
+                                alsVersionPicker
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -423,25 +455,9 @@ struct TrackListView: View {
         .background(Color.appBg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: project.id) {
-            isLoadingArrangement = true
-            parseProgress = 0.05
-            parseStatus = "Opening Ableton Live set (.als)…"
-            if let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url {
-                arrangement = await Task.detached(priority: .userInitiated) {
-                    AbletonArrangementParser.parse(
-                        from: alsURL,
-                        projectFolderURL: project.folderURL
-                    ) { fraction, message in
-                        Task { @MainActor in
-                            self.parseProgress = fraction
-                            self.parseStatus = message
-                        }
-                    }
-                }.value
-            } else {
-                arrangement = nil
-            }
-            isLoadingArrangement = false
+            selectedVersionURL = nil
+            let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url
+            loadArrangement(for: alsURL)
         }
         .onAppear {
             if let target = store.initialProjectInspectorSection, target == "mixer" {
@@ -466,25 +482,95 @@ struct TrackListView: View {
         }
     }
 
-    private func reloadArrangement() {
+    private func switchVersion(to version: AbletonVersion) {
+        guard selectedVersionURL != version.url else { return }
+        selectedVersionURL = version.url
+        loadArrangement(for: version.url)
+    }
+
+    private func loadArrangement(for url: URL?) {
+        guard let url else {
+            arrangement = nil
+            isLoadingArrangement = false
+            return
+        }
+        isLoadingArrangement = true
+        parseProgress = 0.05
+        parseStatus = "Opening \(url.lastPathComponent)…"
+
         Task {
-            isLoadingArrangement = true
-            parseProgress = 0.05
-            parseStatus = "Reloading Ableton Live set (.als)…"
-            if let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url {
-                arrangement = await Task.detached(priority: .userInitiated) {
-                    AbletonArrangementParser.parse(
-                        from: alsURL,
-                        projectFolderURL: project.folderURL
-                    ) { fraction, message in
-                        Task { @MainActor in
-                            self.parseProgress = fraction
-                            self.parseStatus = message
+            let parsed = await Task.detached(priority: .userInitiated) {
+                AbletonArrangementParser.parse(
+                    from: url,
+                    projectFolderURL: project.folderURL
+                ) { fraction, message in
+                    Task { @MainActor in
+                        self.parseProgress = fraction
+                        self.parseStatus = message
+                    }
+                }
+            }.value
+
+            await MainActor.run {
+                self.arrangement = parsed
+                self.isLoadingArrangement = false
+            }
+        }
+    }
+
+    private func reloadArrangement() {
+        let alsURL = activeVersion?.url ?? project.newestAbletonVersion?.url ?? project.versions.first?.url
+        loadArrangement(for: alsURL)
+    }
+
+    @ViewBuilder
+    private var alsVersionPicker: some View {
+        if !project.versions.isEmpty {
+            Menu {
+                Text("ABLETON LIVE SETS (\(project.versions.count))")
+                    .font(.system(size: 9, weight: .bold))
+                Divider()
+                ForEach(sortedVersions) { version in
+                    Button {
+                        switchVersion(to: version)
+                    } label: {
+                        HStack {
+                            Text(version.displayName + ".als")
+                            if version.url == activeVersion?.url {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
-                }.value
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.badge.gearshape")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.accent)
+                    Text(activeVersion?.displayName ?? "Select Set")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    if project.versions.count > 1 {
+                        Text("(\(project.versions.count))")
+                            .font(.system(size: 9.5, weight: .regular))
+                            .foregroundColor(.secondaryText)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.secondaryText)
+                    }
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 25)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                )
             }
-            isLoadingArrangement = false
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(project.versions.count > 1 ? "Select Ableton Live set (.als) to inspect in tabs" : "Active Ableton Live set")
         }
     }
 
