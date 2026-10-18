@@ -90,13 +90,15 @@ struct FloatingWidgetView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
             }
+
+            // Native Drag & Click Handler Area
+            PetPuckDragArea {
+                expandWidget()
+            }
         }
         .frame(width: 52, height: 52)
         .contentShape(Circle())
         .onHover { isHoveringPuck = $0 }
-        .onTapGesture {
-            expandWidget()
-        }
         .contextMenu {
             Button("Expand goodvibrations HUD") {
                 expandWidget()
@@ -171,7 +173,12 @@ struct FloatingWidgetView: View {
             }
         }
         .frame(minWidth: 280, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+                WindowDragArea()
+            }
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.14), lineWidth: 1)
@@ -197,7 +204,10 @@ struct FloatingWidgetView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
+            // Draggable Spacer across the entire header
+            WindowDragArea()
+                .frame(minWidth: 10, maxWidth: .infinity)
+                .frame(height: 24)
 
             // Open in goodvibrations HQ Main Window
             Button {
@@ -262,7 +272,12 @@ struct FloatingWidgetView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        .background(
+            ZStack {
+                Color(nsColor: .controlBackgroundColor).opacity(0.6)
+                WindowDragArea()
+            }
+        )
     }
 
     // MARK: - Hero Card (High Contrast)
@@ -667,3 +682,62 @@ struct FloatingWidgetView: View {
         return String(format: "%d:%02d", mins, secs)
     }
 }
+
+// MARK: - Window Drag Components
+
+struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragNSView {
+        DragNSView()
+    }
+
+    func updateNSView(_ nsView: DragNSView, context: Context) {}
+}
+
+class DragNSView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+
+    override var mouseDownCanMoveWindow: Bool {
+        return true
+    }
+}
+
+struct PetPuckDragArea: NSViewRepresentable {
+    var onClick: () -> Void
+
+    func makeNSView(context: Context) -> PetPuckDragNSView {
+        let view = PetPuckDragNSView()
+        view.onClick = onClick
+        return view
+    }
+
+    func updateNSView(_ nsView: PetPuckDragNSView, context: Context) {
+        nsView.onClick = onClick
+    }
+}
+
+class PetPuckDragNSView: NSView {
+    var onClick: (() -> Void)?
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window = self.window else { return }
+        let initialOrigin = window.frame.origin
+        window.performDrag(with: event)
+        let finalOrigin = window.frame.origin
+
+        let distanceMoved = hypot(finalOrigin.x - initialOrigin.x, finalOrigin.y - initialOrigin.y)
+        if distanceMoved < 4.0 {
+            onClick?()
+        }
+    }
+
+    override var mouseDownCanMoveWindow: Bool {
+        return true
+    }
+}
+

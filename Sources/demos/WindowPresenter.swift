@@ -177,6 +177,7 @@ enum WindowPresenter {
 
         window.level = pinned ? .floating : .normal
         window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
+        window.isMovable = true
         window.isMovableByWindowBackground = true
         window.titlebarAppearsTransparent = true
         window.backgroundColor = .clear
