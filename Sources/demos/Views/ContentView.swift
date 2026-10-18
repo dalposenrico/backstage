@@ -97,6 +97,10 @@ struct ContentView: View {
                 if let window = NSApp.keyWindow, window.firstResponder is NSTextView || window.firstResponder is NSTextField {
                     window.makeFirstResponder(nil)
                 }
+                if settings.isFloatingWidgetActive {
+                    openWindow(id: "floating-widget")
+                    WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                }
             }
         }
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)

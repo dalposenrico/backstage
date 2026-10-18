@@ -8,6 +8,7 @@ private enum QuickAccessTab: String, CaseIterable {
 
 struct FavouritesMenuView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var toolLaunchers: ToolLauncherStore
     @EnvironmentObject private var untitledSync: UntitledSyncStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
@@ -112,6 +113,31 @@ struct FavouritesMenuView: View {
                     .foregroundStyle(.tint)
                 Text("goodvibrations HQ").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+
+                // Toggle Floating HUD
+                Button {
+                    settings.isFloatingWidgetActive.toggle()
+                    if settings.isFloatingWidgetActive {
+                        openWindow(id: "floating-widget")
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                    } else {
+                        WindowPresenter.hideFloatingWidget()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: settings.isFloatingWidgetActive ? "macwindow.on.rectangle" : "macwindow")
+                            .font(.system(size: 9.5))
+                        Text(settings.isFloatingWidgetActive ? "HUD Active" : "HUD")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(settings.isFloatingWidgetActive ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(settings.isFloatingWidgetActive ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(settings.isFloatingWidgetActive ? "Deactivate Floating HUD" : "Activate Floating HUD")
+
                 if selectedTab == .tools {
                     addToolMenu
                 }
@@ -152,6 +178,7 @@ struct FavouritesMenuView: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
+                            floatingHudRow
                             if showsAbletonExport { abletonExportRow }
                             if showsABCompare { abCompareRow }
                             if showsProjectNotes { projectNotesRow }
@@ -165,6 +192,45 @@ struct FavouritesMenuView: View {
                 }
             }
         }
+    }
+
+    private var floatingHudRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "macwindow.on.rectangle")
+                .font(.system(size: 18))
+                .foregroundStyle(.tint)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Floating Studio HUD")
+                    Text("⇧⌘W")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Always-on-top resizable companion widget for Live")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { settings.isFloatingWidgetActive },
+                set: { active in
+                    settings.isFloatingWidgetActive = active
+                    if active {
+                        openWindow(id: "floating-widget")
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                    } else {
+                        WindowPresenter.hideFloatingWidget()
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
     }
 
     private var abletonExportRow: some View {

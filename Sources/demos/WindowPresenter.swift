@@ -95,4 +95,45 @@ enum WindowPresenter {
         window.makeKeyAndOrderFront(nil)
         if pinned { window.orderFrontRegardless() }
     }
+
+    static func showFloatingWidget(pinned: Bool = true) {
+        NSApp.activate(ignoringOtherApps: false)
+        configureFloatingWidget(pinned: pinned, attemptsRemaining: 8)
+    }
+
+    static func hideFloatingWidget() {
+        if let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) {
+            window.orderOut(nil)
+        }
+    }
+
+    static func toggleFloatingWidget(pinned: Bool = true) {
+        if let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }), window.isVisible {
+            hideFloatingWidget()
+        } else {
+            showFloatingWidget(pinned: pinned)
+        }
+    }
+
+    static func configureFloatingWidget(pinned: Bool, attemptsRemaining: Int = 8) {
+        guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else {
+            guard attemptsRemaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                configureFloatingWidget(pinned: pinned, attemptsRemaining: attemptsRemaining - 1)
+            }
+            return
+        }
+
+        window.level = pinned ? .floating : .normal
+        window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
+        window.isMovableByWindowBackground = true
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = true
+        window.minSize = NSSize(width: 280, height: 420)
+        window.maxSize = NSSize(width: 600, height: 1100)
+        window.makeKeyAndOrderFront(nil)
+        if pinned { window.orderFrontRegardless() }
+    }
 }

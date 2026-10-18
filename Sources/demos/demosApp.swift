@@ -125,6 +125,19 @@ struct demosApp: App {
 
                 Divider()
 
+                Button(settings.isFloatingWidgetActive ? "Hide Floating HUD" : "Show Floating HUD") {
+                    settings.isFloatingWidgetActive.toggle()
+                    if settings.isFloatingWidgetActive {
+                        openWindow(id: "floating-widget")
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                    } else {
+                        WindowPresenter.hideFloatingWidget()
+                    }
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("Focus Timer…") {
                     openWindow(id: "focus-timer")
                     WindowPresenter.showFocusTimer(pinned: dailyFocus.keepsTimerOnTop)
@@ -231,6 +244,15 @@ struct demosApp: App {
         }
         .defaultSize(width: 1180, height: 700)
 
+        Window("goodvibrations HUD", id: "floating-widget") {
+            FloatingWidgetView()
+                .environmentObject(store)
+                .environmentObject(store.audioPlayer)
+                .environmentObject(settings)
+        }
+        .defaultSize(width: 330, height: 580)
+        .windowStyle(.hiddenTitleBar)
+
         // MARK: - Settings (⌘,)
         Settings {
             SettingsView()
@@ -244,6 +266,7 @@ struct demosApp: App {
         MenuBarExtra {
             FavouritesMenuView()
                 .environmentObject(store)
+                .environmentObject(settings)
                 .environmentObject(toolLaunchers)
                 .environmentObject(untitledSync)
                 .environmentObject(projectNotes)
