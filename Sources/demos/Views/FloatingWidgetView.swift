@@ -125,6 +125,10 @@ struct FloatingWidgetView: View {
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
+            Button("Open goodvibrations HQ") {
+                openWindow(id: "main-window")
+                WindowPresenter.showMainWindow()
+            }
             Button("Expand goodvibrations HUD") {
                 expandWidget()
             }
@@ -239,10 +243,10 @@ struct FloatingWidgetView: View {
 
             // Open in goodvibrations HQ Main Window
             Button {
+                openWindow(id: "main-window")
+                WindowPresenter.showMainWindow()
                 if let p = activeProject {
                     store.openInMainWindow(p)
-                } else {
-                    NSApp.activate(ignoringOtherApps: true)
                 }
             } label: {
                 Image(systemName: "macwindow.on.rectangle")
@@ -610,6 +614,8 @@ struct FloatingWidgetView: View {
 
             // 1-Click Open in goodvibrations HQ Button
             Button {
+                openWindow(id: "main-window")
+                WindowPresenter.showMainWindow()
                 store.openInMainWindow(project)
             } label: {
                 Image(systemName: "macwindow")

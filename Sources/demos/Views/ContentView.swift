@@ -101,6 +101,7 @@ struct ContentView: View {
                     openWindow(id: "floating-widget")
                     WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned, collapsed: settings.isFloatingWidgetCollapsed)
                 }
+                WindowPresenter.showMainWindow()
             }
         }
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)

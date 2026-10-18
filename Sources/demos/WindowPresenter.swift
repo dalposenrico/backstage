@@ -96,6 +96,19 @@ enum WindowPresenter {
         if pinned { window.orderFrontRegardless() }
     }
 
+    static func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let mainWindow = NSApp.windows.first(where: { $0.title.contains("goodvibrations HQ") && $0.canBecomeMain }) {
+            mainWindow.deminiaturize(nil)
+            mainWindow.makeKeyAndOrderFront(nil)
+            mainWindow.orderFrontRegardless()
+        } else {
+            if let url = URL(string: "goodvibrations://open-project") {
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
     private static var savedExpandedSize: NSSize = NSSize(width: 330, height: 580)
 
     static func showFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {

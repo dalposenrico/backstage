@@ -53,9 +53,14 @@ final class AppLifecycleDiagnostics: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         AccountDiagnostics.record("Application reopen requested; visibleWindows=\(flag)")
-        guard !flag else { return true }
-        if let window = sender.windows.first(where: { !$0.title.isEmpty && $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
+        if let mainWindow = sender.windows.first(where: { $0.title.contains("goodvibrations HQ") && $0.canBecomeMain }) {
+            mainWindow.deminiaturize(nil)
+            mainWindow.makeKeyAndOrderFront(nil)
+            mainWindow.orderFrontRegardless()
+        } else {
+            if let url = URL(string: "goodvibrations://open-project") {
+                NSWorkspace.shared.open(url)
+            }
         }
         sender.activate(ignoringOtherApps: true)
         return true

@@ -47,7 +47,7 @@ struct demosApp: App {
     var body: some Scene {
 
         // MARK: - Main window
-        WindowGroup {
+        WindowGroup(id: "main-window") {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(store.audioPlayer)
@@ -71,7 +71,13 @@ struct demosApp: App {
         }
         .defaultSize(width: 1100, height: 680)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("goodvibrations HQ Window") {
+                    openWindow(id: "main-window")
+                    WindowPresenter.showMainWindow()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+            }
 
             CommandMenu("Playback") {
                 Button("Play / Pause")    { store.audioPlayer.togglePlayPause() }
