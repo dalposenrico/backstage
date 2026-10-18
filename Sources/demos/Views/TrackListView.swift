@@ -10,6 +10,7 @@ struct TrackListView: View {
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var artworkStore: ProjectArtworkStore
     @EnvironmentObject var collectionColors: CollectionColorStore
+    @EnvironmentObject var metadataStore: ProjectMetadataStore
     @Environment(\.openWindow) private var openWindow
     @State private var section: ProjectInspectorSection = .overview
     @State private var arrangement: AbletonArrangement?
@@ -18,107 +19,215 @@ struct TrackListView: View {
     @State private var parseStatus: String = "Reading Ableton set…"
     @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
 
+    private var collectionColorHelp: String {
+        guard let sourceURL = collectionColors.resolvedColorSourceURL(for: project.folderURL) else {
+            return "Collection color"
+        }
+        return "Collection: \(sourceURL.lastPathComponent)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
 
             // ── Project header ───────────────────────────────────────────────
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                // Row 1: Project Identity & Primary Actions
+                HStack(spacing: 8) {
+                    if let category = collectionColors.resolvedColor(for: project.folderURL) {
+                        Circle()
+                            .fill(category.color.opacity(0.85))
+                            .frame(width: 8, height: 8)
+                            .help(collectionColorHelp)
+                    }
 
-                        // Project identity. Secondary actions live in one menu so the
-                        // two actions that resume work remain visually dominant.
-                        HStack(spacing: 10) {
-                            Text(project.name)
-                                .font(.system(size: 23, weight: .bold))
-                                .foregroundColor(.primaryText)
-                                .lineLimit(2)
-                            Spacer(minLength: 8)
-                            projectActionsMenu
+                    Text(project.name)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.primaryText)
+                        .lineLimit(1)
+
+                    ProjectBadgeView(project: project)
+
+                    if store.isCurrentOpenProject(project) {
+                        Text("LIVE")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundColor(.accent)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.accent.opacity(0.14), in: Capsule())
+                    }
+
+                    if store.favourites.contains(project.folderURL) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accent)
+                            .help("In Favourites")
+                    }
+
+                    Spacer(minLength: 8)
+
+                    // Compact Actions
+                    HStack(spacing: 6) {
+                        if let version = project.newestAbletonVersion {
+                            Button { store.openInAbleton(project, version: version) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up.forward.app.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text("Open in Ableton")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Color.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.accent.opacity(0.35), lineWidth: 0.8)
+                                )
+                                .foregroundColor(.accent)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open in Ableton Live")
                         }
 
-                        // Finder color tags
+                        if project.hasExports {
+                            Button {
+                                if let first = project.sortedTracks.first { store.playTrack(first) }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text("Play Latest")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .foregroundColor(.primaryText)
+                                .background(Color.elevatedBg)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Color.subtleBorder) }
+                            }
+                            .buttonStyle(.plain)
+                            .help("Play newest export")
+                        }
+
+                        projectActionsMenu
+                    }
+                }
+
+                // Row 2: Metadata Badges (Musical key, tempo, time signature, Live version, Content, Finder tags)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        let effectiveKey = metadataStore.metadata(for: project).musicalKey ?? project.displayKey
+                        if !effectiveKey.isEmpty && effectiveKey != "—" {
+                            headerMetaBadge(
+                                icon: "music.quarternote.3",
+                                label: effectiveKey,
+                                isAccent: !effectiveKey.contains("*"),
+                                tooltip: "Musical Key"
+                            )
+                        }
+
+                        if let bpm = project.bpmLabel {
+                            headerMetaBadge(
+                                icon: "metronome",
+                                label: "\(bpm) BPM",
+                                tooltip: "Tempo"
+                            )
+                        }
+
+                        headerMetaBadge(
+                            icon: "number",
+                            label: project.displayTimeSignature,
+                            tooltip: "Time Signature"
+                        )
+
+                        headerMetaBadge(
+                            icon: "laptopcomputer",
+                            label: "Live \(project.displayLiveVersion)",
+                            tooltip: "Ableton Live Version"
+                        )
+
+                        headerMetaBadge(
+                            icon: "slider.horizontal.3",
+                            label: project.contentLabel,
+                            tooltip: "Project Content"
+                        )
+
                         if !project.tags.isEmpty {
-                            HStack(spacing: 6) {
-                                ForEach(project.tags, id: \.self) { tag in
-                                    if let color = Color.finderTagColor(tag) {
-                                        HStack(spacing: 4) {
-                                            Circle().fill(color).frame(width: 8, height: 8)
-                                            Text(tag)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundColor(color.opacity(0.9))
-                                        }
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(color.opacity(0.12))
-                                        .cornerRadius(10)
-                                    } else {
+                            ForEach(project.tags, id: \.self) { tag in
+                                if let color = Color.finderTagColor(tag) {
+                                    HStack(spacing: 4) {
+                                        Circle().fill(color).frame(width: 6, height: 6)
                                         Text(tag)
                                             .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(.secondaryText)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.06))
-                                            .cornerRadius(10)
+                                            .foregroundColor(color.opacity(0.9))
                                     }
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3.5)
+                                    .background(color.opacity(0.12))
+                                    .cornerRadius(5.5)
+                                } else {
+                                    Text(tag)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.secondaryText)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3.5)
+                                        .background(Color.white.opacity(0.06))
+                                        .cornerRadius(5.5)
                                 }
                             }
                         }
+                    }
+                }
 
-                        // Metadata row — larger, higher contrast
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text(project.hasExports
-                                     ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
-                                     : "No exports yet")
-                                if project.latestModification != .distantPast {
-                                    Text("·").foregroundColor(.tertiaryText)
-                                    Text("Edited \(project.latestModification.relativeFull)")
-                                }
-                            }
-                            if let created = project.creationDate {
-                                Text("Added \(created.fullDateTime)")
-                            }
-                        }
-                        .font(.system(size: 12))
+                // Row 3: Activity & Timeline Info (Work time, backups, sessions, exports, modification dates)
+                HStack(spacing: 6) {
+                    if project.activity.backupCount > 0 {
+                        headerActivityBadge(
+                            icon: "clock.arrow.circlepath",
+                            value: project.activity.estimatedWorkTime.estimatedWorkLabel,
+                            label: "estimated work"
+                        )
+                        headerActivityBadge(
+                            icon: "square.stack.3d.up",
+                            value: "\(project.activity.backupCount)",
+                            label: project.activity.backupCount == 1 ? "backup" : "backups"
+                        )
+                        headerActivityBadge(
+                            icon: "calendar.badge.clock",
+                            value: "\(project.activity.sessionCount)",
+                            label: project.activity.sessionCount == 1 ? "session" : "sessions"
+                        )
+                        Text("·")
+                            .foregroundColor(.tertiaryText)
+                    }
+
+                    Text(project.hasExports
+                         ? "\(project.tracks.count) \(project.tracks.count == 1 ? "export" : "exports")"
+                         : "No exports yet")
                         .foregroundColor(.secondaryText)
 
-                        ProjectInsights(project: project)
+                    if project.latestModification != .distantPast {
+                        Text("·")
+                            .foregroundColor(.tertiaryText)
+                        Text("Edited \(project.latestModification.relativeFull)")
+                            .foregroundColor(.secondaryText)
+                    }
 
-                        HStack(spacing: 8) {
-                            if let version = project.newestAbletonVersion {
-                                Button { store.openInAbleton(project, version: version) } label: {
-                                    Label("Open in Ableton", systemImage: "arrow.up.forward.app.fill")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
-                                        .foregroundColor(.white)
-                                        .background(Color.accent)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                    if let created = project.creationDate {
+                        Text("·")
+                            .foregroundColor(.tertiaryText)
+                        Text("Added \(created.fullDateTime)")
+                            .foregroundColor(.tertiaryText)
+                    }
 
-                            if project.hasExports {
-                                Button {
-                                    if let first = project.sortedTracks.first { store.playTrack(first) }
-                                } label: {
-                                    Label("Play Latest", systemImage: "play.fill")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .foregroundColor(.primaryText)
-                                        .background(Color.elevatedBg)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.subtleBorder) }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                    Spacer(minLength: 0)
                 }
+                .font(.system(size: 11))
+                .lineLimit(1)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 20)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
 
             Divider().background(Color.white.opacity(0.18))
 
@@ -371,16 +480,59 @@ struct TrackListView: View {
             .disabled(store.refreshingProjects.contains(project.folderURL))
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.secondaryText)
-                .frame(width: 30, height: 28)
+                .frame(width: 26, height: 24)
                 .background(Color.elevatedBg)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.subtleBorder) }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Color.subtleBorder) }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("More project actions")
+    }
+
+    private func headerMetaBadge(icon: String, label: String, isAccent: Bool = false, tooltip: String? = nil) -> some View {
+        HStack(spacing: 4.5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: isAccent ? .semibold : .regular))
+                .foregroundColor(isAccent ? .accent : .secondaryText)
+            Text(label)
+                .font(.system(size: 11, weight: isAccent ? .semibold : .medium, design: .rounded))
+                .foregroundColor(isAccent ? .accent : .primaryText)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3.5)
+        .background(isAccent ? Color.accent.opacity(0.12) : Color.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 5.5))
+        .overlay {
+            if isAccent {
+                RoundedRectangle(cornerRadius: 5.5)
+                    .stroke(Color.accent.opacity(0.3), lineWidth: 0.6)
+            }
+        }
+        .help(tooltip ?? label)
+        .fixedSize()
+    }
+
+    private func headerActivityBadge(icon: String, value: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9.5))
+                .foregroundColor(.accent)
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.primaryText)
+            Text(label)
+                .font(.system(size: 10.5))
+                .foregroundColor(.secondaryText)
+        }
+        .padding(.horizontal, 6.5)
+        .padding(.vertical, 3)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .fixedSize()
+        .lineLimit(1)
     }
 
     private func tabTitle(for item: ProjectInspectorSection) -> String {
@@ -454,55 +606,6 @@ private struct ExportFolderHeader: View {
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 3)
-    }
-}
-
-private struct ProjectInsights: View {
-    let project: Project
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 8)], alignment: .leading, spacing: 8) {
-            if let bpm = project.bpmLabel {
-                insight(icon: "metronome", value: bpm, label: "BPM")
-            }
-            if project.activity.backupCount > 0 {
-                insight(
-                    icon: "clock.arrow.circlepath",
-                    value: project.activity.estimatedWorkTime.estimatedWorkLabel,
-                    label: "estimated work"
-                )
-                insight(
-                    icon: "square.stack.3d.up",
-                    value: "\(project.activity.backupCount)",
-                    label: project.activity.backupCount == 1 ? "backup" : "backups"
-                )
-                insight(
-                    icon: "calendar.badge.clock",
-                    value: "\(project.activity.sessionCount)",
-                    label: project.activity.sessionCount == 1 ? "session" : "sessions"
-                )
-            }
-        }
-        .padding(.top, 2)
-        .help("Work time is estimated from Ableton save and backup timestamps. Gaps over two hours start a new session.")
-    }
-
-    private func insight(icon: String, value: String, label: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundColor(.accent)
-            Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundColor(.primaryText)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundColor(.secondaryText)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color.white.opacity(0.045))
-        .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 }
 
