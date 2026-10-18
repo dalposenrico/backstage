@@ -31,6 +31,78 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
+enum PetPuckSize: String, CaseIterable, Identifiable {
+    case small = "small"
+    case medium = "medium"
+    case large = "large"
+    case extraLarge = "extraLarge"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .small: return "Small (40 pt)"
+        case .medium: return "Medium (52 pt)"
+        case .large: return "Large (68 pt)"
+        case .extraLarge: return "Extra Large (88 pt)"
+        }
+    }
+
+    var dimension: CGFloat {
+        switch self {
+        case .small: return 40
+        case .medium: return 52
+        case .large: return 68
+        case .extraLarge: return 88
+        }
+    }
+
+    var iconDimension: CGFloat {
+        switch self {
+        case .small: return 36
+        case .medium: return 48
+        case .large: return 62
+        case .extraLarge: return 80
+        }
+    }
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .small: return 8
+        case .medium: return 11
+        case .large: return 14
+        case .extraLarge: return 18
+        }
+    }
+
+    var dotSize: CGFloat {
+        switch self {
+        case .small: return 7
+        case .medium: return 10
+        case .large: return 12
+        case .extraLarge: return 15
+        }
+    }
+
+    var dotOffset: (x: CGFloat, y: CGFloat) {
+        switch self {
+        case .small: return (13, -13)
+        case .medium: return (17, -17)
+        case .large: return (22, -22)
+        case .extraLarge: return (28, -28)
+        }
+    }
+
+    var cueIconSize: CGFloat {
+        switch self {
+        case .small: return 9
+        case .medium: return 11
+        case .large: return 14
+        case .extraLarge: return 18
+        }
+    }
+}
+
 class SettingsStore: ObservableObject {
     @Published var appearanceMode: AppearanceMode {
         didSet { UserDefaults.standard.set(appearanceMode.rawValue, forKey: "appearanceMode") }
@@ -49,6 +121,9 @@ class SettingsStore: ObservableObject {
     }
     @Published var isFloatingWidgetCollapsed: Bool {
         didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
+    }
+    @Published var petPuckSize: PetPuckSize {
+        didSet { UserDefaults.standard.set(petPuckSize.rawValue, forKey: "petPuckSize") }
     }
 
     init() {
@@ -77,5 +152,9 @@ class SettingsStore: ObservableObject {
         } else {
             isFloatingWidgetCollapsed = false
         }
+
+        let rawPuckSize = UserDefaults.standard.string(forKey: "petPuckSize") ?? "medium"
+        petPuckSize = PetPuckSize(rawValue: rawPuckSize) ?? .medium
     }
 }
+

@@ -111,6 +111,11 @@ enum WindowPresenter {
 
     private static var savedExpandedSize: NSSize = NSSize(width: 330, height: 580)
 
+    private static var currentPuckDimension: CGFloat {
+        let raw = UserDefaults.standard.string(forKey: "petPuckSize") ?? "medium"
+        return PetPuckSize(rawValue: raw)?.dimension ?? 52
+    }
+
     static func showFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {
         NSApp.activate(ignoringOtherApps: false)
         configureFloatingWidget(pinned: pinned, collapsed: collapsed, attemptsRemaining: 8)
@@ -130,11 +135,28 @@ enum WindowPresenter {
         }
     }
 
-    static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true) {
+    static func updateFloatingWidgetPuckSize(_ puckSize: CGFloat) {
+        guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
+        // Only update if currently collapsed into puck mode
+        guard !window.styleMask.contains(.titled) else { return }
+
+        window.minSize = NSSize(width: puckSize, height: puckSize)
+        window.maxSize = NSSize(width: puckSize, height: puckSize)
+
+        var newFrame = window.frame
+        let oldHeight = newFrame.height
+        newFrame.size = NSSize(width: puckSize, height: puckSize)
+        newFrame.origin.y += (oldHeight - puckSize)
+        window.setFrame(newFrame, display: true, animate: false)
+    }
+
+    static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
 
         window.backgroundColor = .clear
         window.isOpaque = false
+
+        let puckDim = puckSize ?? currentPuckDimension
 
         if collapsed {
             window.styleMask.remove(.titled)
@@ -142,13 +164,13 @@ enum WindowPresenter {
             if window.frame.width > 100 && window.frame.height > 100 {
                 savedExpandedSize = window.frame.size
             }
-            window.minSize = NSSize(width: 52, height: 52)
-            window.maxSize = NSSize(width: 52, height: 52)
+            window.minSize = NSSize(width: puckDim, height: puckDim)
+            window.maxSize = NSSize(width: puckDim, height: puckDim)
 
             var newFrame = window.frame
             let oldHeight = newFrame.height
-            newFrame.size = NSSize(width: 52, height: 52)
-            newFrame.origin.y += (oldHeight - 52)
+            newFrame.size = NSSize(width: puckDim, height: puckDim)
+            newFrame.origin.y += (oldHeight - puckDim)
             window.setFrame(newFrame, display: true, animate: false)
         } else {
             window.styleMask.insert(.titled)
@@ -187,14 +209,16 @@ enum WindowPresenter {
         }
     }
 
-    static func configureFloatingWidget(pinned: Bool, collapsed: Bool = false, attemptsRemaining: Int = 8) {
+    static func configureFloatingWidget(pinned: Bool, collapsed: Bool = false, puckSize: CGFloat? = nil, attemptsRemaining: Int = 8) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else {
             guard attemptsRemaining > 0 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                configureFloatingWidget(pinned: pinned, collapsed: collapsed, attemptsRemaining: attemptsRemaining - 1)
+                configureFloatingWidget(pinned: pinned, collapsed: collapsed, puckSize: puckSize, attemptsRemaining: attemptsRemaining - 1)
             }
             return
         }
+
+        let puckDim = puckSize ?? currentPuckDimension
 
         window.level = pinned ? .floating : .normal
         window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
@@ -206,12 +230,12 @@ enum WindowPresenter {
         if collapsed {
             window.styleMask.remove(.titled)
             window.hasShadow = false
-            window.minSize = NSSize(width: 52, height: 52)
-            window.maxSize = NSSize(width: 52, height: 52)
+            window.minSize = NSSize(width: puckDim, height: puckDim)
+            window.maxSize = NSSize(width: puckDim, height: puckDim)
             var f = window.frame
             let oldH = f.height
-            f.size = NSSize(width: 52, height: 52)
-            f.origin.y += (oldH - 52)
+            f.size = NSSize(width: puckDim, height: puckDim)
+            f.origin.y += (oldH - puckDim)
             window.setFrame(f, display: true, animate: false)
         } else {
             window.styleMask.insert(.titled)

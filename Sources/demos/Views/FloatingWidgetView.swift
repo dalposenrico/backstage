@@ -51,7 +51,8 @@ struct FloatingWidgetView: View {
         .onAppear {
             WindowPresenter.configureFloatingWidget(
                 pinned: settings.isFloatingWidgetPinned,
-                collapsed: settings.isFloatingWidgetCollapsed
+                collapsed: settings.isFloatingWidgetCollapsed,
+                puckSize: settings.petPuckSize.dimension
             )
         }
     }
@@ -73,13 +74,14 @@ struct FloatingWidgetView: View {
     // MARK: - Collapsed Pet Icon Mode
 
     private var collapsedPetPuck: some View {
-        ZStack {
+        let size = settings.petPuckSize
+        return ZStack {
             // App Icon
             if let icon = appIconImage {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 48, height: 48)
+                    .frame(width: size.iconDimension, height: size.iconDimension)
                     .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
             } else {
                 Circle()
@@ -91,7 +93,7 @@ struct FloatingWidgetView: View {
                     .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
 
                 Image(systemName: "waveform")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: size.iconDimension * 0.42, weight: .bold))
                     .foregroundStyle(Color.accentColor)
             }
 
@@ -99,19 +101,19 @@ struct FloatingWidgetView: View {
             if store.currentOpenProject != nil {
                 Circle()
                     .fill(Color.green)
-                    .frame(width: 10, height: 10)
+                    .frame(width: size.dotSize, height: size.dotSize)
                     .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
                     .shadow(color: Color.black.opacity(0.3), radius: 2)
-                    .offset(x: 17, y: -17)
+                    .offset(x: size.dotOffset.x, y: size.dotOffset.y)
             }
 
             // Hover Cue
             if isHoveringPuck {
-                RoundedRectangle(cornerRadius: 11)
+                RoundedRectangle(cornerRadius: size.cornerRadius)
                     .fill(Color.black.opacity(0.25))
-                    .frame(width: 48, height: 48)
+                    .frame(width: size.iconDimension, height: size.iconDimension)
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: size.cueIconSize, weight: .bold))
                     .foregroundStyle(.white)
             }
 
@@ -120,7 +122,7 @@ struct FloatingWidgetView: View {
                 expandWidget()
             }
         }
-        .frame(width: 52, height: 52)
+        .frame(width: size.dimension, height: size.dimension)
         .contentShape(Rectangle())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
@@ -132,6 +134,25 @@ struct FloatingWidgetView: View {
             Button("Expand goodvibrations HUD") {
                 expandWidget()
             }
+
+            Divider()
+
+            Menu("Icon Size") {
+                ForEach(PetPuckSize.allCases) { puckSize in
+                    Button {
+                        settings.petPuckSize = puckSize
+                        WindowPresenter.updateFloatingWidgetPuckSize(puckSize.dimension)
+                    } label: {
+                        HStack {
+                            Text(puckSize.title)
+                            if settings.petPuckSize == puckSize {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+
             if let project = activeProject {
                 Divider()
                 Text(project.name).font(.caption).disabled(true)
@@ -151,7 +172,8 @@ struct FloatingWidgetView: View {
                 settings.isFloatingWidgetPinned.toggle()
                 WindowPresenter.configureFloatingWidget(
                     pinned: settings.isFloatingWidgetPinned,
-                    collapsed: settings.isFloatingWidgetCollapsed
+                    collapsed: settings.isFloatingWidgetCollapsed,
+                    puckSize: settings.petPuckSize.dimension
                 )
             }
             Button("Hide HUD (⇧⌘W)") {
@@ -164,12 +186,12 @@ struct FloatingWidgetView: View {
 
     private func expandWidget() {
         settings.isFloatingWidgetCollapsed = false
-        WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned)
+        WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned, puckSize: settings.petPuckSize.dimension)
     }
 
     private func collapseWidget() {
         settings.isFloatingWidgetCollapsed = true
-        WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned)
+        WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned, puckSize: settings.petPuckSize.dimension)
     }
 
     // MARK: - Expanded HUD View
