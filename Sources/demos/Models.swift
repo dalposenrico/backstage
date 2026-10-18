@@ -107,9 +107,17 @@ struct Project: Identifiable, Hashable {
     }
 
     var contentLabel: String {
-        let t = tracksCount ?? max(1, versions.count > 0 ? 16 : tracks.count)
-        let s = samplesCount ?? 0
-        return "\(t) tracks, \(s) samples"
+        if let t = tracksCount {
+            let s = samplesCount ?? 0
+            return "\(t) tracks, \(s) samples"
+        }
+        if !tracks.isEmpty {
+            return "\(tracks.count) export\(tracks.count == 1 ? "" : "s")"
+        }
+        if !versions.isEmpty {
+            return "\(versions.count) version\(versions.count == 1 ? "" : "s")"
+        }
+        return "—"
     }
 
     var displayKey: String {
@@ -121,7 +129,7 @@ struct Project: Identifiable, Hashable {
     }
 
     var displayLiveVersion: String {
-        liveVersion ?? "12.4.6"
+        liveVersion ?? (versions.isEmpty ? "—" : "Live")
     }
 
     var latestSavedItem: (name: String, date: Date)? {

@@ -186,7 +186,7 @@ enum ProjectScanner {
             )
         }
 
-        if let cached = cache.cached(for: fingerprint) {
+        if let cached = cache.cached(for: fingerprint), cached.tracksCount != nil {
             return resume(cached)
         }
 

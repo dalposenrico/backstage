@@ -227,7 +227,7 @@ enum AbletonProjectInspector {
                 return "\(matchedStr[num]).0"
             }
         }
-        return "12.4.6"
+        return nil
     }
 
     private static func readTimeSignature(in xml: String) -> String? {
@@ -283,17 +283,25 @@ enum AbletonProjectInspector {
         return "C major *"
     }
 
+    private static func countOccurrences(of substring: String, in string: String) -> Int {
+        var count = 0
+        var searchRange = string.startIndex..<string.endIndex
+        while let range = string.range(of: substring, range: searchRange) {
+            count += 1
+            searchRange = range.upperBound..<string.endIndex
+        }
+        return count
+    }
+
     private static func countTracks(in xml: String) -> Int {
-        let midi = xml.components(separatedBy: "<MidiTrack ").count - 1
-        let audio = xml.components(separatedBy: "<AudioTrack ").count - 1
-        let group = xml.components(separatedBy: "<GroupTrack ").count - 1
-        let total = midi + audio + group
-        return max(1, total)
+        let midi = countOccurrences(of: "<MidiTrack ", in: xml)
+        let audio = countOccurrences(of: "<AudioTrack ", in: xml)
+        let group = countOccurrences(of: "<GroupTrack ", in: xml)
+        return midi + audio + group
     }
 
     private static func countSamples(in xml: String) -> Int {
-        let samples = xml.components(separatedBy: "<SampleRef>").count - 1
-        return max(0, samples)
+        return countOccurrences(of: "<SampleRef>", in: xml)
     }
 
     private static func decodeXMLEntities(_ value: String) -> String {
