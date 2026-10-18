@@ -96,9 +96,11 @@ enum WindowPresenter {
         if pinned { window.orderFrontRegardless() }
     }
 
-    static func showFloatingWidget(pinned: Bool = true) {
+    private static var savedExpandedSize: NSSize = NSSize(width: 330, height: 580)
+
+    static func showFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {
         NSApp.activate(ignoringOtherApps: false)
-        configureFloatingWidget(pinned: pinned, attemptsRemaining: 8)
+        configureFloatingWidget(pinned: pinned, collapsed: collapsed, attemptsRemaining: 8)
     }
 
     static func hideFloatingWidget() {
@@ -107,19 +109,68 @@ enum WindowPresenter {
         }
     }
 
-    static func toggleFloatingWidget(pinned: Bool = true) {
+    static func toggleFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {
         if let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }), window.isVisible {
             hideFloatingWidget()
         } else {
-            showFloatingWidget(pinned: pinned)
+            showFloatingWidget(pinned: pinned, collapsed: collapsed)
         }
     }
 
-    static func configureFloatingWidget(pinned: Bool, attemptsRemaining: Int = 8) {
+    static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true) {
+        guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
+
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
+        if collapsed {
+            if window.frame.width > 100 && window.frame.height > 100 {
+                savedExpandedSize = window.frame.size
+            }
+            window.minSize = NSSize(width: 54, height: 54)
+            window.maxSize = NSSize(width: 54, height: 54)
+
+            var newFrame = window.frame
+            let oldHeight = newFrame.height
+            newFrame.size = NSSize(width: 54, height: 54)
+            newFrame.origin.y += (oldHeight - 54)
+            window.setFrame(newFrame, display: true, animate: true)
+        } else {
+            let targetSize = savedExpandedSize
+            window.minSize = NSSize(width: 280, height: 420)
+            window.maxSize = NSSize(width: 600, height: 1100)
+
+            var newFrame = window.frame
+            let oldHeight = newFrame.height
+            newFrame.size = targetSize
+            newFrame.origin.y -= (targetSize.height - oldHeight)
+
+            if let screen = window.screen {
+                let visible = screen.visibleFrame
+                if newFrame.minY < visible.minY {
+                    newFrame.origin.y = visible.minY + 8
+                }
+                if newFrame.maxY > visible.maxY {
+                    newFrame.origin.y = visible.maxY - newFrame.height - 8
+                }
+                if newFrame.minX < visible.minX {
+                    newFrame.origin.x = visible.minX + 8
+                }
+                if newFrame.maxX > visible.maxX {
+                    newFrame.origin.x = visible.maxX - newFrame.width - 8
+                }
+            }
+
+            window.setFrame(newFrame, display: true, animate: true)
+        }
+    }
+
+    static func configureFloatingWidget(pinned: Bool, collapsed: Bool = false, attemptsRemaining: Int = 8) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else {
             guard attemptsRemaining > 0 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                configureFloatingWidget(pinned: pinned, attemptsRemaining: attemptsRemaining - 1)
+                configureFloatingWidget(pinned: pinned, collapsed: collapsed, attemptsRemaining: attemptsRemaining - 1)
             }
             return
         }
@@ -131,8 +182,24 @@ enum WindowPresenter {
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = true
-        window.minSize = NSSize(width: 280, height: 420)
-        window.maxSize = NSSize(width: 600, height: 1100)
+
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
+        if collapsed {
+            window.minSize = NSSize(width: 54, height: 54)
+            window.maxSize = NSSize(width: 54, height: 54)
+            var f = window.frame
+            let oldH = f.height
+            f.size = NSSize(width: 54, height: 54)
+            f.origin.y += (oldH - 54)
+            window.setFrame(f, display: true, animate: false)
+        } else {
+            window.minSize = NSSize(width: 280, height: 420)
+            window.maxSize = NSSize(width: 600, height: 1100)
+        }
+
         window.makeKeyAndOrderFront(nil)
         if pinned { window.orderFrontRegardless() }
     }

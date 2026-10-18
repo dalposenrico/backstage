@@ -129,7 +129,7 @@ struct demosApp: App {
                     settings.isFloatingWidgetActive.toggle()
                     if settings.isFloatingWidgetActive {
                         openWindow(id: "floating-widget")
-                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned, collapsed: settings.isFloatingWidgetCollapsed)
                     } else {
                         WindowPresenter.hideFloatingWidget()
                     }

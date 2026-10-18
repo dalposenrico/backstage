@@ -47,6 +47,9 @@ class SettingsStore: ObservableObject {
     @Published var isFloatingWidgetPinned: Bool {
         didSet { UserDefaults.standard.set(isFloatingWidgetPinned, forKey: "isFloatingWidgetPinned") }
     }
+    @Published var isFloatingWidgetCollapsed: Bool {
+        didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
+    }
 
     init() {
         let rawMode  = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
@@ -67,6 +70,12 @@ class SettingsStore: ObservableObject {
             isFloatingWidgetPinned = storedPinned
         } else {
             isFloatingWidgetPinned = true
+        }
+
+        if let storedCollapsed = UserDefaults.standard.object(forKey: "isFloatingWidgetCollapsed") as? Bool {
+            isFloatingWidgetCollapsed = storedCollapsed
+        } else {
+            isFloatingWidgetCollapsed = false
         }
     }
 }

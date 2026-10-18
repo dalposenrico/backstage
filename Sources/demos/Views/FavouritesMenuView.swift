@@ -119,7 +119,7 @@ struct FavouritesMenuView: View {
                     settings.isFloatingWidgetActive.toggle()
                     if settings.isFloatingWidgetActive {
                         openWindow(id: "floating-widget")
-                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned, collapsed: settings.isFloatingWidgetCollapsed)
                     } else {
                         WindowPresenter.hideFloatingWidget()
                     }
@@ -218,7 +218,7 @@ struct FavouritesMenuView: View {
                     settings.isFloatingWidgetActive = active
                     if active {
                         openWindow(id: "floating-widget")
-                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                        WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned, collapsed: settings.isFloatingWidgetCollapsed)
                     } else {
                         WindowPresenter.hideFloatingWidget()
                     }

@@ -15,6 +15,7 @@ struct FloatingWidgetView: View {
 
     @State private var filter: FloatingWidgetFilter = .recents
     @State private var searchText = ""
+    @State private var isHoveringPuck = false
 
     private var activeProject: Project? {
         store.currentOpenProject ?? store.selectedProject ?? store.recentProjects.first
@@ -39,6 +40,114 @@ struct FloatingWidgetView: View {
     }
 
     var body: some View {
+        Group {
+            if settings.isFloatingWidgetCollapsed {
+                collapsedPetPuck
+            } else {
+                expandedHudView
+            }
+        }
+        .onAppear {
+            WindowPresenter.configureFloatingWidget(
+                pinned: settings.isFloatingWidgetPinned,
+                collapsed: settings.isFloatingWidgetCollapsed
+            )
+        }
+    }
+
+    // MARK: - Collapsed Pet Icon Mode
+
+    private var collapsedPetPuck: some View {
+        ZStack {
+            // Elevated solid circular backdrop
+            Circle()
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    Circle()
+                        .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+                )
+                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+
+            // Centered Waveform Icon
+            Image(systemName: "waveform")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color.accentColor)
+
+            // Emerald Green Live Session Indicator Dot (top right)
+            if store.currentOpenProject != nil {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 10, height: 10)
+                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                    .offset(x: 16, y: -16)
+            }
+
+            // Hover Cue
+            if isHoveringPuck {
+                Circle()
+                    .fill(Color.black.opacity(0.2))
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 52, height: 52)
+        .contentShape(Circle())
+        .onHover { isHoveringPuck = $0 }
+        .onTapGesture {
+            expandWidget()
+        }
+        .contextMenu {
+            Button("Expand goodvibrations HUD") {
+                expandWidget()
+            }
+            if let project = activeProject {
+                Divider()
+                Text(project.name).font(.caption).disabled(true)
+                if project.newestAbletonVersion != nil {
+                    Button("Open in Ableton Live") {
+                        store.openInAbleton(project)
+                    }
+                }
+                if project.sortedTracks.first != nil {
+                    Button(audioPlayer.isPlaying ? "Pause Demo" : "Play Demo") {
+                        audioPlayer.togglePlayPause()
+                    }
+                }
+            }
+            Divider()
+            Button(settings.isFloatingWidgetPinned ? "Unpin from Top" : "Keep on Top") {
+                settings.isFloatingWidgetPinned.toggle()
+                WindowPresenter.configureFloatingWidget(
+                    pinned: settings.isFloatingWidgetPinned,
+                    collapsed: settings.isFloatingWidgetCollapsed
+                )
+            }
+            Button("Hide HUD (⇧⌘W)") {
+                settings.isFloatingWidgetActive = false
+                WindowPresenter.hideFloatingWidget()
+            }
+        }
+        .help("Click to expand goodvibrations HUD (drag to move)")
+    }
+
+    private func expandWidget() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            settings.isFloatingWidgetCollapsed = false
+            WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned)
+        }
+    }
+
+    private func collapseWidget() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            settings.isFloatingWidgetCollapsed = true
+            WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned)
+        }
+    }
+
+    // MARK: - Expanded HUD View
+
+    private var expandedHudView: some View {
         VStack(spacing: 0) {
             headerBar
             Divider()
@@ -62,11 +171,12 @@ struct FloatingWidgetView: View {
             }
         }
         .frame(minWidth: 280, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
-        .background(Color.primary.opacity(0.03))
-        .onAppear {
-            WindowPresenter.configureFloatingWidget(pinned: settings.isFloatingWidgetPinned)
-        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - Header Bar
@@ -83,7 +193,7 @@ struct FloatingWidgetView: View {
 
             if store.projects.count > 0 {
                 Text("· \(store.projects.count)")
-                    .font(.system(size: 10))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
@@ -100,6 +210,7 @@ struct FloatingWidgetView: View {
                 Image(systemName: "macwindow.on.rectangle")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
             .help("Open in goodvibrations HQ")
@@ -107,79 +218,113 @@ struct FloatingWidgetView: View {
             // Pin Button
             Button {
                 settings.isFloatingWidgetPinned.toggle()
-                WindowPresenter.configureFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                WindowPresenter.configureFloatingWidget(
+                    pinned: settings.isFloatingWidgetPinned,
+                    collapsed: settings.isFloatingWidgetCollapsed
+                )
             } label: {
                 Image(systemName: settings.isFloatingWidgetPinned ? "pin.fill" : "pin")
                     .font(.system(size: 11))
                     .foregroundStyle(settings.isFloatingWidgetPinned ? Color.accentColor : .secondary)
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
             .help(settings.isFloatingWidgetPinned ? "Unpin from top" : "Keep on top")
 
-            // Close Button
+            // Collapse to Floating Pet Icon
             Button {
-                settings.isFloatingWidgetActive = false
-                WindowPresenter.hideFloatingWidget()
+                collapseWidget()
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .help("Collapse to floating pet icon")
+
+            // Close Button (collapses by default, option-click hides completely)
+            Button {
+                if NSEvent.modifierFlags.contains(.option) {
+                    settings.isFloatingWidgetActive = false
+                    WindowPresenter.hideFloatingWidget()
+                } else {
+                    collapseWidget()
+                }
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.primary.opacity(0.45))
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
-            .help("Hide Floating Widget")
+            .help("Close to floating icon (Option-click to hide completely)")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
     }
 
-    // MARK: - Hero Card
+    // MARK: - Hero Card (High Contrast)
 
     private func heroCard(project: Project) -> some View {
         let isLiveSession = store.isCurrentOpenProject(project)
 
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(isLiveSession ? Color.green : Color.orange)
-                    .frame(width: 6, height: 6)
-                Text(isLiveSession ? "LIVE SESSION" : "LAST ACTIVE")
-                    .font(.system(size: 8, weight: .bold))
-                    .tracking(0.5)
-                    .foregroundStyle(isLiveSession ? Color.green : Color.orange)
+        return VStack(alignment: .leading, spacing: 7) {
+            // Header Pill Badge + Relative Date
+            HStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(isLiveSession ? Color.green : Color.orange)
+                        .frame(width: 6, height: 6)
+                    Text(isLiveSession ? "LIVE SESSION" : "LAST ACTIVE")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(isLiveSession ? Color.green : Color.orange)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background((isLiveSession ? Color.green : Color.orange).opacity(0.14), in: Capsule())
+                .overlay(Capsule().stroke((isLiveSession ? Color.green : Color.orange).opacity(0.35), lineWidth: 0.8))
 
                 Spacer()
 
                 if let saved = project.latestSavedItem?.date {
                     Text(formatRelative(saved))
-                        .font(.system(size: 9))
+                        .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            // Project Title & Musical Info
+            VStack(alignment: .leading, spacing: 3) {
                 Text(project.name)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 13.5, weight: .bold))
                     .lineLimit(1)
                     .foregroundStyle(.primary)
 
                 HStack(spacing: 5) {
                     if let bpm = project.bpmLabel {
                         Text("\(bpm) BPM")
-                            .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                            .padding(.horizontal, 3.5)
-                            .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 3.5))
+                            .overlay(RoundedRectangle(cornerRadius: 3.5).stroke(Color.primary.opacity(0.14), lineWidth: 0.5))
                     }
                     if let key = project.key {
                         Text(key)
-                            .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                            .padding(.horizontal, 3.5)
-                            .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 3.5))
+                            .overlay(RoundedRectangle(cornerRadius: 3.5).stroke(Color.primary.opacity(0.14), lineWidth: 0.5))
                     }
                     if let track = project.sortedTracks.first?.displayName {
                         Text(track)
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -187,21 +332,22 @@ struct FloatingWidgetView: View {
             }
 
             // 1-Click Action Buttons Bar
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 if project.newestAbletonVersion != nil {
                     Button {
                         store.openInAbleton(project)
                     } label: {
-                        HStack(spacing: 3) {
+                        HStack(spacing: 4) {
                             Image(systemName: "arrow.up.forward.app.fill")
-                                .font(.system(size: 9))
+                                .font(.system(size: 9.5))
                             Text("Open Live")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: 10.5, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
+                        .padding(.vertical, 5)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 5))
                         .foregroundColor(.white)
+                        .shadow(color: Color.accentColor.opacity(0.35), radius: 2, y: 1)
                     }
                     .buttonStyle(.plain)
                     .help("Launch or switch to this set in Ableton Live")
@@ -216,10 +362,12 @@ struct FloatingWidgetView: View {
                         }
                     } label: {
                         Image(systemName: audioPlayer.currentTrack?.id == track.id && audioPlayer.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15), lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
                     .help("Audition demo audio")
@@ -229,10 +377,12 @@ struct FloatingWidgetView: View {
                     NSWorkspace.shared.open(project.folderURL)
                 } label: {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 9))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("Open in Finder")
@@ -241,27 +391,32 @@ struct FloatingWidgetView: View {
                     store.openInMainWindow(project)
                 } label: {
                     Image(systemName: "macwindow")
-                        .font(.system(size: 9))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("Open in goodvibrations HQ")
             }
         }
-        .padding(8)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(isLiveSession ? Color.green.opacity(0.35) : Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isLiveSession ? Color.green.opacity(0.45) : Color.primary.opacity(0.12), lineWidth: 1)
         )
     }
 
     // MARK: - Filter & Search Controls
 
     private var controlsBar: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 6) {
             Picker("Filter", selection: $filter) {
                 ForEach(FloatingWidgetFilter.allCases, id: \.self) {
                     Text($0.rawValue).tag($0)
@@ -272,8 +427,8 @@ struct FloatingWidgetView: View {
 
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
                 TextField("Search songs…", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 11))
@@ -288,9 +443,10 @@ struct FloatingWidgetView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3.5)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4.5)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
         }
     }
 
@@ -322,33 +478,35 @@ struct FloatingWidgetView: View {
         let isFav = store.favourites.contains(project.folderURL)
         let isPlayingThis = project.tracks.contains { $0.id == audioPlayer.currentTrack?.id } && audioPlayer.isPlaying
 
-        return HStack(spacing: 6) {
-            // Star Button
+        return HStack(spacing: 7) {
+            // Star Button (High Contrast)
             Button {
                 store.toggleFavourite(project)
             } label: {
                 Image(systemName: isFav ? "star.fill" : "star")
-                    .font(.system(size: 10))
-                    .foregroundStyle(isFav ? Color.yellow : Color.secondary.opacity(0.4))
+                    .font(.system(size: 11, weight: isFav ? .bold : .medium))
+                    .foregroundStyle(isFav ? Color(red: 1.0, green: 0.78, blue: 0.1) : Color.primary.opacity(0.35))
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
+            .help(isFav ? "Remove from favourites" : "Add to favourites")
 
             // Project Info
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 1.5) {
                 HStack(spacing: 4) {
                     if isCurrentSession {
                         Circle().fill(Color.green).frame(width: 5, height: 5)
                     }
                     Text(project.name)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
 
                 if let saved = project.latestSavedItem?.date {
                     Text(formatRelative(saved))
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -365,25 +523,31 @@ struct FloatingWidgetView: View {
                     }
                 } label: {
                     Image(systemName: isPlayingThis ? "pause.fill" : "play.fill")
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(isPlayingThis ? Color.accentColor : Color.secondary)
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(isPlayingThis ? Color.accentColor : Color.primary.opacity(0.75))
+                        .frame(width: 20, height: 20)
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 3.5))
                 }
                 .buttonStyle(.plain)
                 .help("Play demo audio")
             }
 
-            // 1-Click Open in Live Button
+            // 1-Click Open in Live DAW Button (Super High Contrast)
             if project.newestAbletonVersion != nil {
                 Button {
                     store.openInAbleton(project)
                 } label: {
-                    Text("DAW")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    HStack(spacing: 2) {
+                        Image(systemName: "arrow.up.forward.app.fill")
+                            .font(.system(size: 7.5))
+                        Text("DAW")
+                            .font(.system(size: 8.5, weight: .heavy))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 4))
+                    .shadow(color: Color.accentColor.opacity(0.35), radius: 2, y: 1)
                 }
                 .buttonStyle(.plain)
                 .help("Open in Ableton Live")
@@ -394,9 +558,9 @@ struct FloatingWidgetView: View {
                 NSWorkspace.shared.open(project.folderURL)
             } label: {
                 Image(systemName: "folder")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Color.primary.opacity(0.75))
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
             .help("Open in Finder")
@@ -406,16 +570,23 @@ struct FloatingWidgetView: View {
                 store.openInMainWindow(project)
             } label: {
                 Image(systemName: "macwindow")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Color.primary.opacity(0.75))
+                    .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
             .help("Open in goodvibrations HQ")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(isCurrentSession ? Color.green.opacity(0.06) : Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: 4))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isCurrentSession ? Color.green.opacity(0.09) : Color(nsColor: .controlBackgroundColor).opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(isCurrentSession ? Color.green.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: 0.8)
+        )
     }
 
     // MARK: - Now Playing Mini-Bar
@@ -428,16 +599,19 @@ struct FloatingWidgetView: View {
                 Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Color.accentColor)
+                    .frame(width: 22, height: 22)
+                    .background(Color.accentColor.opacity(0.12), in: Circle())
             }
             .buttonStyle(.plain)
 
             if let track = audioPlayer.currentTrack {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.displayName)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text("\(formatDuration(audioPlayer.currentTime)) / \(formatDuration(audioPlayer.duration))")
-                        .font(.system(size: 8.5, design: .monospaced))
+                        .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -463,8 +637,8 @@ struct FloatingWidgetView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.04))
+        .padding(.vertical, 7)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - Formatting Helpers

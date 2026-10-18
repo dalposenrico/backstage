@@ -99,7 +99,7 @@ struct ContentView: View {
                 }
                 if settings.isFloatingWidgetActive {
                     openWindow(id: "floating-widget")
-                    WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned)
+                    WindowPresenter.showFloatingWidget(pinned: settings.isFloatingWidgetPinned, collapsed: settings.isFloatingWidgetCollapsed)
                 }
             }
         }
