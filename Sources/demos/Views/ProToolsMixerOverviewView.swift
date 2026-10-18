@@ -26,10 +26,10 @@ struct ProToolsMixerOverviewView: View {
     var targetAlsURL: URL? = nil
     let onReloadArrangement: () -> Void
 
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var mixingStore = MixingActionStore.shared
     @State private var selectedFilter: MixerTrackFilter = .all
     @State private var searchQuery: String = ""
-    @State private var showBatchModal: Bool = false
     @State private var hoveredTrackId: String? = nil
     @State private var hoveredDeviceId: String? = nil
 
@@ -120,11 +120,6 @@ struct ProToolsMixerOverviewView: View {
             }
         }
         .background(Color.appBg)
-        .sheet(isPresented: $showBatchModal) {
-            BatchPluginModalView(project: project, targetAlsURL: targetAlsURL) {
-                onReloadArrangement()
-            }
-        }
     }
 
     // MARK: - Toolbar
@@ -203,14 +198,15 @@ struct ProToolsMixerOverviewView: View {
             .cornerRadius(6)
             .overlay { RoundedRectangle(cornerRadius: 6).stroke(Color.subtleBorder, lineWidth: 1) }
 
-            // Action: Batch Add Plugins
+            // Action: Channel Plugin Runner
             Button {
-                showBatchModal = true
+                openWindow(id: "channel-plugin-runner")
+                WindowPresenter.showChannelPluginRunner()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "plus.square.dashed")
+                    Image(systemName: "slider.vertical.3")
                         .font(.system(size: 10, weight: .bold))
-                    Text("Batch Insert")
+                    Text("Batch Plugins…")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundColor(.white)
@@ -219,7 +215,7 @@ struct ProToolsMixerOverviewView: View {
                 .background(Color.accent, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
-            .help("Batch insert plugins across all or selected channels")
+            .help("Open Channel Plugin Runner to batch paste VSTs and devices across Ableton channels (⌥⌘P)")
 
             // Action: Mixing Macros Menu
             Menu {

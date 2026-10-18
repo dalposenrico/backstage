@@ -140,6 +140,17 @@ public struct AbletonDevice: Sendable, Identifiable, Equatable, Hashable {
         self.isEnabled = isEnabled
         self.slotIndex = slotIndex
     }
+
+    public var isOn: Bool {
+        isEnabled
+    }
+
+    public var tooltipDescription: String {
+        if let vendor = vendor, !vendor.isEmpty {
+            return "\(name) (\(vendor)) · \(type.rawValue)"
+        }
+        return "\(name) · \(type.rawValue)"
+    }
 }
 
 public struct AbletonTrack: Sendable, Identifiable, Equatable {

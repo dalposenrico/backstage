@@ -58,6 +58,15 @@ struct FavouritesMenuView: View {
             || "Automation".localizedCaseInsensitiveContains(searchText)
     }
 
+    private var showsChannelPluginRunner: Bool {
+        searchText.isEmpty
+            || "Channel Plugin Runner".localizedCaseInsensitiveContains(searchText)
+            || "Plugin".localizedCaseInsensitiveContains(searchText)
+            || "Batch".localizedCaseInsensitiveContains(searchText)
+            || "VST".localizedCaseInsensitiveContains(searchText)
+            || "Macro".localizedCaseInsensitiveContains(searchText)
+    }
+
     private var showsFocusStudio: Bool {
         searchText.isEmpty
             || "Focus".localizedCaseInsensitiveContains(searchText)
@@ -81,6 +90,7 @@ struct FavouritesMenuView: View {
             + (showsABCompare ? 1 : 0)
             + (showsProjectNotes ? 1 : 0)
             + (showsUntitledSync ? 1 : 0)
+            + (showsChannelPluginRunner ? 1 : 0)
             + (showsFocusStudio ? 1 : 0)
             + (showsNameWorlds ? 1 : 0)
             + (showsCrashAnalyzer ? 1 : 0)
@@ -183,6 +193,7 @@ struct FavouritesMenuView: View {
                             if showsABCompare { abCompareRow }
                             if showsProjectNotes { projectNotesRow }
                             if showsUntitledSync { untitledAutomationRow }
+                            if showsChannelPluginRunner { channelPluginRunnerRow }
                             if showsFocusStudio { focusStudioRow }
                             if showsNameWorlds { nameWorldsRow }
                             if showsCrashAnalyzer { crashAnalyzerRow }
@@ -374,6 +385,41 @@ struct FavouritesMenuView: View {
         .onTapGesture {
             openWindow(id: "untitled-automation")
             WindowPresenter.showUntitledAutomation(dismissingMenuBarPanel: true)
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var channelPluginRunnerRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "slider.vertical.3")
+                .font(.system(size: 18))
+                .foregroundStyle(.purple)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Channel Plugin Runner")
+                    Text("⌥⌘P")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Batch automate plugins across channels in Live")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Open") {
+                openWindow(id: "channel-plugin-runner")
+                WindowPresenter.showChannelPluginRunner(dismissingMenuBarPanel: true)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openWindow(id: "channel-plugin-runner")
+            WindowPresenter.showChannelPluginRunner(dismissingMenuBarPanel: true)
         }
         .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
     }

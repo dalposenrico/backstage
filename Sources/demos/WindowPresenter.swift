@@ -49,6 +49,15 @@ enum WindowPresenter {
         bringUntitledAutomationForward(attemptsRemaining: 8)
     }
 
+    static func showChannelPluginRunner(dismissingMenuBarPanel: Bool = false) {
+        if dismissingMenuBarPanel {
+            NSApp.keyWindow?.orderOut(nil)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        bringWindowForward(titled: "Channel Plugin Runner", attemptsRemaining: 8)
+    }
+
     private static func bringUntitledAutomationForward(attemptsRemaining: Int) {
         guard let window = NSApp.windows.first(where: { $0.title == "[untitled] Automation" }) else {
             guard attemptsRemaining > 0 else { return }

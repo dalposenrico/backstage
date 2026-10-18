@@ -119,6 +119,12 @@ struct demosApp: App {
                 }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
 
+                Button("Channel Plugin Runner…") {
+                    openWindow(id: "channel-plugin-runner")
+                    WindowPresenter.showChannelPluginRunner()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+
                 Button("Name Generator…") {
                     openWindow(id: "name-generator")
                     WindowPresenter.showNameGenerator(dismissingMenuBarPanel: false)
@@ -226,6 +232,12 @@ struct demosApp: App {
                 .environmentObject(studioWorkflow)
         }
         .defaultSize(width: 720, height: 720)
+
+        Window("Channel Plugin Runner", id: "channel-plugin-runner") {
+            AbletonChannelPluginRunnerView()
+                .environmentObject(store)
+        }
+        .defaultSize(width: 490, height: 590)
 
         Window("Name Generator", id: "name-generator") {
             ProjectNameGeneratorView()

@@ -13,8 +13,10 @@ struct ArrangementTimelineView: View {
     @State private var isPinching = false
     @State private var initialPinchZoom: Double = 1.0
 
-    private let trackHeaderWidth: CGFloat = 175
-    private let trackHeight: CGFloat = 42
+    @AppStorage("arrangementShowInserts") private var showInserts: Bool = true
+
+    private var trackHeaderWidth: CGFloat { showInserts ? 230 : 175 }
+    private var trackHeight: CGFloat { showInserts ? 50 : 42 }
     private let barHeaderHeight: CGFloat = 30
     private let beatsPerBar: Double = 4.0
 
@@ -125,6 +127,30 @@ struct ArrangementTimelineView: View {
                     .background(Color.elevatedBg, in: RoundedRectangle(cornerRadius: 4))
                     .keyboardShortcut("0", modifiers: .command)
                     .help("Fit entire arrangement to window (⌘0)")
+
+                    Divider().frame(height: 16).background(Color.divider)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            showInserts.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "slider.vertical.3")
+                                .font(.system(size: 10))
+                            Text("Inserts")
+                                .font(.system(size: 10, weight: showInserts ? .semibold : .regular))
+                        }
+                        .foregroundColor(showInserts ? .white : .secondaryText)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(showInserts ? Color.accent.opacity(0.85) : Color.elevatedBg)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle showing channel plugin inserts in track headers")
                 }
                 .foregroundColor(.secondaryText)
             }
@@ -300,15 +326,55 @@ struct ArrangementTimelineView: View {
                     .padding(.leading, 2)
             }
 
-            Image(systemName: track.type.systemIcon)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(track.color)
-                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: track.type.systemIcon)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(track.color)
+                        .frame(width: 14)
 
-            Text(track.name)
-                .font(.system(size: 11.5, weight: track.type == .group ? .bold : .medium))
-                .foregroundColor(track.type == .group ? .primaryText : Color(white: 0.9))
-                .lineLimit(1)
+                    Text(track.name)
+                        .font(.system(size: 11.5, weight: track.type == .group ? .bold : .medium))
+                        .foregroundColor(track.type == .group ? .primaryText : Color(white: 0.9))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 2)
+
+                    if !track.devices.isEmpty && !showInserts {
+                        Text("\(track.devices.count)")
+                            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                            .foregroundColor(.tertiaryText)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.white.opacity(0.06), in: Capsule())
+                            .help("\(track.devices.count) plugins on this track")
+                    }
+                }
+
+                if showInserts && !track.devices.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 3) {
+                            ForEach(track.devices) { device in
+                                Text(device.name)
+                                    .font(.system(size: 8.5, weight: .medium))
+                                    .foregroundColor(device.isOn ? Color(white: 0.85) : Color(white: 0.45))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(device.isOn ? Color.white.opacity(0.08) : Color.white.opacity(0.03))
+                                    )
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                                    }
+                                    .help(device.tooltipDescription)
+                            }
+                        }
+                    }
+                    .frame(height: 16)
+                }
+            }
 
             Spacer(minLength: 4)
         }
