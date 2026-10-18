@@ -198,6 +198,9 @@ struct FloatingWidgetView: View {
     private var expandedHudView: some View {
         VStack(spacing: 0) {
             headerBar
+            if let opening = store.openingAbletonProject {
+                openingBanner(opening)
+            }
             Divider()
 
             ScrollView {
@@ -225,11 +228,59 @@ struct FloatingWidgetView: View {
                 WindowDragArea()
             }
         )
+        .animation(.easeInOut(duration: 0.2), value: store.openingAbletonProject)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.14), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func openingBanner(_ opening: AbletonOpeningState) -> some View {
+        HStack(spacing: 8) {
+            if opening.phase == .opening {
+                ProgressView().controlSize(.mini)
+                Text("Opening \(opening.projectName) in Live…")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.green)
+                Text("\(opening.projectName) is ready in Live")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                store.dismissAbletonOpeningAlert()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .padding(2)
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Color.accentColor.opacity(opening.phase == .opening ? 0.12 : 0.08),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(
+                    opening.phase == .opening ? Color.accentColor.opacity(0.3) : Color.green.opacity(0.3),
+                    lineWidth: 1
+                )
+        )
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     // MARK: - Header Bar

@@ -63,22 +63,32 @@ struct ContentView: View {
         }
         .background(Color.appBg)
         .overlay(alignment: .top) {
-            if globalHotkey.isRunningExport {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(globalHotkey.lastResult ?? "⚡ Running Ableton auto-export...")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primaryText)
+            VStack(spacing: 8) {
+                if let opening = store.openingAbletonProject {
+                    AbletonOpeningBanner(opening: opening) {
+                        store.dismissAbletonOpeningAlert()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background(Color.elevatedBg, in: Capsule())
-                .overlay(Capsule().stroke(Color.accent.opacity(0.4), lineWidth: 1))
-                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
-                .padding(.top, 14)
-                .transition(.move(edge: .top).combined(with: .opacity))
+
+                if globalHotkey.isRunningExport {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(globalHotkey.lastResult ?? "⚡ Running Ableton auto-export...")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.primaryText)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(Color.elevatedBg, in: Capsule())
+                    .overlay(Capsule().stroke(Color.accent.opacity(0.4), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
+            .padding(.top, 14)
         }
+        .animation(.easeInOut(duration: 0.25), value: store.openingAbletonProject)
         .animation(.easeInOut(duration: 0.2), value: globalHotkey.isRunningExport)
         .animation(.easeInOut(duration: 0.2), value: store.currentOpenProjectURL)
         .onChange(of: showProjectInspector) { _, isShowing in

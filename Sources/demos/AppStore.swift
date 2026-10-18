@@ -50,8 +50,11 @@ class AppStore: ObservableObject {
     @Published var exportCheckpointProject: Project?
     @Published var checkpointError: String?
     @Published private(set) var currentOpenProjectURL: URL?
+    @Published private(set) var openingAbletonProject: AbletonOpeningState?
+    private var openingDismissTask: Task<Void, Never>?
     private var pendingCheckpointPath: String?
     private var abletonSessionTimer: Timer?
+    private var isSnappyAbletonPolling = false
     private var workspaceObservers: [NSObjectProtocol] = []
     private var lastAbletonLaunchRequest: Date?
     private let inspectionCache = ProjectInspectionCache()
@@ -382,6 +385,13 @@ class AppStore: ObservableObject {
         currentOpenProjectURL == project.folderURL
     }
 
+    func dismissAbletonOpeningAlert() {
+        openingDismissTask?.cancel()
+        openingDismissTask = nil
+        openingAbletonProject = nil
+        startAbletonPolling(snappy: false)
+    }
+
     func openInAbleton(_ project: Project, version: AbletonVersion? = nil) {
         let targetVersion = version ?? project.newestAbletonVersion
 
@@ -411,8 +421,30 @@ class AppStore: ObservableObject {
         }
 
         guard let targetVersion else { return }
-        setCurrentOpenProject(project.folderURL)
-        lastAbletonLaunchRequest = Date()
+
+        // If this exact project is already opening, bring Ableton to front and avoid duplicate launch
+        if let opening = openingAbletonProject,
+           opening.phase == .opening,
+           opening.matchesLoadedProject(folderURL: project.folderURL) {
+            _ = AbletonSessionDetector.activateAbleton()
+            return
+        }
+
+        openingDismissTask?.cancel()
+        openingDismissTask = nil
+
+        let now = Date()
+        openingAbletonProject = AbletonOpeningState(
+            projectID: project.id,
+            folderURL: project.folderURL,
+            projectName: project.name,
+            targetVersionURL: targetVersion.url,
+            startedAt: now,
+            phase: .opening
+        )
+        lastAbletonLaunchRequest = now
+
+        startAbletonPolling(snappy: true)
         NSWorkspace.shared.open(targetVersion.url)
     }
 
@@ -432,9 +464,12 @@ class AppStore: ObservableObject {
         }
     }
 
-    private func startAbletonPolling() {
-        guard abletonSessionTimer == nil else { return }
-        let timer = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
+    private func startAbletonPolling(snappy: Bool = false) {
+        if abletonSessionTimer != nil && isSnappyAbletonPolling == snappy { return }
+        stopAbletonPolling()
+        isSnappyAbletonPolling = snappy
+        let interval: TimeInterval = snappy ? 0.75 : 2.5
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshAbletonSession() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -444,6 +479,7 @@ class AppStore: ObservableObject {
     private func stopAbletonPolling() {
         abletonSessionTimer?.invalidate()
         abletonSessionTimer = nil
+        isSnappyAbletonPolling = false
     }
 
     private func setCurrentOpenProject(_ url: URL?) {
@@ -453,14 +489,47 @@ class AppStore: ObservableObject {
 
     private func refreshAbletonSession() {
         let snapshot = AbletonSessionDetector.snapshot()
+        let now = Date()
+
+        if let opening = openingAbletonProject, opening.phase == .opening {
+            var isLoaded = false
+            if snapshot.isRunning {
+                if let match = AbletonSessionDetector.activeProject(
+                    in: projects,
+                    windowTitles: snapshot.windowTitles,
+                    loadedDocumentURLs: snapshot.loadedDocumentURLs
+                ), opening.matchesLoadedProject(folderURL: match.folderURL) {
+                    isLoaded = true
+                    setCurrentOpenProject(match.folderURL)
+                }
+            }
+
+            if isLoaded {
+                openingAbletonProject?.phase = .loaded
+                openingDismissTask?.cancel()
+                openingDismissTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(1400))
+                    guard !Task.isCancelled else { return }
+                    self?.openingAbletonProject = nil
+                    self?.startAbletonPolling(snappy: false)
+                }
+            } else if opening.hasTimedOut(at: now, timeoutInterval: 60) {
+                openingAbletonProject = nil
+            }
+        }
+
         guard snapshot.isRunning else {
-            stopAbletonPolling()
-            if lastAbletonLaunchRequest.map({ Date().timeIntervalSince($0) >= 12 }) ?? true {
+            if openingAbletonProject == nil {
+                stopAbletonPolling()
+            }
+            if lastAbletonLaunchRequest.map({ now.timeIntervalSince($0) >= 12 }) ?? true {
                 setCurrentOpenProject(nil)
             }
             return
         }
-        startAbletonPolling()
+
+        startAbletonPolling(snappy: openingAbletonProject?.phase == .opening)
+
         if let match = AbletonSessionDetector.activeProject(
             in: projects,
             windowTitles: snapshot.windowTitles,

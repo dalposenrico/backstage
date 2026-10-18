@@ -508,7 +508,55 @@ struct FavouritesMenuView: View {
     }
 
     @ViewBuilder private var quickOpenInDawBanner: some View {
-        if let project = store.currentOpenProject ?? store.recentProjects.first,
+        if let opening = store.openingAbletonProject {
+            HStack(spacing: 8) {
+                if opening.phase == .opening {
+                    ProgressView().controlSize(.small)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("OPENING IN ABLETON LIVE")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundColor(.accentColor)
+                        Text(opening.projectName)
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("OPEN IN ABLETON LIVE")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundColor(.green)
+                        Text(opening.projectName)
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    store.dismissAbletonOpeningAlert()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accentColor.opacity(0.12))
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
+        } else if let project = store.currentOpenProject ?? store.recentProjects.first,
            project.newestAbletonVersion != nil {
             let isCurrentSession = store.currentOpenProject?.id == project.id
             HStack(spacing: 8) {
