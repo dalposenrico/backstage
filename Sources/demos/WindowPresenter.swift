@@ -120,23 +120,31 @@ enum WindowPresenter {
     static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
 
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
 
         if collapsed {
+            window.styleMask.remove(.titled)
+            window.hasShadow = false
             if window.frame.width > 100 && window.frame.height > 100 {
                 savedExpandedSize = window.frame.size
             }
-            window.minSize = NSSize(width: 54, height: 54)
-            window.maxSize = NSSize(width: 54, height: 54)
+            window.minSize = NSSize(width: 52, height: 52)
+            window.maxSize = NSSize(width: 52, height: 52)
 
             var newFrame = window.frame
             let oldHeight = newFrame.height
-            newFrame.size = NSSize(width: 54, height: 54)
-            newFrame.origin.y += (oldHeight - 54)
-            window.setFrame(newFrame, display: true, animate: true)
+            newFrame.size = NSSize(width: 52, height: 52)
+            newFrame.origin.y += (oldHeight - 52)
+            window.setFrame(newFrame, display: true, animate: false)
         } else {
+            window.styleMask.insert(.titled)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            window.hasShadow = true
             let targetSize = savedExpandedSize
             window.minSize = NSSize(width: 280, height: 420)
             window.maxSize = NSSize(width: 600, height: 1100)
@@ -162,7 +170,7 @@ enum WindowPresenter {
                 }
             }
 
-            window.setFrame(newFrame, display: true, animate: true)
+            window.setFrame(newFrame, display: true, animate: false)
         }
     }
 
@@ -179,24 +187,27 @@ enum WindowPresenter {
         window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
         window.isMovable = true
         window.isMovableByWindowBackground = true
-        window.titlebarAppearsTransparent = true
         window.backgroundColor = .clear
         window.isOpaque = false
-        window.hasShadow = true
-
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
 
         if collapsed {
-            window.minSize = NSSize(width: 54, height: 54)
-            window.maxSize = NSSize(width: 54, height: 54)
+            window.styleMask.remove(.titled)
+            window.hasShadow = false
+            window.minSize = NSSize(width: 52, height: 52)
+            window.maxSize = NSSize(width: 52, height: 52)
             var f = window.frame
             let oldH = f.height
-            f.size = NSSize(width: 54, height: 54)
-            f.origin.y += (oldH - 54)
+            f.size = NSSize(width: 52, height: 52)
+            f.origin.y += (oldH - 52)
             window.setFrame(f, display: true, animate: false)
         } else {
+            window.styleMask.insert(.titled)
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            window.hasShadow = true
             window.minSize = NSSize(width: 280, height: 420)
             window.maxSize = NSSize(width: 600, height: 1100)
         }

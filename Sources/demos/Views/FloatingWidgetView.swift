@@ -47,6 +47,7 @@ struct FloatingWidgetView: View {
                 expandedHudView
             }
         }
+        .ignoresSafeArea()
         .onAppear {
             WindowPresenter.configureFloatingWidget(
                 pinned: settings.isFloatingWidgetPinned,
@@ -98,6 +99,7 @@ struct FloatingWidgetView: View {
         }
         .frame(width: 52, height: 52)
         .contentShape(Circle())
+        .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
             Button("Expand goodvibrations HUD") {
@@ -134,17 +136,13 @@ struct FloatingWidgetView: View {
     }
 
     private func expandWidget() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            settings.isFloatingWidgetCollapsed = false
-            WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned)
-        }
+        settings.isFloatingWidgetCollapsed = false
+        WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned)
     }
 
     private func collapseWidget() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            settings.isFloatingWidgetCollapsed = true
-            WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned)
-        }
+        settings.isFloatingWidgetCollapsed = true
+        WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned)
     }
 
     // MARK: - Expanded HUD View
