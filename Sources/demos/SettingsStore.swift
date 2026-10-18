@@ -41,55 +41,55 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .small: return "Small (40 pt)"
-        case .medium: return "Medium (52 pt)"
-        case .large: return "Large (68 pt)"
-        case .extraLarge: return "Extra Large (88 pt)"
+        case .small: return "Small (52 pt)"
+        case .medium: return "Medium (72 pt)"
+        case .large: return "Large (96 pt)"
+        case .extraLarge: return "Extra Large (128 pt)"
         }
     }
 
     var dimension: CGFloat {
         switch self {
-        case .small: return 40
-        case .medium: return 52
-        case .large: return 68
-        case .extraLarge: return 88
+        case .small: return 52
+        case .medium: return 72
+        case .large: return 96
+        case .extraLarge: return 128
         }
     }
 
     var iconDimension: CGFloat {
         switch self {
-        case .small: return 36
-        case .medium: return 48
-        case .large: return 62
-        case .extraLarge: return 80
+        case .small: return 48
+        case .medium: return 66
+        case .large: return 88
+        case .extraLarge: return 118
         }
     }
 
     var cornerRadius: CGFloat {
         switch self {
-        case .small: return 8
-        case .medium: return 11
-        case .large: return 14
-        case .extraLarge: return 18
+        case .small: return 11
+        case .medium: return 15
+        case .large: return 20
+        case .extraLarge: return 26
         }
     }
 
     var dotSize: CGFloat {
         switch self {
-        case .small: return 7
-        case .medium: return 10
-        case .large: return 12
-        case .extraLarge: return 15
+        case .small: return 10
+        case .medium: return 13
+        case .large: return 16
+        case .extraLarge: return 20
         }
     }
 
     var dotOffset: (x: CGFloat, y: CGFloat) {
         switch self {
-        case .small: return (13, -13)
-        case .medium: return (17, -17)
-        case .large: return (22, -22)
-        case .extraLarge: return (28, -28)
+        case .small: return (17, -17)
+        case .medium: return (24, -24)
+        case .large: return (31, -31)
+        case .extraLarge: return (40, -40)
         }
     }
 
@@ -104,10 +104,10 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
 
     var cueIconSize: CGFloat {
         switch self {
-        case .small: return 9
-        case .medium: return 11
-        case .large: return 14
-        case .extraLarge: return 18
+        case .small: return 11
+        case .medium: return 15
+        case .large: return 19
+        case .extraLarge: return 24
         }
     }
 }

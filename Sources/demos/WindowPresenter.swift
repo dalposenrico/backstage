@@ -113,7 +113,7 @@ enum WindowPresenter {
 
     private static var currentPuckDimension: CGFloat {
         let raw = UserDefaults.standard.string(forKey: "petPuckSize") ?? "medium"
-        return PetPuckSize(rawValue: raw)?.dimension ?? 52
+        return PetPuckSize(rawValue: raw)?.dimension ?? 72
     }
 
     static func showFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {
@@ -159,11 +159,11 @@ enum WindowPresenter {
         let puckDim = puckSize ?? currentPuckDimension
 
         if collapsed {
-            window.styleMask.remove(.titled)
-            window.hasShadow = false
-            if window.frame.width > 100 && window.frame.height > 100 {
+            if window.styleMask.contains(.titled) {
                 savedExpandedSize = window.frame.size
             }
+            window.styleMask.remove(.titled)
+            window.hasShadow = false
             window.minSize = NSSize(width: puckDim, height: puckDim)
             window.maxSize = NSSize(width: puckDim, height: puckDim)
 
