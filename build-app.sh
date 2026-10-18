@@ -86,7 +86,9 @@ echo "▸ Signing..."
 WIDGET_REQUIREMENT='=designated => identifier "com.enricodalpos.goodvibrationshq.widget"'
 ANALYZER_REQUIREMENT='=designated => identifier "com.enricodalpos.ableton-crash-analyzer"'
 APP_REQUIREMENT='=designated => identifier "com.enricodalpos.goodvibrationshq"'
-codesign --force --sign - --requirements "${WIDGET_REQUIREMENT}" "${WIDGET_APPEX}"
+WIDGET_ENTITLEMENTS="Sources/BackstageWidget/BackstageWidget.entitlements"
+
+codesign --force --sign - --entitlements "${WIDGET_ENTITLEMENTS}" --requirements "${WIDGET_REQUIREMENT}" "${WIDGET_APPEX}"
 codesign --force --sign - --requirements "${ANALYZER_REQUIREMENT}" "${ANALYZER_APP}"
 codesign --force --sign - --requirements "${APP_REQUIREMENT}" "${APP_BUNDLE}"
 codesign --verify --deep --strict "${APP_BUNDLE}"
@@ -107,6 +109,12 @@ if let img = NSImage(contentsOfFile: iconPath) {
 EOF
     fi
     touch "${INSTALLED_APP}"
+
+    # Register extension with LaunchServices and PlugInKit
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f -R -trusted "${INSTALLED_APP}" 2>/dev/null || true
+    pluginkit -a "${INSTALLED_APP}/Contents/PlugIns/BackstageWidget.appex" 2>/dev/null || true
+    pluginkit -e use -i com.enricodalpos.goodvibrationshq.widget 2>/dev/null || true
+
     echo "✓ Updated ${INSTALLED_APP}"
 fi
 
