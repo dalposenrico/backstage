@@ -85,7 +85,7 @@ struct TrackListView: View {
                                 .foregroundColor(.accent)
                             }
                             .buttonStyle(.plain)
-                            .help("Open in Ableton Live")
+                            .help(store.isCurrentOpenProject(project) ? "Switch to current session in Ableton Live" : "Open in Ableton Live")
                         }
 
                         if project.hasExports {

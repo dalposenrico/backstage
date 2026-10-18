@@ -433,7 +433,7 @@ struct FavouritesMenuView: View {
                     .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
-                .help("Open directly in DAW without opening goodvibrations HQ")
+                .help(isCurrentSession ? "Switch to current session in Ableton Live" : "Open directly in DAW without opening goodvibrations HQ")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -500,7 +500,7 @@ struct FavouritesMenuView: View {
                     .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.plain)
-                .help("Open directly in DAW without opening goodvibrations HQ")
+                .help(store.isCurrentOpenProject(project) ? "Switch to current session in Ableton Live" : "Open directly in DAW without opening goodvibrations HQ")
             }
 
             Button { store.openInMainWindow(project) } label: {

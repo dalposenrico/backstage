@@ -366,10 +366,37 @@ class AppStore: ObservableObject {
     }
 
     func openInAbleton(_ project: Project, version: AbletonVersion? = nil) {
-        guard let version = version ?? project.newestAbletonVersion else { return }
+        let targetVersion = version ?? project.newestAbletonVersion
+
+        // If this project is ALREADY the current open session in Ableton Live,
+        // do not reopen the set file (which triggers Ableton to reload/re-ask to save);
+        // simply bring Ableton Live to the foreground.
+        let isSameOrLatestVersion = version == nil || version?.url == project.newestAbletonVersion?.url
+        if isSameOrLatestVersion && isCurrentOpenProject(project) {
+            if AbletonSessionDetector.activateAbleton() {
+                return
+            }
+        } else if isSameOrLatestVersion {
+            // Live snapshot check in case periodic poll has not updated currentOpenProjectURL yet
+            let snapshot = AbletonSessionDetector.snapshot()
+            if snapshot.isRunning,
+               let match = AbletonSessionDetector.activeProject(
+                   in: [project],
+                   windowTitles: snapshot.windowTitles,
+                   loadedDocumentURLs: snapshot.loadedDocumentURLs
+               ),
+               match.folderURL == project.folderURL {
+                setCurrentOpenProject(project.folderURL)
+                if AbletonSessionDetector.activateAbleton() {
+                    return
+                }
+            }
+        }
+
+        guard let targetVersion else { return }
         setCurrentOpenProject(project.folderURL)
         lastAbletonLaunchRequest = Date()
-        NSWorkspace.shared.open(version.url)
+        NSWorkspace.shared.open(targetVersion.url)
     }
 
     /// Watching Live's windows costs a window-server round trip, so it is only

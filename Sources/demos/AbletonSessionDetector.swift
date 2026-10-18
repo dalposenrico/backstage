@@ -42,6 +42,31 @@ enum AbletonSessionDetector {
         )
     }
 
+    /// Brings the running Ableton Live application to the front and gives it focus,
+    /// without reopening or reloading any set documents.
+    @discardableResult
+    static func activateAbleton() -> Bool {
+        let runningApplications = NSWorkspace.shared.runningApplications
+        guard let ableton = runningApplications.first(where: { application in
+            application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
+                || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
+        }) else {
+            return false
+        }
+
+        if let bundleURL = ableton.bundleURL {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: bundleURL, configuration: config, completionHandler: nil)
+        }
+
+        if #available(macOS 14.0, *) {
+            return ableton.activate()
+        } else {
+            return ableton.activate(options: [.activateIgnoringOtherApps])
+        }
+    }
+
     static func matchingProject(in projects: [Project], loadedDocumentURLs: [URL]) -> Project? {
         guard let documentURL = loadedDocumentURLs.first else { return nil }
         let documentPath = documentURL.standardizedFileURL.path
