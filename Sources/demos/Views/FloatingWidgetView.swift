@@ -719,6 +719,10 @@ struct PetPuckDragArea: NSViewRepresentable {
 
 class PetPuckDragNSView: NSView {
     var onClick: (() -> Void)?
+    private var initialMouseScreenLocation: NSPoint = .zero
+    private var initialWindowOrigin: NSPoint = .zero
+    private var hasMoved = false
+    private let dragThreshold: CGFloat = 4.0
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
@@ -726,18 +730,43 @@ class PetPuckDragNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window = self.window else { return }
-        let initialOrigin = window.frame.origin
-        window.performDrag(with: event)
-        let finalOrigin = window.frame.origin
+        initialMouseScreenLocation = NSEvent.mouseLocation
+        initialWindowOrigin = window.frame.origin
+        hasMoved = false
+    }
 
-        let distanceMoved = hypot(finalOrigin.x - initialOrigin.x, finalOrigin.y - initialOrigin.y)
-        if distanceMoved < 4.0 {
-            onClick?()
+    override func mouseDragged(with event: NSEvent) {
+        guard let window = self.window else { return }
+        let currentMouseScreenLocation = NSEvent.mouseLocation
+        let dx = currentMouseScreenLocation.x - initialMouseScreenLocation.x
+        let dy = currentMouseScreenLocation.y - initialMouseScreenLocation.y
+
+        if !hasMoved {
+            let distance = hypot(dx, dy)
+            if distance >= dragThreshold {
+                hasMoved = true
+            }
+        }
+
+        if hasMoved {
+            NSCursor.closedHand.set()
+            window.setFrameOrigin(NSPoint(
+                x: initialWindowOrigin.x + dx,
+                y: initialWindowOrigin.y + dy
+            ))
         }
     }
 
+    override func mouseUp(with event: NSEvent) {
+        NSCursor.openHand.set()
+        if !hasMoved {
+            onClick?()
+        }
+        hasMoved = false
+    }
+
     override var mouseDownCanMoveWindow: Bool {
-        return true
+        return false
     }
 }
 
