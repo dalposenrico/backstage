@@ -93,6 +93,15 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         }
     }
 
+    var displayName: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        case .extraLarge: return "Extra Large"
+        }
+    }
+
     var cueIconSize: CGFloat {
         switch self {
         case .small: return 9
@@ -123,7 +132,12 @@ class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
     }
     @Published var petPuckSize: PetPuckSize {
-        didSet { UserDefaults.standard.set(petPuckSize.rawValue, forKey: "petPuckSize") }
+        didSet {
+            UserDefaults.standard.set(petPuckSize.rawValue, forKey: "petPuckSize")
+            DispatchQueue.main.async {
+                WindowPresenter.updateFloatingWidgetPuckSize(self.petPuckSize.dimension)
+            }
+        }
     }
 
     init() {

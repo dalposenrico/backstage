@@ -137,11 +137,10 @@ struct FloatingWidgetView: View {
 
             Divider()
 
-            Menu("Icon Size") {
+            Menu("Icon Size (\(settings.petPuckSize.displayName))") {
                 ForEach(PetPuckSize.allCases) { puckSize in
                     Button {
                         settings.petPuckSize = puckSize
-                        WindowPresenter.updateFloatingWidgetPuckSize(puckSize.dimension)
                     } label: {
                         HStack {
                             Text(puckSize.title)
