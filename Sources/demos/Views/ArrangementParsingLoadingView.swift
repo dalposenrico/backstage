@@ -30,10 +30,6 @@ struct ArrangementParsingLoadingView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.primaryText)
 
-                    // Animated Equalizer Waveform
-                    equalizerWaveform
-                        .padding(.leading, 4)
-
                     Spacer()
 
                     Text("\(Int(progress * 100))%")
@@ -79,25 +75,6 @@ struct ArrangementParsingLoadingView: View {
                 shimmerOffset = 1.5
             }
         }
-    }
-
-    // MARK: - Animated Equalizer Waveform
-    private var equalizerWaveform: some View {
-        HStack(alignment: .bottom, spacing: 3) {
-            equalizerBar(minH: 4, maxH: 15, duration: 0.45)
-            equalizerBar(minH: 6, maxH: 18, duration: 0.32)
-            equalizerBar(minH: 3, maxH: 13, duration: 0.52)
-            equalizerBar(minH: 5, maxH: 17, duration: 0.38)
-            equalizerBar(minH: 4, maxH: 14, duration: 0.48)
-        }
-        .frame(height: 18, alignment: .bottom)
-    }
-
-    private func equalizerBar(minH: CGFloat, maxH: CGFloat, duration: Double) -> some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .fill(Color.accent)
-            .frame(width: 3, height: isAnimatingBars ? maxH : minH)
-            .animation(.easeInOut(duration: duration).repeatForever(autoreverses: true), value: isAnimatingBars)
     }
 
     // MARK: - Shimmering Progress Bar
