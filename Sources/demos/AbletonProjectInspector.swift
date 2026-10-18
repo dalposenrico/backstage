@@ -323,6 +323,9 @@ enum Gunzip {
     @_silgen_name("gzread") private static func gzread(
         _ file: GZFile, _ buffer: UnsafeMutableRawPointer, _ length: UInt32
     ) -> Int32
+    @_silgen_name("gzwrite") private static func gzwrite(
+        _ file: GZFile, _ buffer: UnsafeRawPointer, _ length: UInt32
+    ) -> Int32
     @_silgen_name("gzclose") private static func gzclose(_ file: GZFile) -> Int32
 
     static func readTextFile(at url: URL) -> String? {
@@ -343,5 +346,20 @@ enum Gunzip {
             data.append(buffer, count: Int(count))
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    static func writeTextFile(_ text: String, to url: URL) -> Bool {
+        guard let data = text.data(using: .utf8) else { return false }
+        let file = url.path.withCString { path in
+            "wb".withCString { mode in gzopen(path, mode) }
+        }
+        guard let file else { return false }
+        defer { _ = gzclose(file) }
+
+        return data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return true }
+            let bytesWritten = gzwrite(file, base, UInt32(rawBuffer.count))
+            return bytesWritten == Int32(rawBuffer.count)
+        }
     }
 }

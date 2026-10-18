@@ -504,11 +504,19 @@ public enum AbletonArrangementParser {
     }
 
     private static func extractTrackName(from text: String) -> String? {
-        let nsText = text as NSString
+        let searchSlice: String
+        if let nameStart = text.range(of: "<Name>"),
+           let nameEnd = text.range(of: "</Name>", range: nameStart.upperBound..<text.endIndex) {
+            searchSlice = String(text[nameStart.lowerBound..<nameEnd.upperBound])
+        } else {
+            searchSlice = text
+        }
+
+        let nsText = searchSlice as NSString
         let range = NSRange(location: 0, length: nsText.length)
 
         for regex in trackNamePatterns {
-            if let match = regex.firstMatch(in: text, range: range),
+            if let match = regex.firstMatch(in: searchSlice, range: range),
                match.range(at: 1).location != NSNotFound {
                 let raw = nsText.substring(with: match.range(at: 1))
                 let decoded = decodeXMLEntities(raw).trimmingCharacters(in: .whitespacesAndNewlines)

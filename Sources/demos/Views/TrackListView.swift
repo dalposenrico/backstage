@@ -354,6 +354,26 @@ struct TrackListView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
+                case .mixer:
+                    if let arrangement {
+                        ProToolsMixerOverviewView(arrangement: arrangement, project: project) {
+                            reloadArrangement()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if isLoadingArrangement {
+                        arrangementLoadingView
+                    } else {
+                        VStack(spacing: 10) {
+                            Image(systemName: "slider.vertical.3")
+                                .font(.system(size: 26))
+                                .foregroundColor(.tertiaryText)
+                            Text("No Ableton Live set (.als) available to inspect")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+
                 case .midi:
                     if let arrangement {
                         MidiClipVaultView(arrangement: arrangement, projectName: project.name)
@@ -431,6 +451,28 @@ struct TrackListView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             section = item
+        }
+    }
+
+    private func reloadArrangement() {
+        Task {
+            isLoadingArrangement = true
+            parseProgress = 0.05
+            parseStatus = "Reloading Ableton Live set (.als)…"
+            if let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url {
+                arrangement = await Task.detached(priority: .userInitiated) {
+                    AbletonArrangementParser.parse(
+                        from: alsURL,
+                        projectFolderURL: project.folderURL
+                    ) { fraction, message in
+                        Task { @MainActor in
+                            self.parseProgress = fraction
+                            self.parseStatus = message
+                        }
+                    }
+                }.value
+            }
+            isLoadingArrangement = false
         }
     }
 
@@ -520,6 +562,11 @@ struct TrackListView: View {
 
     private func tabTitle(for item: ProjectInspectorSection) -> String {
         switch item {
+        case .mixer:
+            if let count = arrangement?.allConsoleTracks.reduce(0, { $0 + $1.devices.count }), count > 0 {
+                return "Mixer (\(count))"
+            }
+            return "Mixer"
         case .samples:
             if let count = arrangement?.sampleRefs.count, count > 0 {
                 let uniqueCount = Set(arrangement!.sampleRefs.map(\.fileName)).count
@@ -538,12 +585,13 @@ struct TrackListView: View {
 }
 
 private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
-    case arrangement, midi, samples, overview, workflow, files
+    case arrangement, mixer, midi, samples, overview, workflow, files
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .arrangement: return "Arrangement"
+        case .mixer: return "Mixer & Inserts"
         case .midi: return "MIDI"
         case .samples: return "Samples"
         case .overview: return "Overview"
@@ -554,6 +602,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .arrangement: return "rectangle.split.3x1"
+        case .mixer: return "slider.vertical.3"
         case .midi: return "pianokeys"
         case .samples: return "waveform"
         case .overview: return "scope"
