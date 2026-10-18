@@ -65,8 +65,12 @@ struct TrackListView: View {
 
                     Spacer(minLength: 8)
 
-                    // Compact Actions
-                    HStack(spacing: 6) {
+                    // Compact Actions & Waveform
+                    HStack(spacing: 8) {
+                        if let export = project.sortedTracks.first {
+                            ProjectHeaderWaveformView(track: export, project: project)
+                        }
+
                         if let version = project.newestAbletonVersion {
                             Button { store.openInAbleton(project, version: version) } label: {
                                 HStack(spacing: 4) {
@@ -86,27 +90,6 @@ struct TrackListView: View {
                             }
                             .buttonStyle(.plain)
                             .help(store.isCurrentOpenProject(project) ? "Switch to current session in Ableton Live" : "Open in Ableton Live")
-                        }
-
-                        if project.hasExports {
-                            Button {
-                                if let first = project.sortedTracks.first { store.playTrack(first) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 9, weight: .bold))
-                                    Text("Play Latest")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .foregroundColor(.primaryText)
-                                .background(Color.elevatedBg)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Color.subtleBorder) }
-                            }
-                            .buttonStyle(.plain)
-                            .help("Play newest export")
                         }
 
                         projectActionsMenu
