@@ -62,6 +62,7 @@ class AppStore: ObservableObject {
     private var libraryFallbackTimer: Timer?
     private var pendingLibraryChanges = Set<URL>()
     private var libraryChangeTask: Task<Void, Never>?
+    private var widgetSnapshotTask: Task<Void, Never>?
     private var libraryScanID = UUID()
 
     nonisolated static let favoritesFileURL: URL = {
@@ -602,10 +603,17 @@ class AppStore: ObservableObject {
         saveExpandedFolders()
     }
 
+    private var saveCollectionsTask: Task<Void, Never>?
+
     func toggleCollectionExpansion(_ url: URL) {
         if expandedCollections.contains(url) { expandedCollections.remove(url) }
         else { expandedCollections.insert(url) }
-        saveExpandedCollections()
+        saveCollectionsTask?.cancel()
+        saveCollectionsTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            self?.saveExpandedCollections()
+        }
     }
 
     func collapseAllCollections() {
@@ -705,7 +713,10 @@ class AppStore: ObservableObject {
     }
 
     func visibleProjectCount(in node: FolderNode) -> Int {
-        showHidden ? node.projectCount : node.allProjects().filter { !isProjectHidden($0) }.count
+        if showHidden || hiddenProjects.isEmpty {
+            return node.projectCount
+        }
+        return node.cachedProjects.filter { !isProjectHidden($0) }.count
     }
 
     private func loadURLSet(key: String) -> Set<URL> {
@@ -744,58 +755,67 @@ class AppStore: ObservableObject {
     }
 
     func updateWidgetSnapshot() {
+        widgetSnapshotTask?.cancel()
         let recents = recentProjects
         let active = selectedProject ?? recents.first
+        let favs = favouriteProjects
+        let allProjectsCount = projects.count
+        let favURLs = favourites
 
-        let activeSummary: WidgetProjectSummary? = active.map { project in
-            WidgetProjectSummary(
-                name: project.name,
-                path: project.folderURL.path,
-                alsPath: project.newestAbletonVersion?.url.path,
-                lastModified: project.latestModification,
-                bpm: project.bpm,
-                musicalKey: project.key,
-                trackName: project.sortedTracks.first?.displayName,
-                isFavorite: favourites.contains(project.folderURL)
+        widgetSnapshotTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+
+            let activeSummary: WidgetProjectSummary? = active.map { project in
+                WidgetProjectSummary(
+                    name: project.name,
+                    path: project.folderURL.path,
+                    alsPath: project.newestAbletonVersion?.url.path,
+                    lastModified: project.latestModification,
+                    bpm: project.bpm,
+                    musicalKey: project.key,
+                    trackName: project.sortedTracks.first?.displayName,
+                    isFavorite: favURLs.contains(project.folderURL)
+                )
+            }
+
+            let recentSummaries = recents.prefix(5).map { project in
+                WidgetProjectSummary(
+                    name: project.name,
+                    path: project.folderURL.path,
+                    alsPath: project.newestAbletonVersion?.url.path,
+                    lastModified: project.latestModification,
+                    bpm: project.bpm,
+                    musicalKey: project.key,
+                    trackName: project.sortedTracks.first?.displayName,
+                    isFavorite: favURLs.contains(project.folderURL)
+                )
+            }
+
+            let favoriteSummaries = favs.prefix(5).map { project in
+                WidgetProjectSummary(
+                    name: project.name,
+                    path: project.folderURL.path,
+                    alsPath: project.newestAbletonVersion?.url.path,
+                    lastModified: project.latestModification,
+                    bpm: project.bpm,
+                    musicalKey: project.key,
+                    trackName: project.sortedTracks.first?.displayName,
+                    isFavorite: true
+                )
+            }
+
+            let snapshot = WidgetSnapshotData(
+                updatedAt: Date(),
+                lastActiveProject: activeSummary,
+                recentProjects: Array(recentSummaries),
+                favoriteProjects: Array(favoriteSummaries),
+                totalProjectsCount: allProjectsCount
             )
+
+            WidgetDataStorage.save(snapshot)
+            WidgetCenter.shared.reloadTimelines(ofKind: "BackstageWidget")
         }
-
-        let recentSummaries = recents.prefix(5).map { project in
-            WidgetProjectSummary(
-                name: project.name,
-                path: project.folderURL.path,
-                alsPath: project.newestAbletonVersion?.url.path,
-                lastModified: project.latestModification,
-                bpm: project.bpm,
-                musicalKey: project.key,
-                trackName: project.sortedTracks.first?.displayName,
-                isFavorite: favourites.contains(project.folderURL)
-            )
-        }
-
-        let favoriteSummaries = favouriteProjects.prefix(5).map { project in
-            WidgetProjectSummary(
-                name: project.name,
-                path: project.folderURL.path,
-                alsPath: project.newestAbletonVersion?.url.path,
-                lastModified: project.latestModification,
-                bpm: project.bpm,
-                musicalKey: project.key,
-                trackName: project.sortedTracks.first?.displayName,
-                isFavorite: true
-            )
-        }
-
-        let snapshot = WidgetSnapshotData(
-            updatedAt: Date(),
-            lastActiveProject: activeSummary,
-            recentProjects: Array(recentSummaries),
-            favoriteProjects: Array(favoriteSummaries),
-            totalProjectsCount: projects.count
-        )
-
-        WidgetDataStorage.save(snapshot)
-        WidgetCenter.shared.reloadTimelines(ofKind: "BackstageWidget")
     }
 
     func openInMainWindow(_ project: Project) {

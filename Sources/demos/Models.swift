@@ -9,16 +9,35 @@ struct FolderNode: Identifiable {
     let name: String
     let project: Project?
     let children: [FolderNode]
+    let projectCount: Int
+    let cachedProjects: [Project]
+
+    init(url: URL, name: String, project: Project?, children: [FolderNode]) {
+        self.url = url
+        self.name = name
+        self.project = project
+        self.children = children
+        if let project {
+            self.projectCount = 1
+            self.cachedProjects = [project]
+        } else {
+            self.projectCount = children.reduce(0) { $0 + $1.projectCount }
+            self.cachedProjects = children.flatMap(\.cachedProjects)
+        }
+    }
 
     var isProject: Bool { project != nil }
 
-    var projectCount: Int {
-        project != nil ? 1 : children.reduce(0) { $0 + $1.projectCount }
+    func allProjects() -> [Project] {
+        cachedProjects
     }
 
-    func allProjects() -> [Project] {
-        if let p = project { return [p] }
-        return children.flatMap { $0.allProjects() }
+    var firstProject: Project? {
+        if let p = project { return p }
+        for child in children {
+            if let first = child.firstProject { return first }
+        }
+        return nil
     }
 }
 
@@ -64,6 +83,9 @@ struct Project: Identifiable, Hashable {
     let liveVersion: String?
     let tracksCount: Int?
     let samplesCount: Int?
+    let sortedTracks: [Track]
+    let newestAbletonVersion: AbletonVersion?
+    let extractedVersionNumber: String?
 
     init(
         name: String,
@@ -97,6 +119,29 @@ struct Project: Identifiable, Hashable {
         self.liveVersion = liveVersion
         self.tracksCount = tracksCount
         self.samplesCount = samplesCount
+
+        let newest = versions.max { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
+        self.newestAbletonVersion = newest
+        self.sortedTracks = tracks.sorted {
+            ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast)
+        }
+        self.extractedVersionNumber = Project.extractVersionNumber(from: name)
+            ?? newest.flatMap { Project.extractVersionNumber(from: $0.displayName) }
+    }
+
+    private static let versionRegex: NSRegularExpression? = {
+        let pattern = #"(?i)(?:^|[\s_\-\.])v([0-9]+(?:\.[0-9]+)?)(?:[\s_\-\.]|$)"#
+        return try? NSRegularExpression(pattern: pattern)
+    }()
+
+    static func extractVersionNumber(from string: String) -> String? {
+        guard let regex = versionRegex,
+              let match = regex.firstMatch(in: string, range: NSRange(location: 0, length: (string as NSString).length)),
+              match.range(at: 1).location != NSNotFound else {
+            return nil
+        }
+        let num = (string as NSString).substring(with: match.range(at: 1))
+        return "v\(num)"
     }
 
     var hasExports: Bool { !tracks.isEmpty }
@@ -133,19 +178,18 @@ struct Project: Identifiable, Hashable {
     }
 
     var latestSavedItem: (name: String, date: Date)? {
-        let audioItems = tracks.compactMap { track in
-            track.modificationDate.map { (track.displayName, $0) }
+        let newestTrack = sortedTracks.first
+        let newestVersion = newestAbletonVersion
+        if let t = newestTrack, let v = newestVersion {
+            let tDate = t.modificationDate ?? .distantPast
+            let vDate = v.modificationDate ?? .distantPast
+            return tDate >= vDate ? (t.displayName, tDate) : (v.displayName, vDate)
+        } else if let t = newestTrack {
+            return t.modificationDate.map { (t.displayName, $0) }
+        } else if let v = newestVersion {
+            return v.modificationDate.map { (v.displayName, $0) }
         }
-        let abletonItems = versions.compactMap { version in
-            version.modificationDate.map { (version.displayName, $0) }
-        }
-        return (audioItems + abletonItems).max { $0.1 < $1.1 }
-    }
-
-    var sortedTracks: [Track] {
-        tracks.sorted {
-            ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast)
-        }
+        return nil
     }
 
     var exportGroups: [ExportGroup] {
@@ -155,10 +199,6 @@ struct Project: Identifiable, Hashable {
                 if $0.folder.isEmpty != $1.folder.isEmpty { return $0.folder.isEmpty }
                 return $0.folder.localizedCompare($1.folder) == .orderedAscending
             }
-    }
-
-    var newestAbletonVersion: AbletonVersion? {
-        versions.max { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
     }
 }
 

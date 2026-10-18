@@ -27,12 +27,7 @@ struct ProjectBadgeView: View {
         }
 
         // 2. Version Iteration extracted from filename / project name (e.g. "v3", "v8", "v2.1")
-        if let extracted = extractVersionNumber(from: project.name) {
-            return (extracted, Color(red: 0.18, green: 0.19, blue: 0.22), Color.white, Color.white.opacity(0.18))
-        }
-
-        if let newest = project.newestAbletonVersion,
-           let extracted = extractVersionNumber(from: newest.displayName) {
+        if let extracted = project.extractedVersionNumber {
             return (extracted, Color(red: 0.18, green: 0.19, blue: 0.22), Color.white, Color.white.opacity(0.18))
         }
 
@@ -48,17 +43,6 @@ struct ProjectBadgeView: View {
 
         // 5. Default initial version
         return ("v1", Color(red: 0.18, green: 0.19, blue: 0.22), Color.secondaryText, Color.white.opacity(0.14))
-    }
-
-    private func extractVersionNumber(from string: String) -> String? {
-        let pattern = #"(?i)(?:^|[\s_\-\.])v([0-9]+(?:\.[0-9]+)?)(?:[\s_\-\.]|$)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: string, range: NSRange(location: 0, length: (string as NSString).length)),
-              match.range(at: 1).location != NSNotFound else {
-            return nil
-        }
-        let num = (string as NSString).substring(with: match.range(at: 1))
-        return "v\(num)"
     }
 
     var body: some View {

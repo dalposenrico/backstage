@@ -403,15 +403,13 @@ private struct CollectionTreeItem: View {
                 hidden: store.isFolderHidden(node.url),
                 collectionURL: node.url,
                 toggleExpansion: {
-                    withAnimation(.easeInOut(duration: 0.14)) {
-                        store.toggleCollectionExpansion(node.url)
-                    }
+                    store.toggleCollectionExpansion(node.url)
                 },
                 toggleHidden: { store.toggleFolderHidden(node.url) }
             ) {
                 store.selectedSidebarSection = .folder(node.url)
                 store.selectedCollectionURL = node.url
-                if let first = node.allProjects().first { store.selectedProject = first }
+                if let first = node.firstProject { store.selectedProject = first }
             }
 
             if expanded {
@@ -558,6 +556,7 @@ private struct CollectionRow: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(hovered ? .white : Color(white: 0.55))
                             .rotationEffect(.degrees(expanded ? 90 : 0))
+                            .animation(.easeInOut(duration: 0.12), value: expanded)
                             .frame(width: 10, height: 20)
                     } else {
                         Color.clear.frame(width: 10)
@@ -795,9 +794,7 @@ struct FolderTreeItem: View {
                 FolderRow(node: node, isExpanded: isExpanded)
                     .padding(.leading, CGFloat(depth) * 14)
                     .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            store.toggleExpansion(node.url)
-                        }
+                        store.toggleExpansion(node.url)
                     }
 
                 if isExpanded {
