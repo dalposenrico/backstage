@@ -68,8 +68,12 @@ class AppStore: ObservableObject {
         return dir.appendingPathComponent("favorites.json")
     }()
     @Published var selectedProject: Project? {
-        didSet { saveSelectedProject() }
+        didSet {
+            saveSelectedProject()
+            updateWidgetSnapshot()
+        }
     }
+    @Published var pendingProjectURLToOpen: URL?
     @Published var isScanning = false
     @Published private(set) var hasCompletedLibraryScan = false
     @Published private(set) var unavailableFolderPath: String?
@@ -302,15 +306,21 @@ class AppStore: ObservableObject {
 
         // Restore selected project by saved path, fall back to first project
         let all = tree.flatMap { $0.allProjects() }
-        let savedPath = UserDefaults.standard.string(forKey: "selectedProjectPath")
-        if let path = savedPath, let match = all.first(where: { $0.folderURL.path == path }) {
-            selectedProject = match
-        } else if selectedProject == nil || !all.contains(where: { $0.id == selectedProject?.id }) {
-            selectedProject = all.first
+        if let pending = pendingProjectURLToOpen, let match = all.first(where: { $0.folderURL == pending }) {
+            openInMainWindow(match)
+            pendingProjectURLToOpen = nil
+        } else {
+            let savedPath = UserDefaults.standard.string(forKey: "selectedProjectPath")
+            if let path = savedPath, let match = all.first(where: { $0.folderURL.path == path }) {
+                selectedProject = match
+            } else if selectedProject == nil || !all.contains(where: { $0.id == selectedProject?.id }) {
+                selectedProject = all.first
+            }
         }
 
         resolvePendingExportCheckpoint(reportFailure: true)
         refreshAbletonSession()
+        updateWidgetSnapshot()
 
         let cache = inspectionCache
         Task.detached(priority: .utility) { cache.persistIfNeeded() }
@@ -641,10 +651,75 @@ class AppStore: ObservableObject {
         if let data = try? JSONEncoder().encode(paths) {
             try? data.write(to: Self.favoritesFileURL)
         }
+        updateWidgetSnapshot()
     }
 
     func playTrack(_ track: Track) {
         audioPlayer.play(track)
+    }
+
+    func openProjectWhenAvailable(folderURL: URL) {
+        if let project = projects.first(where: { $0.folderURL == folderURL }) {
+            openInMainWindow(project)
+        } else {
+            pendingProjectURLToOpen = folderURL
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    func updateWidgetSnapshot() {
+        let recents = recentProjects
+        let active = selectedProject ?? recents.first
+
+        let activeSummary: WidgetProjectSummary? = active.map { project in
+            WidgetProjectSummary(
+                name: project.name,
+                path: project.folderURL.path,
+                alsPath: project.newestAbletonVersion?.url.path,
+                lastModified: project.latestModification,
+                bpm: project.bpm,
+                musicalKey: project.key,
+                trackName: project.sortedTracks.first?.displayName,
+                isFavorite: favourites.contains(project.folderURL)
+            )
+        }
+
+        let recentSummaries = recents.prefix(5).map { project in
+            WidgetProjectSummary(
+                name: project.name,
+                path: project.folderURL.path,
+                alsPath: project.newestAbletonVersion?.url.path,
+                lastModified: project.latestModification,
+                bpm: project.bpm,
+                musicalKey: project.key,
+                trackName: project.sortedTracks.first?.displayName,
+                isFavorite: favourites.contains(project.folderURL)
+            )
+        }
+
+        let favoriteSummaries = favouriteProjects.prefix(5).map { project in
+            WidgetProjectSummary(
+                name: project.name,
+                path: project.folderURL.path,
+                alsPath: project.newestAbletonVersion?.url.path,
+                lastModified: project.latestModification,
+                bpm: project.bpm,
+                musicalKey: project.key,
+                trackName: project.sortedTracks.first?.displayName,
+                isFavorite: true
+            )
+        }
+
+        let snapshot = WidgetSnapshotData(
+            updatedAt: Date(),
+            lastActiveProject: activeSummary,
+            recentProjects: Array(recentSummaries),
+            favoriteProjects: Array(favoriteSummaries),
+            totalProjectsCount: projects.count
+        )
+
+        WidgetDataStorage.save(snapshot)
+        WidgetCenter.shared.reloadTimelines(ofKind: "BackstageWidget")
     }
 
     func openInMainWindow(_ project: Project) {

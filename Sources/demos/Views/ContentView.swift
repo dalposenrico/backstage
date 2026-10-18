@@ -107,6 +107,15 @@ struct ContentView: View {
                     projectPath: projectPath,
                     durationMinutes: FocusCalendarEventContent.durationMinutes(from: url) ?? dailyFocus.focusMinutes
                 )
+            } else if url.scheme == "goodvibrations", url.host == "open-project" {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let path = components.queryItems?.first(where: { $0.name == "path" })?.value,
+                   !path.isEmpty {
+                    let folderURL = URL(fileURLWithPath: path)
+                    store.openProjectWhenAvailable(folderURL: folderURL)
+                } else {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
             } else {
                 store.openExportCheckpoint(from: url)
             }
