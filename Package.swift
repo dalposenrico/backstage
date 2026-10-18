@@ -20,7 +20,7 @@ let package = Package(
         .executableTarget(
             name: "BackstageWidget",
             path: "Sources/BackstageWidget",
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "BackstageWidget.entitlements"],
             linkerSettings: [
                 .linkedFramework("WidgetKit"),
                 .linkedFramework("AppIntents")

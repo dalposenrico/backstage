@@ -55,21 +55,12 @@ public struct WidgetProjectSummary: Codable, Identifiable, Sendable, Hashable {
 }
 
 public enum WidgetDataStorage {
-    public static let sharedContainerURL: URL = {
-        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.enricodalpos.goodvibrationshq") {
-            return groupURL
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let groupDir = home.appendingPathComponent("Library/Group Containers/group.com.enricodalpos.goodvibrationshq")
-        try? FileManager.default.createDirectory(at: groupDir, withIntermediateDirectories: true)
-        return groupDir
-    }()
-
-    public static var fileURL: URL {
-        let dir = sharedContainerURL
+    public static let fileURL: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Backstage")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("widget_data.json")
-    }
+    }()
 
     public static func load() -> WidgetSnapshotData? {
         guard let data = try? Data(contentsOf: fileURL),
@@ -80,9 +71,8 @@ public enum WidgetDataStorage {
     }
 
     public static func save(_ snapshot: WidgetSnapshotData) {
-        let url = fileURL
         if let data = try? JSONEncoder().encode(snapshot) {
-            try? data.write(to: url)
+            try? data.write(to: fileURL)
         }
     }
 }
