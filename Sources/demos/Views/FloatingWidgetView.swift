@@ -56,37 +56,60 @@ struct FloatingWidgetView: View {
         }
     }
 
+    private var appIconImage: NSImage? {
+        if let icon = NSImage(named: NSImage.applicationIconName) {
+            return icon
+        }
+        if let icon = NSApp.applicationIconImage {
+            return icon
+        }
+        if let path = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+           let icon = NSImage(contentsOfFile: path) {
+            return icon
+        }
+        return nil
+    }
+
     // MARK: - Collapsed Pet Icon Mode
 
     private var collapsedPetPuck: some View {
         ZStack {
-            // Elevated solid circular backdrop
-            Circle()
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .overlay(
-                    Circle()
-                        .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
-                )
-                .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+            // App Icon
+            if let icon = appIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 48, height: 48)
+                    .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
+            } else {
+                Circle()
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(
+                        Circle()
+                            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+                    )
+                    .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
 
-            // Centered Waveform Icon
-            Image(systemName: "waveform")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color.accentColor)
+                Image(systemName: "waveform")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+            }
 
             // Emerald Green Live Session Indicator Dot (top right)
             if store.currentOpenProject != nil {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 10, height: 10)
-                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
-                    .offset(x: 16, y: -16)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                    .shadow(color: Color.black.opacity(0.3), radius: 2)
+                    .offset(x: 17, y: -17)
             }
 
             // Hover Cue
             if isHoveringPuck {
-                Circle()
-                    .fill(Color.black.opacity(0.2))
+                RoundedRectangle(cornerRadius: 11)
+                    .fill(Color.black.opacity(0.25))
+                    .frame(width: 48, height: 48)
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
@@ -98,7 +121,7 @@ struct FloatingWidgetView: View {
             }
         }
         .frame(width: 52, height: 52)
-        .contentShape(Circle())
+        .contentShape(Rectangle())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
@@ -188,9 +211,16 @@ struct FloatingWidgetView: View {
 
     private var headerBar: some View {
         HStack(spacing: 6) {
-            Image(systemName: "waveform")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Color.accentColor)
+            if let icon = appIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 15, height: 15)
+            } else {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+            }
 
             Text("goodvibrations HUD")
                 .font(.system(size: 11, weight: .bold))
