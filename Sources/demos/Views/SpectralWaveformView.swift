@@ -16,8 +16,9 @@ struct SpectralWaveformView: View {
 
             for index in Swift.stride(from: 0, to: samples.count, by: stride) {
                 let sample = samples[index]
+                guard sample.amplitude > 0.001 else { continue }
                 let x = CGFloat(index) / CGFloat(max(1, samples.count - 1)) * size.width
-                let height = max(1, CGFloat(sample.amplitude) * halfHeight)
+                let height = max(1.5, CGFloat(sample.amplitude) * halfHeight)
                 let energy = max(0.001, sample.low + sample.mid + sample.high)
                 let low = Double(min(1, sample.low / energy))
                 let mid = Double(min(1, sample.mid / energy))

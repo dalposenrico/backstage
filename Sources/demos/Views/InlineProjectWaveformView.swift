@@ -89,7 +89,7 @@ final class InlineWaveformCache: @unchecked Sendable {
 
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: windowFrames) else { return nil }
 
-        var peaks = [Float](repeating: 0.1, count: count)
+        var rawPeaks = [Float](repeating: 0.0, count: count)
         let channelCount = Int(format.channelCount)
 
         for i in 0..<count {
@@ -108,24 +108,34 @@ final class InlineWaveformCache: @unchecked Sendable {
                             if amp > localMax { localMax = amp }
                         }
                     }
-                    peaks[i] = max(0.08, localMax)
+                    rawPeaks[i] = localMax
                 }
             } catch {
                 break
             }
         }
 
-        // Normalize
-        let maxPeak = peaks.max() ?? 1.0
-        if maxPeak > 0 {
-            return peaks.map { min(1.0, max(0.08, $0 / maxPeak)) }
+        let maxPeak = rawPeaks.max() ?? 0.0
+
+        // If the entire audio file is silent or below digital noise floor (-60dB / 0.001),
+        // return clean zero amplitude so it displays as a flat line.
+        if maxPeak < 0.001 {
+            return [Float](repeating: 0.0, count: count)
         }
-        return peaks
+
+        // Normalize relative to actual max peak.
+        // Silent sections remain 0.0, audible sections scale between 0.08 and 1.0.
+        return rawPeaks.map { peak in
+            if peak < 0.001 {
+                return 0.0
+            }
+            return min(1.0, max(0.08, peak / maxPeak))
+        }
     }
 
     private func cacheKey(for url: URL) -> String {
         let stamp = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
-        let raw = "\(url.path)_\(stamp)"
+        let raw = "v2_\(url.path)_\(stamp)"
         return String(format: "%016lx.bin", raw.hashValue)
     }
 
@@ -149,7 +159,7 @@ final class InlineWaveformCache: @unchecked Sendable {
     }
 
     private var fallbackPeaks: [Float] {
-        [0.2, 0.4, 0.6, 0.5, 0.7, 0.8, 0.6, 0.7, 0.9, 0.7, 0.5, 0.6, 0.4, 0.3, 0.5, 0.7, 0.6, 0.4]
+        [Float](repeating: 0.0, count: 32)
     }
 }
 
@@ -191,21 +201,32 @@ struct InlineProjectWaveformView: View {
 
                     for index in 0..<count {
                         let x = CGFloat(index) * (barWidth + 1.5)
-                        let amp = CGFloat(max(0.08, min(1.0, bars[index])))
-                        let barHeight = max(2.0, amp * size.height * 0.9)
-                        let rect = CGRect(
-                            x: x,
-                            y: midY - barHeight / 2.0,
-                            width: barWidth,
-                            height: barHeight
-                        )
+                        let amp = CGFloat(max(0.0, min(1.0, bars[index])))
 
                         let isPastProgress = isPlaying && x <= progressWidth
                         let barColor: Color = isPastProgress
                             ? Color.accent
                             : Color.accent.opacity(0.55)
 
-                        context.fill(Path(roundedRect: rect, cornerRadius: 0.8), with: .color(barColor))
+                        if amp <= 0.01 {
+                            // Silent segment: straight horizontal line running along the center
+                            let silentRect = CGRect(
+                                x: x,
+                                y: midY - 0.75,
+                                width: barWidth + (index < count - 1 ? 1.5 : 0),
+                                height: 1.5
+                            )
+                            context.fill(Path(silentRect), with: .color(barColor.opacity(0.45)))
+                        } else {
+                            let barHeight = max(2.5, amp * size.height * 0.9)
+                            let rect = CGRect(
+                                x: x,
+                                y: midY - barHeight / 2.0,
+                                width: barWidth,
+                                height: barHeight
+                            )
+                            context.fill(Path(roundedRect: rect, cornerRadius: 0.8), with: .color(barColor))
+                        }
                     }
                 }
             }
@@ -227,6 +248,6 @@ struct InlineProjectWaveformView: View {
     }
 
     private var placeholderBars: [Float] {
-        [0.2, 0.4, 0.6, 0.5, 0.7, 0.8, 0.6, 0.7, 0.9, 0.7, 0.5, 0.6, 0.4, 0.3, 0.5, 0.7, 0.6, 0.4]
+        [Float](repeating: 0.0, count: 18)
     }
 }

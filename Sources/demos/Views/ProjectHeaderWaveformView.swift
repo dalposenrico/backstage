@@ -95,21 +95,32 @@ private struct ProjectHeaderWaveformTimelineView: View {
 
                     for index in 0..<count {
                         let x = CGFloat(index) * (barWidth + 1.6)
-                        let amp = CGFloat(max(0.08, min(1.0, bars[index])))
-                        let barHeight = max(2.5, amp * (canvasSize.height - 4))
-                        let rect = CGRect(
-                            x: x,
-                            y: midY - barHeight / 2.0,
-                            width: barWidth,
-                            height: barHeight
-                        )
+                        let amp = CGFloat(max(0.0, min(1.0, bars[index])))
 
                         let isPlayed = isCurrentTrack && x <= progressX
                         let barColor = isPlayed
                             ? waveformColor
                             : waveformColor.opacity(0.42)
 
-                        context.fill(Path(roundedRect: rect, cornerRadius: 0.8), with: .color(barColor))
+                        if amp <= 0.01 {
+                            // Silent segment: straight horizontal line running along the center
+                            let silentRect = CGRect(
+                                x: x,
+                                y: midY - 0.75,
+                                width: barWidth + (index < count - 1 ? 1.6 : 0),
+                                height: 1.5
+                            )
+                            context.fill(Path(silentRect), with: .color(barColor.opacity(0.45)))
+                        } else {
+                            let barHeight = max(2.5, amp * (canvasSize.height - 4))
+                            let rect = CGRect(
+                                x: x,
+                                y: midY - barHeight / 2.0,
+                                width: barWidth,
+                                height: barHeight
+                            )
+                            context.fill(Path(roundedRect: rect, cornerRadius: 0.8), with: .color(barColor))
+                        }
                     }
 
                     // Playhead indicator line
@@ -197,9 +208,6 @@ private struct ProjectHeaderWaveformTimelineView: View {
     }
 
     private var placeholderBars: [Float] {
-        [
-            0.15, 0.35, 0.55, 0.45, 0.65, 0.75, 0.55, 0.65, 0.85, 0.65, 0.45, 0.55, 0.35, 0.25, 0.45, 0.65,
-            0.55, 0.35, 0.25, 0.45, 0.60, 0.70, 0.80, 0.90, 0.75, 0.60, 0.50, 0.40, 0.30, 0.20, 0.15, 0.10
-        ]
+        [Float](repeating: 0.0, count: 32)
     }
 }

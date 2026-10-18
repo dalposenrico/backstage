@@ -61,18 +61,22 @@ enum WaveformSampler {
             }
 
             let maximum = fullPeaks.max() ?? 0
-            guard maximum > 0 else {
+            guard maximum > 0.001 else {
                 return [SpectralWaveformSample](
                     repeating: SpectralWaveformSample(amplitude: 0, low: 0, mid: 0, high: 0),
                     count: count
                 )
             }
             return fullPeaks.indices.map { index in
-                SpectralWaveformSample(
-                    amplitude: fullPeaks[index] / maximum,
-                    low: lowPeaks[index] / maximum,
-                    mid: midPeaks[index] / maximum,
-                    high: highPeaks[index] / maximum
+                let amp = fullPeaks[index]
+                if amp < 0.001 {
+                    return SpectralWaveformSample(amplitude: 0, low: 0, mid: 0, high: 0)
+                }
+                return SpectralWaveformSample(
+                    amplitude: min(1.0, amp / maximum),
+                    low: min(1.0, lowPeaks[index] / maximum),
+                    mid: min(1.0, midPeaks[index] / maximum),
+                    high: min(1.0, highPeaks[index] / maximum)
                 )
             }
         }.value
