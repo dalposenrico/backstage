@@ -10,11 +10,13 @@ final class PetPuckNotificationTests: XCTestCase {
             XCTAssertGreaterThan(size.capsuleSubtitleFontSize, 8)
             XCTAssertLessThan(size.capsuleSubtitleFontSize, size.capsuleTitleFontSize)
 
-            // When no capsule is active, total width equals dimension
-            XCTAssertEqual(size.totalCollapsedWidth(hasCapsule: false), size.dimension)
+            // When app icon is disabled (standalone floating pill):
+            XCTAssertEqual(size.totalCollapsedWidth(hasIcon: false), size.capsuleWidth)
+            XCTAssertEqual(size.totalCollapsedHeight(hasIcon: false), size.capsuleHeight)
 
-            // When capsule is active, total width accommodates icon, spacing, and capsule
-            XCTAssertEqual(size.totalCollapsedWidth(hasCapsule: true), size.dimension + size.capsuleWidth + 8)
+            // When app icon is enabled:
+            XCTAssertEqual(size.totalCollapsedWidth(hasIcon: true), size.dimension + size.capsuleWidth + 8)
+            XCTAssertEqual(size.totalCollapsedHeight(hasIcon: true), size.dimension)
         }
     }
 
@@ -30,6 +32,8 @@ final class PetPuckNotificationTests: XCTestCase {
 
     func testSettingsStoreDefaultsForPuckNotification() {
         let settings = SettingsStore()
+        XCTAssertFalse(settings.showAppIconOnPuck) // Default: icon removed as requested
+        XCTAssertTrue(settings.isFloatingWidgetPinned) // Default: always pinned on top
         XCTAssertTrue(settings.showPetPuckProjectCapsule)
         XCTAssertTrue(settings.notifyOnAbletonReady)
     }

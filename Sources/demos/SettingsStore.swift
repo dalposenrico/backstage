@@ -113,42 +113,46 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
 
     var capsuleWidth: CGFloat {
         switch self {
-        case .small: return 165
-        case .medium: return 195
-        case .large: return 230
-        case .extraLarge: return 270
+        case .small: return 175
+        case .medium: return 210
+        case .large: return 245
+        case .extraLarge: return 280
         }
     }
 
     var capsuleHeight: CGFloat {
         switch self {
-        case .small: return 38
-        case .medium: return 48
-        case .large: return 60
-        case .extraLarge: return 74
+        case .small: return 34
+        case .medium: return 38
+        case .large: return 44
+        case .extraLarge: return 50
         }
     }
 
     var capsuleTitleFontSize: CGFloat {
         switch self {
-        case .small: return 11.5
+        case .small: return 12
         case .medium: return 13
         case .large: return 14.5
-        case .extraLarge: return 16.5
+        case .extraLarge: return 16
         }
     }
 
     var capsuleSubtitleFontSize: CGFloat {
         switch self {
-        case .small: return 9
+        case .small: return 9.5
         case .medium: return 10
-        case .large: return 11.5
-        case .extraLarge: return 13
+        case .large: return 11
+        case .extraLarge: return 12.5
         }
     }
 
-    func totalCollapsedWidth(hasCapsule: Bool) -> CGFloat {
-        hasCapsule ? (dimension + capsuleWidth + 8) : dimension
+    func totalCollapsedWidth(hasIcon: Bool) -> CGFloat {
+        hasIcon ? (dimension + capsuleWidth + 8) : capsuleWidth
+    }
+
+    func totalCollapsedHeight(hasIcon: Bool) -> CGFloat {
+        hasIcon ? dimension : capsuleHeight
     }
 }
 
@@ -170,6 +174,9 @@ class SettingsStore: ObservableObject {
     }
     @Published var isFloatingWidgetCollapsed: Bool {
         didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
+    }
+    @Published var showAppIconOnPuck: Bool {
+        didSet { UserDefaults.standard.set(showAppIconOnPuck, forKey: "showAppIconOnPuck") }
     }
     @Published var showPetPuckProjectCapsule: Bool {
         didSet { UserDefaults.standard.set(showPetPuckProjectCapsule, forKey: "showPetPuckProjectCapsule") }
@@ -210,7 +217,13 @@ class SettingsStore: ObservableObject {
         if let storedCollapsed = UserDefaults.standard.object(forKey: "isFloatingWidgetCollapsed") as? Bool {
             isFloatingWidgetCollapsed = storedCollapsed
         } else {
-            isFloatingWidgetCollapsed = false
+            isFloatingWidgetCollapsed = true
+        }
+
+        if let storedAppIcon = UserDefaults.standard.object(forKey: "showAppIconOnPuck") as? Bool {
+            showAppIconOnPuck = storedAppIcon
+        } else {
+            showAppIconOnPuck = false
         }
 
         if let storedCapsule = UserDefaults.standard.object(forKey: "showPetPuckProjectCapsule") as? Bool {

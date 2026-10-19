@@ -131,6 +131,9 @@ struct ContentView: View {
                 } else {
                     NSApp.activate(ignoringOtherApps: true)
                 }
+            } else if url.scheme == "goodvibrations", url.host == "open-hud" {
+                openWindow(id: "floating-widget")
+                WindowPresenter.showFloatingWidget(pinned: true, collapsed: settings.isFloatingWidgetCollapsed)
             } else {
                 store.openExportCheckpoint(from: url)
             }

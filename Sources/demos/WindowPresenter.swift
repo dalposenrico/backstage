@@ -125,9 +125,33 @@ enum WindowPresenter {
         return PetPuckSize(rawValue: raw)?.dimension ?? 72
     }
 
+    private static func clampFrameToScreen(_ frame: inout NSRect, screen: NSScreen?) {
+        guard let screen = screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        if frame.maxX > visible.maxX - 8 {
+            frame.origin.x = visible.maxX - frame.width - 8
+        }
+        if frame.minX < visible.minX + 8 {
+            frame.origin.x = visible.minX + 8
+        }
+        if frame.maxY > visible.maxY - 8 {
+            frame.origin.y = visible.maxY - frame.height - 8
+        }
+        if frame.minY < visible.minY + 8 {
+            frame.origin.y = visible.minY + 8
+        }
+    }
+
     static func showFloatingWidget(pinned: Bool = true, collapsed: Bool = false) {
         NSApp.activate(ignoringOtherApps: false)
-        configureFloatingWidget(pinned: pinned, collapsed: collapsed, attemptsRemaining: 8)
+        if NSApp.windows.contains(where: { $0.title == "goodvibrations HUD" }) {
+            configureFloatingWidget(pinned: true, collapsed: collapsed, attemptsRemaining: 8)
+        } else {
+            if let url = URL(string: "goodvibrations://open-hud") {
+                NSWorkspace.shared.open(url)
+            }
+            configureFloatingWidget(pinned: true, collapsed: collapsed, attemptsRemaining: 12)
+        }
     }
 
     static func hideFloatingWidget() {
@@ -140,7 +164,7 @@ enum WindowPresenter {
         if let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }), window.isVisible {
             hideFloatingWidget()
         } else {
-            showFloatingWidget(pinned: pinned, collapsed: collapsed)
+            showFloatingWidget(pinned: true, collapsed: collapsed)
         }
     }
 
@@ -149,50 +173,52 @@ enum WindowPresenter {
         // Only update if currently collapsed into puck mode
         guard !window.styleMask.contains(.titled) else { return }
 
-        window.minSize = NSSize(width: puckSize, height: puckSize)
-        window.maxSize = NSSize(width: 600, height: puckSize)
+        window.minSize = NSSize(width: min(puckSize, 120), height: min(puckSize, 30))
+        window.maxSize = NSSize(width: 600, height: max(puckSize, 128))
 
         var newFrame = window.frame
         let oldHeight = newFrame.height
         newFrame.size = NSSize(width: newFrame.width, height: puckSize)
         newFrame.origin.y += (oldHeight - puckSize)
+        clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
+
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.setFrame(newFrame, display: true, animate: false)
+        window.orderFrontRegardless()
     }
 
     static func updateFloatingWidgetCollapsedWidth(_ targetWidth: CGFloat, height: CGFloat, animated: Bool = true) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
         guard !window.styleMask.contains(.titled) else { return }
 
-        guard abs(window.frame.width - targetWidth) > 1 || abs(window.frame.height - height) > 1 else { return }
-
-        window.minSize = NSSize(width: min(targetWidth, height), height: height)
-        window.maxSize = NSSize(width: 600, height: height)
+        window.minSize = NSSize(width: min(targetWidth, 120), height: min(height, 30))
+        window.maxSize = NSSize(width: 600, height: max(height, 128))
 
         var newFrame = window.frame
         let oldHeight = newFrame.height
         newFrame.size = NSSize(width: targetWidth, height: height)
         newFrame.origin.y += (oldHeight - height)
 
-        if let screen = window.screen {
-            let visible = screen.visibleFrame
-            if newFrame.maxX > visible.maxX {
-                newFrame.origin.x = visible.maxX - newFrame.width - 8
-            }
-            if newFrame.minX < visible.minX {
-                newFrame.origin.x = visible.minX + 8
-            }
-        }
+        clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
 
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.setFrame(newFrame, display: true, animate: animated)
+        window.orderFrontRegardless()
     }
 
-    static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil) {
+    static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil, targetWidth: CGFloat? = nil, targetHeight: CGFloat? = nil) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
 
         window.backgroundColor = .clear
         window.isOpaque = false
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let puckDim = puckSize ?? currentPuckDimension
+        let finalWidth = targetWidth ?? puckDim
+        let finalHeight = targetHeight ?? puckDim
 
         if collapsed {
             if window.styleMask.contains(.titled) {
@@ -200,14 +226,17 @@ enum WindowPresenter {
             }
             window.styleMask.remove(.titled)
             window.hasShadow = false
-            window.minSize = NSSize(width: puckDim, height: puckDim)
-            window.maxSize = NSSize(width: 600, height: puckDim)
+            window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
+            window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
 
             var newFrame = window.frame
             let oldHeight = newFrame.height
-            newFrame.size = NSSize(width: puckDim, height: puckDim)
-            newFrame.origin.y += (oldHeight - puckDim)
+            newFrame.size = NSSize(width: finalWidth, height: finalHeight)
+            newFrame.origin.y += (oldHeight - finalHeight)
+
+            clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
             window.setFrame(newFrame, display: true, animate: false)
+            window.orderFrontRegardless()
         } else {
             window.styleMask.insert(.titled)
             window.titlebarAppearsTransparent = true
@@ -225,39 +254,41 @@ enum WindowPresenter {
             newFrame.size = targetSize
             newFrame.origin.y -= (targetSize.height - oldHeight)
 
-            if let screen = window.screen {
-                let visible = screen.visibleFrame
-                if newFrame.minY < visible.minY {
-                    newFrame.origin.y = visible.minY + 8
-                }
-                if newFrame.maxY > visible.maxY {
-                    newFrame.origin.y = visible.maxY - newFrame.height - 8
-                }
-                if newFrame.minX < visible.minX {
-                    newFrame.origin.x = visible.minX + 8
-                }
-                if newFrame.maxX > visible.maxX {
-                    newFrame.origin.x = visible.maxX - newFrame.width - 8
-                }
-            }
-
+            clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
             window.setFrame(newFrame, display: true, animate: false)
+            window.orderFrontRegardless()
         }
     }
 
-    static func configureFloatingWidget(pinned: Bool, collapsed: Bool = false, puckSize: CGFloat? = nil, attemptsRemaining: Int = 8) {
+    static func configureFloatingWidget(
+        pinned: Bool = true,
+        collapsed: Bool = false,
+        puckSize: CGFloat? = nil,
+        targetWidth: CGFloat? = nil,
+        targetHeight: CGFloat? = nil,
+        attemptsRemaining: Int = 8
+    ) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else {
             guard attemptsRemaining > 0 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                configureFloatingWidget(pinned: pinned, collapsed: collapsed, puckSize: puckSize, attemptsRemaining: attemptsRemaining - 1)
+                configureFloatingWidget(
+                    pinned: pinned,
+                    collapsed: collapsed,
+                    puckSize: puckSize,
+                    targetWidth: targetWidth,
+                    targetHeight: targetHeight,
+                    attemptsRemaining: attemptsRemaining - 1
+                )
             }
             return
         }
 
         let puckDim = puckSize ?? currentPuckDimension
+        let finalWidth = targetWidth ?? puckDim
+        let finalHeight = targetHeight ?? puckDim
 
-        window.level = pinned ? .floating : .normal
-        window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isMovable = true
         window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
@@ -266,12 +297,14 @@ enum WindowPresenter {
         if collapsed {
             window.styleMask.remove(.titled)
             window.hasShadow = false
-            window.minSize = NSSize(width: puckDim, height: puckDim)
-            window.maxSize = NSSize(width: 600, height: puckDim)
+            window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
+            window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
             var f = window.frame
             let oldH = f.height
-            f.size = NSSize(width: puckDim, height: puckDim)
-            f.origin.y += (oldH - puckDim)
+            f.size = NSSize(width: finalWidth, height: finalHeight)
+            f.origin.y += (oldH - finalHeight)
+
+            clampFrameToScreen(&f, screen: window.screen ?? NSScreen.main)
             window.setFrame(f, display: true, animate: false)
         } else {
             window.styleMask.insert(.titled)
@@ -281,11 +314,20 @@ enum WindowPresenter {
             window.standardWindowButton(.miniaturizeButton)?.isHidden = true
             window.standardWindowButton(.zoomButton)?.isHidden = true
             window.hasShadow = true
+            let targetSize = savedExpandedSize
             window.minSize = NSSize(width: 280, height: 420)
             window.maxSize = NSSize(width: 600, height: 1100)
+
+            var newFrame = window.frame
+            let oldHeight = newFrame.height
+            newFrame.size = targetSize
+            newFrame.origin.y -= (targetSize.height - oldHeight)
+
+            clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
+            window.setFrame(newFrame, display: true, animate: false)
         }
 
         window.makeKeyAndOrderFront(nil)
-        if pinned { window.orderFrontRegardless() }
+        window.orderFrontRegardless()
     }
 }

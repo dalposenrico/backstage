@@ -39,14 +39,12 @@ struct FloatingWidgetView: View {
         }
     }
 
-    private var isCapsuleActive: Bool {
-        settings.isFloatingWidgetCollapsed &&
-        settings.showPetPuckProjectCapsule &&
-        (store.currentOpenProject != nil || store.openingAbletonProject != nil)
+    private var currentPuckWidth: CGFloat {
+        settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
     }
 
-    private var currentPuckWidth: CGFloat {
-        settings.petPuckSize.totalCollapsedWidth(hasCapsule: isCapsuleActive)
+    private var currentPuckHeight: CGFloat {
+        settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
     }
 
     var body: some View {
@@ -60,18 +58,26 @@ struct FloatingWidgetView: View {
         .ignoresSafeArea()
         .onAppear {
             WindowPresenter.configureFloatingWidget(
-                pinned: settings.isFloatingWidgetPinned,
+                pinned: true,
                 collapsed: settings.isFloatingWidgetCollapsed,
-                puckSize: settings.petPuckSize.dimension
+                puckSize: settings.petPuckSize.dimension,
+                targetWidth: currentPuckWidth,
+                targetHeight: currentPuckHeight
             )
             if settings.isFloatingWidgetCollapsed {
                 updateCollapsedWindowSize(animated: false)
             }
         }
-        .onChange(of: isCapsuleActive) {
+        .onChange(of: settings.showAppIconOnPuck) {
             updateCollapsedWindowSize(animated: true)
         }
         .onChange(of: settings.petPuckSize) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: store.currentOpenProject) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: store.openingAbletonProject) {
             updateCollapsedWindowSize(animated: true)
         }
     }
@@ -80,7 +86,7 @@ struct FloatingWidgetView: View {
         guard settings.isFloatingWidgetCollapsed else { return }
         WindowPresenter.updateFloatingWidgetCollapsedWidth(
             currentPuckWidth,
-            height: settings.petPuckSize.dimension,
+            height: currentPuckHeight,
             animated: animated
         )
     }
@@ -104,16 +110,12 @@ struct FloatingWidgetView: View {
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
         return HStack(spacing: 8) {
-            puckIconView(size: size)
-            if isCapsuleActive {
-                puckCapsuleView(size: size)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity),
-                        removal: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity)
-                    ))
+            if settings.showAppIconOnPuck {
+                puckIconView(size: size)
             }
+            puckCapsuleView(size: size)
         }
-        .frame(width: currentPuckWidth, height: size.dimension)
+        .frame(width: currentPuckWidth, height: currentPuckHeight)
         .contentShape(Rectangle())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
@@ -128,9 +130,9 @@ struct FloatingWidgetView: View {
 
             Divider()
 
-            Toggle("Show Project Name Capsule", isOn: $settings.showPetPuckProjectCapsule)
+            Toggle("Show App Icon", isOn: $settings.showAppIconOnPuck)
 
-            Menu("Icon Size (\(settings.petPuckSize.displayName))") {
+            Menu("Pill Size (\(settings.petPuckSize.displayName))") {
                 ForEach(PetPuckSize.allCases) { puckSize in
                     Button {
                         settings.petPuckSize = puckSize
@@ -160,21 +162,13 @@ struct FloatingWidgetView: View {
                 }
             }
             Divider()
-            Button(settings.isFloatingWidgetPinned ? "Unpin from Top" : "Keep on Top") {
-                settings.isFloatingWidgetPinned.toggle()
-                WindowPresenter.configureFloatingWidget(
-                    pinned: settings.isFloatingWidgetPinned,
-                    collapsed: settings.isFloatingWidgetCollapsed,
-                    puckSize: settings.petPuckSize.dimension
-                )
-            }
-            Button("Hide HUD (⇧⌘W)") {
+            Button("Hide Floating Pill (⇧⌘W)") {
                 settings.isFloatingWidgetActive = false
                 WindowPresenter.hideFloatingWidget()
             }
         }
         .help(puckHelpText)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isCapsuleActive)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: settings.showAppIconOnPuck)
     }
 
     private func puckIconView(size: PetPuckSize) -> some View {
@@ -218,7 +212,7 @@ struct FloatingWidgetView: View {
             }
 
             // Hover Cue
-            if isHoveringPuck && !isCapsuleActive {
+            if isHoveringPuck {
                 RoundedRectangle(cornerRadius: size.cornerRadius)
                     .fill(Color.black.opacity(0.25))
                     .frame(width: size.iconDimension, height: size.iconDimension)
@@ -237,11 +231,16 @@ struct FloatingWidgetView: View {
 
     private func puckCapsuleView(size: PetPuckSize) -> some View {
         let isOpening = store.openingAbletonProject?.phase == .opening
+        let isLiveActive = store.currentOpenProject != nil
+
         let projectName: String = {
             if isOpening {
                 return store.openingAbletonProject?.projectName ?? "Ableton Live"
             }
-            return store.currentOpenProject?.name ?? activeProject?.name ?? "Live Session"
+            if let active = store.currentOpenProject {
+                return active.name
+            }
+            return activeProject?.name ?? "goodvibrations HQ"
         }()
 
         let subtitle: String = {
@@ -251,10 +250,13 @@ struct FloatingWidgetView: View {
             if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
                 return "\(ver) • Ableton Live"
             }
-            return "Active in Live"
+            if isLiveActive {
+                return "Active in Live"
+            }
+            return "goodvibrations HQ"
         }()
 
-        let hasDemoTrack = store.currentOpenProject?.sortedTracks.first != nil
+        let hasDemoTrack = (store.currentOpenProject ?? activeProject)?.sortedTracks.first != nil
 
         return HStack(spacing: 8) {
             // Drag and click area covers indicator and text labels
@@ -263,12 +265,17 @@ struct FloatingWidgetView: View {
                 if isOpening {
                     ProgressView()
                         .controlSize(.mini)
-                } else {
+                } else if isLiveActive {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 1))
-                        .shadow(color: Color.green.opacity(0.5), radius: 2)
+                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                        .shadow(color: Color.green.opacity(0.6), radius: 3)
+                } else {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.85))
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -300,7 +307,7 @@ struct FloatingWidgetView: View {
                     Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
                         .foregroundStyle(audioPlayer.isPlaying ? Color.accentColor : Color.secondary)
-                        .frame(width: size.capsuleHeight * 0.52, height: size.capsuleHeight * 0.52)
+                        .frame(width: size.capsuleHeight * 0.54, height: size.capsuleHeight * 0.54)
                         .background(Color.primary.opacity(0.08), in: Circle())
                 }
                 .buttonStyle(.plain)
@@ -310,12 +317,12 @@ struct FloatingWidgetView: View {
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
         .background(
-            RoundedRectangle(cornerRadius: size.capsuleHeight / 2)
+            Capsule()
                 .fill(Color(nsColor: .windowBackgroundColor).opacity(0.85))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: size.capsuleHeight / 2))
+                .background(.ultraThinMaterial, in: Capsule())
         )
         .overlay(
-            RoundedRectangle(cornerRadius: size.capsuleHeight / 2)
+            Capsule()
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.28), radius: 6, x: 0, y: 2)
@@ -333,12 +340,18 @@ struct FloatingWidgetView: View {
 
     private func expandWidget() {
         settings.isFloatingWidgetCollapsed = false
-        WindowPresenter.setFloatingWidgetCollapsed(false, pinned: settings.isFloatingWidgetPinned, puckSize: settings.petPuckSize.dimension)
+        WindowPresenter.setFloatingWidgetCollapsed(false, pinned: true, puckSize: settings.petPuckSize.dimension)
     }
 
     private func collapseWidget() {
         settings.isFloatingWidgetCollapsed = true
-        WindowPresenter.setFloatingWidgetCollapsed(true, pinned: settings.isFloatingWidgetPinned, puckSize: settings.petPuckSize.dimension)
+        WindowPresenter.setFloatingWidgetCollapsed(
+            true,
+            pinned: true,
+            puckSize: settings.petPuckSize.dimension,
+            targetWidth: currentPuckWidth,
+            targetHeight: currentPuckHeight
+        )
     }
 
     // MARK: - Expanded HUD View
