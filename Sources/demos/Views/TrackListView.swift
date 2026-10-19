@@ -80,12 +80,8 @@ struct TrackListView: View {
 
                     Spacer(minLength: 8)
 
-                    // Compact Actions & Waveform
+                    // Compact Actions
                     HStack(spacing: 8) {
-                        if let export = project.sortedTracks.first {
-                            ProjectHeaderWaveformView(track: export, project: project)
-                        }
-
                         if let version = activeVersion ?? project.newestAbletonVersion {
                             Button { store.openInAbleton(project, version: version) } label: {
                                 HStack(spacing: 4) {
