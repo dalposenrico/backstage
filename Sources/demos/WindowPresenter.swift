@@ -150,13 +150,40 @@ enum WindowPresenter {
         guard !window.styleMask.contains(.titled) else { return }
 
         window.minSize = NSSize(width: puckSize, height: puckSize)
-        window.maxSize = NSSize(width: puckSize, height: puckSize)
+        window.maxSize = NSSize(width: 600, height: puckSize)
 
         var newFrame = window.frame
         let oldHeight = newFrame.height
-        newFrame.size = NSSize(width: puckSize, height: puckSize)
+        newFrame.size = NSSize(width: newFrame.width, height: puckSize)
         newFrame.origin.y += (oldHeight - puckSize)
         window.setFrame(newFrame, display: true, animate: false)
+    }
+
+    static func updateFloatingWidgetCollapsedWidth(_ targetWidth: CGFloat, height: CGFloat, animated: Bool = true) {
+        guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
+        guard !window.styleMask.contains(.titled) else { return }
+
+        guard abs(window.frame.width - targetWidth) > 1 || abs(window.frame.height - height) > 1 else { return }
+
+        window.minSize = NSSize(width: min(targetWidth, height), height: height)
+        window.maxSize = NSSize(width: 600, height: height)
+
+        var newFrame = window.frame
+        let oldHeight = newFrame.height
+        newFrame.size = NSSize(width: targetWidth, height: height)
+        newFrame.origin.y += (oldHeight - height)
+
+        if let screen = window.screen {
+            let visible = screen.visibleFrame
+            if newFrame.maxX > visible.maxX {
+                newFrame.origin.x = visible.maxX - newFrame.width - 8
+            }
+            if newFrame.minX < visible.minX {
+                newFrame.origin.x = visible.minX + 8
+            }
+        }
+
+        window.setFrame(newFrame, display: true, animate: animated)
     }
 
     static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil) {
@@ -174,7 +201,7 @@ enum WindowPresenter {
             window.styleMask.remove(.titled)
             window.hasShadow = false
             window.minSize = NSSize(width: puckDim, height: puckDim)
-            window.maxSize = NSSize(width: puckDim, height: puckDim)
+            window.maxSize = NSSize(width: 600, height: puckDim)
 
             var newFrame = window.frame
             let oldHeight = newFrame.height
@@ -240,7 +267,7 @@ enum WindowPresenter {
             window.styleMask.remove(.titled)
             window.hasShadow = false
             window.minSize = NSSize(width: puckDim, height: puckDim)
-            window.maxSize = NSSize(width: puckDim, height: puckDim)
+            window.maxSize = NSSize(width: 600, height: puckDim)
             var f = window.frame
             let oldH = f.height
             f.size = NSSize(width: puckDim, height: puckDim)

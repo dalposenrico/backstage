@@ -39,6 +39,16 @@ struct FloatingWidgetView: View {
         }
     }
 
+    private var isCapsuleActive: Bool {
+        settings.isFloatingWidgetCollapsed &&
+        settings.showPetPuckProjectCapsule &&
+        (store.currentOpenProject != nil || store.openingAbletonProject != nil)
+    }
+
+    private var currentPuckWidth: CGFloat {
+        settings.petPuckSize.totalCollapsedWidth(hasCapsule: isCapsuleActive)
+    }
+
     var body: some View {
         Group {
             if settings.isFloatingWidgetCollapsed {
@@ -54,7 +64,25 @@ struct FloatingWidgetView: View {
                 collapsed: settings.isFloatingWidgetCollapsed,
                 puckSize: settings.petPuckSize.dimension
             )
+            if settings.isFloatingWidgetCollapsed {
+                updateCollapsedWindowSize(animated: false)
+            }
         }
+        .onChange(of: isCapsuleActive) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: settings.petPuckSize) {
+            updateCollapsedWindowSize(animated: true)
+        }
+    }
+
+    private func updateCollapsedWindowSize(animated: Bool) {
+        guard settings.isFloatingWidgetCollapsed else { return }
+        WindowPresenter.updateFloatingWidgetCollapsedWidth(
+            currentPuckWidth,
+            height: settings.petPuckSize.dimension,
+            animated: animated
+        )
     }
 
     private var appIconImage: NSImage? {
@@ -71,58 +99,21 @@ struct FloatingWidgetView: View {
         return nil
     }
 
-    // MARK: - Collapsed Pet Icon Mode
+    // MARK: - Collapsed Pet Icon & Dynamic Island Capsule
 
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
-        return ZStack {
-            // App Icon
-            if let icon = appIconImage {
-                Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: size.iconDimension, height: size.iconDimension)
-                    .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
-            } else {
-                Circle()
-                    .fill(Color(nsColor: .windowBackgroundColor))
-                    .overlay(
-                        Circle()
-                            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
-                    )
-                    .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
-
-                Image(systemName: "waveform")
-                    .font(.system(size: size.iconDimension * 0.42, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
-            }
-
-            // Emerald Green Live Session Indicator Dot (top right)
-            if store.currentOpenProject != nil {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: size.dotSize, height: size.dotSize)
-                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
-                    .shadow(color: Color.black.opacity(0.3), radius: 2)
-                    .offset(x: size.dotOffset.x, y: size.dotOffset.y)
-            }
-
-            // Hover Cue
-            if isHoveringPuck {
-                RoundedRectangle(cornerRadius: size.cornerRadius)
-                    .fill(Color.black.opacity(0.25))
-                    .frame(width: size.iconDimension, height: size.iconDimension)
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: size.cueIconSize, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-
-            // Native Drag & Click Handler Area
-            PetPuckDragArea {
-                expandWidget()
+        return HStack(spacing: 8) {
+            puckIconView(size: size)
+            if isCapsuleActive {
+                puckCapsuleView(size: size)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity),
+                        removal: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity)
+                    ))
             }
         }
-        .frame(width: size.dimension, height: size.dimension)
+        .frame(width: currentPuckWidth, height: size.dimension)
         .contentShape(Rectangle())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
@@ -136,6 +127,8 @@ struct FloatingWidgetView: View {
             }
 
             Divider()
+
+            Toggle("Show Project Name Capsule", isOn: $settings.showPetPuckProjectCapsule)
 
             Menu("Icon Size (\(settings.petPuckSize.displayName))") {
                 ForEach(PetPuckSize.allCases) { puckSize in
@@ -180,7 +173,162 @@ struct FloatingWidgetView: View {
                 WindowPresenter.hideFloatingWidget()
             }
         }
-        .help("Click to expand goodvibrations HUD (drag to move)")
+        .help(puckHelpText)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isCapsuleActive)
+    }
+
+    private func puckIconView(size: PetPuckSize) -> some View {
+        ZStack {
+            // App Icon
+            if let icon = appIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size.iconDimension, height: size.iconDimension)
+                    .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
+            } else {
+                Circle()
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(
+                        Circle()
+                            .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+                    )
+                    .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+
+                Image(systemName: "waveform")
+                    .font(.system(size: size.iconDimension * 0.42, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+            }
+
+            // Notification Indicator Dot (top right)
+            if store.openingAbletonProject?.phase == .opening {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: size.dotSize, height: size.dotSize)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                    .shadow(color: Color.orange.opacity(0.5), radius: 3)
+                    .offset(x: size.dotOffset.x, y: size.dotOffset.y)
+            } else if store.currentOpenProject != nil {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: size.dotSize, height: size.dotSize)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                    .shadow(color: Color.green.opacity(0.4), radius: 3)
+                    .offset(x: size.dotOffset.x, y: size.dotOffset.y)
+            }
+
+            // Hover Cue
+            if isHoveringPuck && !isCapsuleActive {
+                RoundedRectangle(cornerRadius: size.cornerRadius)
+                    .fill(Color.black.opacity(0.25))
+                    .frame(width: size.iconDimension, height: size.iconDimension)
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: size.cueIconSize, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+
+            // Drag & Click Handler Area
+            PetPuckDragArea {
+                expandWidget()
+            }
+        }
+        .frame(width: size.dimension, height: size.dimension)
+    }
+
+    private func puckCapsuleView(size: PetPuckSize) -> some View {
+        let isOpening = store.openingAbletonProject?.phase == .opening
+        let projectName: String = {
+            if isOpening {
+                return store.openingAbletonProject?.projectName ?? "Ableton Live"
+            }
+            return store.currentOpenProject?.name ?? activeProject?.name ?? "Live Session"
+        }()
+
+        let subtitle: String = {
+            if isOpening {
+                return "Opening in Live…"
+            }
+            if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
+                return "\(ver) • Ableton Live"
+            }
+            return "Active in Live"
+        }()
+
+        let hasDemoTrack = store.currentOpenProject?.sortedTracks.first != nil
+
+        return HStack(spacing: 8) {
+            // Drag and click area covers indicator and text labels
+            HStack(spacing: 8) {
+                // Mini status indicator
+                if isOpening {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 1))
+                        .shadow(color: Color.green.opacity(0.5), radius: 2)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(projectName)
+                        .font(.system(size: size.capsuleTitleFontSize, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(subtitle)
+                        .font(.system(size: size.capsuleSubtitleFontSize))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .contentShape(Rectangle())
+            .overlay(
+                PetPuckDragArea {
+                    expandWidget()
+                }
+            )
+
+            Spacer(minLength: 2)
+
+            // Play / Pause Demo Button
+            if hasDemoTrack {
+                Button {
+                    audioPlayer.togglePlayPause()
+                } label: {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                        .foregroundStyle(audioPlayer.isPlaying ? Color.accentColor : Color.secondary)
+                        .frame(width: size.capsuleHeight * 0.52, height: size.capsuleHeight * 0.52)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(audioPlayer.isPlaying ? "Pause Demo" : "Play Demo")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: size.capsuleWidth, height: size.capsuleHeight)
+        .background(
+            RoundedRectangle(cornerRadius: size.capsuleHeight / 2)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.85))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: size.capsuleHeight / 2))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: size.capsuleHeight / 2)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.28), radius: 6, x: 0, y: 2)
+    }
+
+    private var puckHelpText: String {
+        if let project = store.currentOpenProject {
+            return "Active in Ableton Live: \(project.name) (click to expand HUD, drag to move)"
+        }
+        if let opening = store.openingAbletonProject {
+            return "Opening \(opening.projectName) in Live (click to expand HUD, drag to move)"
+        }
+        return "Click to expand goodvibrations HUD (drag to move)"
     }
 
     private func expandWidget() {

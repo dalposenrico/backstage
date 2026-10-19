@@ -486,6 +486,9 @@ class AppStore: ObservableObject {
     private func setCurrentOpenProject(_ url: URL?) {
         guard currentOpenProjectURL != url else { return }
         currentOpenProjectURL = url
+        DispatchQueue.main.async {
+            NSApp.dockTile.badgeLabel = url != nil ? "●" : nil
+        }
     }
 
     private func refreshAbletonSession() {
@@ -507,6 +510,13 @@ class AppStore: ObservableObject {
 
             if isLoaded {
                 openingAbletonProject?.phase = .loaded
+                let projectName = opening.projectName
+                if UserDefaults.standard.object(forKey: "notifyOnAbletonReady") as? Bool ?? true {
+                    SystemNotifier.post(
+                        title: "goodvibrations HQ",
+                        message: "\"\(projectName)\" is ready in Ableton Live."
+                    )
+                }
                 openingDismissTask?.cancel()
                 openingDismissTask = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .milliseconds(1400))

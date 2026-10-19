@@ -110,6 +110,46 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         case .extraLarge: return 24
         }
     }
+
+    var capsuleWidth: CGFloat {
+        switch self {
+        case .small: return 165
+        case .medium: return 195
+        case .large: return 230
+        case .extraLarge: return 270
+        }
+    }
+
+    var capsuleHeight: CGFloat {
+        switch self {
+        case .small: return 38
+        case .medium: return 48
+        case .large: return 60
+        case .extraLarge: return 74
+        }
+    }
+
+    var capsuleTitleFontSize: CGFloat {
+        switch self {
+        case .small: return 11.5
+        case .medium: return 13
+        case .large: return 14.5
+        case .extraLarge: return 16.5
+        }
+    }
+
+    var capsuleSubtitleFontSize: CGFloat {
+        switch self {
+        case .small: return 9
+        case .medium: return 10
+        case .large: return 11.5
+        case .extraLarge: return 13
+        }
+    }
+
+    func totalCollapsedWidth(hasCapsule: Bool) -> CGFloat {
+        hasCapsule ? (dimension + capsuleWidth + 8) : dimension
+    }
 }
 
 class SettingsStore: ObservableObject {
@@ -130,6 +170,12 @@ class SettingsStore: ObservableObject {
     }
     @Published var isFloatingWidgetCollapsed: Bool {
         didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
+    }
+    @Published var showPetPuckProjectCapsule: Bool {
+        didSet { UserDefaults.standard.set(showPetPuckProjectCapsule, forKey: "showPetPuckProjectCapsule") }
+    }
+    @Published var notifyOnAbletonReady: Bool {
+        didSet { UserDefaults.standard.set(notifyOnAbletonReady, forKey: "notifyOnAbletonReady") }
     }
     @Published var petPuckSize: PetPuckSize {
         didSet {
@@ -165,6 +211,18 @@ class SettingsStore: ObservableObject {
             isFloatingWidgetCollapsed = storedCollapsed
         } else {
             isFloatingWidgetCollapsed = false
+        }
+
+        if let storedCapsule = UserDefaults.standard.object(forKey: "showPetPuckProjectCapsule") as? Bool {
+            showPetPuckProjectCapsule = storedCapsule
+        } else {
+            showPetPuckProjectCapsule = true
+        }
+
+        if let storedNotify = UserDefaults.standard.object(forKey: "notifyOnAbletonReady") as? Bool {
+            notifyOnAbletonReady = storedNotify
+        } else {
+            notifyOnAbletonReady = true
         }
 
         let rawPuckSize = UserDefaults.standard.string(forKey: "petPuckSize") ?? "medium"
