@@ -167,11 +167,17 @@ public enum AbletonArrangementParser {
             returnTracks = []
         }
 
+        // Extract Locators / Markers
+        onProgress?(0.94, "Reading arrangement locators & markers…")
+        let locators = AbletonProjectInspector.parseLocators(in: xml)
+
         // Calculate total arrangement length in beats
         onProgress?(0.96, "Calculating timeline boundaries…")
         let allClips = tracks.flatMap(\.clips)
         let maxClipEnd = allClips.map(\.endBeat).max() ?? 64.0
-        let totalLength = max(64.0, ceil(maxClipEnd / 16.0) * 16.0)
+        let maxLocatorBeat = locators.map(\.timeInBeats).max() ?? 0.0
+        let maxTimelineEnd = max(maxClipEnd, maxLocatorBeat)
+        let totalLength = max(64.0, ceil(maxTimelineEnd / 16.0) * 16.0)
 
         onProgress?(1.0, "Arrangement ready")
 
@@ -182,7 +188,8 @@ public enum AbletonArrangementParser {
             tracks: tracks,
             totalLengthBeats: totalLength,
             masterTrack: masterTrack,
-            returnTracks: returnTracks
+            returnTracks: returnTracks,
+            locators: locators
         )
     }
 

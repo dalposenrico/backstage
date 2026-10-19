@@ -5,11 +5,16 @@ struct PlayerBarView: View {
     @EnvironmentObject var player: AudioPlayer
 
     var body: some View {
-        VStack(spacing: 0) {
+        let currentProject = player.currentTrack.flatMap { track in
+            store.projects.first { p in p.tracks.contains { $0.id == track.id } }
+        } ?? store.selectedProject
+
+        return VStack(spacing: 0) {
             // Seek bar (full width, sits right on the divider)
             TimelineSeekBar(
                 timeline: player.timeline,
                 trackURL: player.currentTrack?.url,
+                project: currentProject,
                 onSeek: { p in player.seek(to: p * player.duration) }
             )
 
@@ -125,10 +130,17 @@ struct PlayerBarView: View {
 struct TimelineSeekBar: View {
     @ObservedObject var timeline: PlaybackTimeline
     let trackURL: URL?
+    let project: Project?
     let onSeek: (Double) -> Void
 
     var body: some View {
-        SeekBar(progress: timeline.progress, trackURL: trackURL, onSeek: onSeek)
+        SeekBar(
+            progress: timeline.progress,
+            trackURL: trackURL,
+            duration: timeline.duration,
+            project: project,
+            onSeek: onSeek
+        )
     }
 }
 
@@ -147,12 +159,17 @@ struct PlaybackTimeLabel: View {
 struct SeekBar: View {
     let progress: Double
     let trackURL: URL?
+    let duration: Double
+    let project: Project?
     let onSeek: (Double) -> Void
 
+    @EnvironmentObject var comparisonMarkers: ComparisonMarkerStore
     @State private var isHovered = false
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
     @State private var waveform: [SpectralWaveformSample] = []
+    @State private var markers: [WaveformSectionMarker] = []
+    @State private var hoveredMarkerId: String?
 
     var display: Double { isDragging ? dragProgress : progress }
 
@@ -166,15 +183,56 @@ struct SeekBar: View {
                     Rectangle().fill(Color.accent)
                         .frame(width: geo.size.width * max(0, min(1, display)), height: barHeight)
                 } else {
-                    ZStack {
+                    ZStack(alignment: .topLeading) {
                         RoundedRectangle(cornerRadius: 7)
                             .fill(Color.white.opacity(0.025))
+
                         SpectralWaveformView(
                             samples: waveform,
-                            playedFraction: display
+                            playedFraction: display,
+                            sectionMarkers: markers.map(\.fraction)
                         )
                         .padding(.horizontal, 4)
                         .padding(.vertical, 3)
+
+                        // Section marker badges overlaid across top edge
+                        if !markers.isEmpty {
+                            ForEach(markers) { marker in
+                                let x = geo.size.width * CGFloat(marker.fraction)
+                                let isHoveredBadge = hoveredMarkerId == marker.id
+
+                                Button {
+                                    onSeek(marker.fraction)
+                                } label: {
+                                    HStack(spacing: 2.5) {
+                                        Image(systemName: "flag.fill")
+                                            .font(.system(size: 6))
+                                            .foregroundColor(isHoveredBadge ? .white : .accent)
+                                        Text(marker.title)
+                                            .font(.system(size: 8, weight: .bold, design: .rounded))
+                                            .foregroundColor(isHoveredBadge ? .white : Color.white.opacity(0.9))
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1.5)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 3.5)
+                                            .fill(isHoveredBadge ? Color.accent.opacity(0.9) : Color.black.opacity(0.75))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 3.5)
+                                            .stroke(isHoveredBadge ? Color.white : Color.white.opacity(0.2), lineWidth: 0.6)
+                                    )
+                                    .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: min(max(2, geo.size.width - 65), max(2, x - 4)), y: 3)
+                                .onHover { hovering in
+                                    hoveredMarkerId = hovering ? marker.id : nil
+                                }
+                                .help(marker.note.isEmpty ? "\(marker.title) · Click to jump" : "\(marker.title) · \(marker.note) · Click to jump")
+                            }
+                        }
                     }
                     .frame(height: 34)
                 }
@@ -204,9 +262,21 @@ struct SeekBar: View {
             )
         }
         .frame(height: 38)
-        .task(id: trackURL) {
+        .task(id: "\(trackURL?.path ?? "")-\(project?.folderURL.path ?? "")") {
             waveform = []
-            if let trackURL { waveform = await WaveformSampler.spectralSamples(for: trackURL) }
+            markers = []
+            guard let trackURL else { return }
+
+            async let wf = WaveformSampler.spectralSamples(for: trackURL)
+            async let mk = WaveformMarkerResolver.resolveMarkers(
+                for: trackURL,
+                duration: duration,
+                project: project,
+                comparisonMarkers: comparisonMarkers
+            )
+            let (loadedWf, loadedMk) = await (wf, mk)
+            self.waveform = loadedWf
+            self.markers = loadedMk
         }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
     }

@@ -1,11 +1,5 @@
 import Foundation
 
-struct AbletonLocator: Equatable, Sendable {
-    let timeInBeats: Double
-    let name: String
-    let annotation: String
-}
-
 enum AbletonProjectInspector {
     struct Result {
         let bpm: Double?

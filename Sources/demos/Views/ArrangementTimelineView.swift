@@ -69,11 +69,21 @@ struct ArrangementTimelineView: View {
                     Text("\(arrangement.timeSignatureNumerator)/\(arrangement.timeSignatureDenominator)")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(.secondaryText)
-                    Text("·")
-                        .foregroundColor(.tertiaryText)
                     Text("\(arrangement.tracks.count) tracks, \(arrangement.sampleRefs.count) samples")
                         .font(.system(size: 11))
                         .foregroundColor(.tertiaryText)
+                    if !arrangement.locators.isEmpty {
+                        Text("·")
+                            .foregroundColor(.tertiaryText)
+                        HStack(spacing: 3) {
+                            Image(systemName: "flag.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.accent)
+                            Text("\(arrangement.locators.count) \(arrangement.locators.count == 1 ? "marker" : "markers")")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondaryText)
+                        }
+                    }
                 }
 
                 Spacer()
@@ -200,11 +210,25 @@ struct ArrangementTimelineView: View {
 
                                 Divider().background(Color.divider)
 
-                                // Track swimlanes
-                                ForEach(arrangement.tracks) { track in
-                                    trackSwimlane(track)
-                                        .frame(width: totalTimelineWidth, height: trackHeight)
-                                    Divider().background(Color.white.opacity(0.04))
+                                // Track swimlanes with vertical locator guidelines
+                                ZStack(alignment: .topLeading) {
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        ForEach(arrangement.tracks) { track in
+                                            trackSwimlane(track)
+                                                .frame(width: totalTimelineWidth, height: trackHeight)
+                                            Divider().background(Color.white.opacity(0.04))
+                                        }
+                                    }
+
+                                    // Vertical locator guidelines spanning all track swimlanes
+                                    ForEach(arrangement.locators) { locator in
+                                        let xPos = CGFloat(locator.timeInBeats) * pixelsPerBeat
+                                        Rectangle()
+                                            .fill(Color.accent.opacity(0.32))
+                                            .frame(width: 1)
+                                            .offset(x: xPos)
+                                            .allowsHitTesting(false)
+                                    }
                                 }
                             }
                             .frame(width: totalTimelineWidth)
@@ -264,7 +288,7 @@ struct ArrangementTimelineView: View {
         }()
 
         return ZStack(alignment: .leading) {
-            // Ruler tick marks
+            // Ruler tick marks and locator stems
             Canvas { context, size in
                 for bar in 0...totalBars {
                     let x = CGFloat(Double(bar) * beatsPerBar) * pixelsPerBeat
@@ -283,6 +307,15 @@ struct ArrangementTimelineView: View {
                         with: .color(Color.white.opacity(opacity)),
                         lineWidth: 1
                     )
+                }
+
+                for locator in arrangement.locators {
+                    let x = CGFloat(locator.timeInBeats) * pixelsPerBeat
+                    guard x <= size.width else { continue }
+                    var stem = Path()
+                    stem.move(to: CGPoint(x: x, y: 0))
+                    stem.addLine(to: CGPoint(x: x, y: size.height))
+                    context.stroke(stem, with: .color(Color.accent.opacity(0.85)), lineWidth: 1.5)
                 }
             }
 
@@ -304,6 +337,33 @@ struct ArrangementTimelineView: View {
                     }
                 }
                 .offset(x: xPos + 3)
+            }
+
+            // Ableton Locators / Section Markers
+            ForEach(arrangement.locators) { locator in
+                let xPos = CGFloat(locator.timeInBeats) * pixelsPerBeat
+                HStack(spacing: 3) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 7))
+                        .foregroundColor(.accent)
+                    Text(locator.name)
+                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 3.5)
+                        .fill(Color(red: 0.12, green: 0.13, blue: 0.16).opacity(0.95))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3.5)
+                        .stroke(Color.accent.opacity(0.65), lineWidth: 0.8)
+                )
+                .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                .offset(x: xPos + 2, y: 2)
+                .help(locator.annotation.isEmpty ? "\(locator.name) · Beat \(String(format: "%.1f", locator.timeInBeats))" : "\(locator.name): \(locator.annotation)")
             }
         }
     }

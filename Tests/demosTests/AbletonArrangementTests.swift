@@ -219,4 +219,62 @@ final class AbletonArrangementTests: XCTestCase {
         XCTAssertEqual(d3.type, .native)
         XCTAssertTrue(d3.isEnabled)
     }
+
+    func testAbletonArrangementParserExtractsLocators() {
+        let sampleXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <Ableton MajorVersion="5" MinorVersion="12.0_12049" SchemaChangeCount="3" Creator="Ableton Live 12.0">
+            <LiveSet>
+                <Locators>
+                    <Locators>
+                        <Locator Id="2">
+                            <Time Value="64.0"/>
+                            <Name Value="Drop"/>
+                            <Annotation Value="Bring in heavy bass"/>
+                        </Locator>
+                        <Locator Id="1">
+                            <Time Value="16.0"/>
+                            <Name Value="Verse 1"/>
+                            <Annotation Value=""/>
+                        </Locator>
+                        <Locator Id="0">
+                            <Time Value="0.0"/>
+                            <Name Value="Intro"/>
+                            <Annotation Value="Ambient pad only"/>
+                        </Locator>
+                    </Locators>
+                </Locators>
+                <Tracks>
+                    <AudioTrack Id="1">
+                        <Name><EffectiveName Value="Drums"/></Name>
+                        <DeviceChain><MainSequencer><ClipTimeable><ArrangerAutomation><Events>
+                            <AudioClip Id="10" Time="0.0">
+                                <CurrentStart Value="0.0"/>
+                                <CurrentEnd Value="32.0"/>
+                            </AudioClip>
+                        </Events></ArrangerAutomation></ClipTimeable></MainSequencer></DeviceChain>
+                    </AudioTrack>
+                </Tracks>
+            </LiveSet>
+        </Ableton>
+        """
+
+        let arrangement = AbletonArrangementParser.parse(xml: sampleXML)
+        XCTAssertEqual(arrangement.locators.count, 3)
+
+        // Sorted by time in beats
+        XCTAssertEqual(arrangement.locators[0].timeInBeats, 0.0)
+        XCTAssertEqual(arrangement.locators[0].name, "Intro")
+        XCTAssertEqual(arrangement.locators[0].annotation, "Ambient pad only")
+
+        XCTAssertEqual(arrangement.locators[1].timeInBeats, 16.0)
+        XCTAssertEqual(arrangement.locators[1].name, "Verse 1")
+
+        XCTAssertEqual(arrangement.locators[2].timeInBeats, 64.0)
+        XCTAssertEqual(arrangement.locators[2].name, "Drop")
+        XCTAssertEqual(arrangement.locators[2].annotation, "Bring in heavy bass")
+
+        // Total arrangement length should be expanded to fit the locator at beat 64
+        XCTAssertGreaterThanOrEqual(arrangement.totalLengthBeats, 64.0)
+    }
 }

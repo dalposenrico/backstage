@@ -4,6 +4,7 @@ struct SpectralWaveformView: View {
     let samples: [SpectralWaveformSample]
     let playedFraction: Double?
     var hoverFraction: Double? = nil
+    var sectionMarkers: [Double] = []
 
     var body: some View {
         Canvas { context, size in
@@ -44,6 +45,18 @@ struct SpectralWaveformView: View {
             center.move(to: CGPoint(x: 0, y: centerY))
             center.addLine(to: CGPoint(x: size.width, y: centerY))
             context.stroke(center, with: .color(.white.opacity(0.10)), lineWidth: 0.5)
+
+            for markerFraction in sectionMarkers {
+                let x = CGFloat(min(max(markerFraction, 0), 1)) * size.width
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: 0))
+                line.addLine(to: CGPoint(x: x, y: size.height))
+                context.stroke(
+                    line,
+                    with: .color(Color.accent.opacity(0.55)),
+                    style: StrokeStyle(lineWidth: 1, dash: [2, 2])
+                )
+            }
 
             if let playedFraction {
                 drawMarker(at: playedFraction, color: .white, in: &context, size: size, width: 1.5)

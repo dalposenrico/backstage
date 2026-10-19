@@ -189,6 +189,19 @@ public struct AbletonTrack: Sendable, Identifiable, Equatable {
     }
 }
 
+public struct AbletonLocator: Sendable, Identifiable, Equatable {
+    public var id: String { "\(timeInBeats)-\(name)" }
+    public let timeInBeats: Double
+    public let name: String
+    public let annotation: String
+
+    public init(timeInBeats: Double, name: String, annotation: String = "") {
+        self.timeInBeats = timeInBeats
+        self.name = name
+        self.annotation = annotation
+    }
+}
+
 public struct AbletonArrangement: Sendable, Equatable {
     public let tempo: Double
     public let timeSignatureNumerator: Int
@@ -197,6 +210,7 @@ public struct AbletonArrangement: Sendable, Equatable {
     public let totalLengthBeats: Double
     public let masterTrack: AbletonTrack?
     public let returnTracks: [AbletonTrack]
+    public let locators: [AbletonLocator]
 
     public init(
         tempo: Double = 120.0,
@@ -205,7 +219,8 @@ public struct AbletonArrangement: Sendable, Equatable {
         tracks: [AbletonTrack] = [],
         totalLengthBeats: Double = 128.0,
         masterTrack: AbletonTrack? = nil,
-        returnTracks: [AbletonTrack] = []
+        returnTracks: [AbletonTrack] = [],
+        locators: [AbletonLocator] = []
     ) {
         self.tempo = tempo
         self.timeSignatureNumerator = timeSignatureNumerator
@@ -214,6 +229,7 @@ public struct AbletonArrangement: Sendable, Equatable {
         self.totalLengthBeats = totalLengthBeats
         self.masterTrack = masterTrack
         self.returnTracks = returnTracks
+        self.locators = locators
     }
 
     public var allConsoleTracks: [AbletonTrack] {
