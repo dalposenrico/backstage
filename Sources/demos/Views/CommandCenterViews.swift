@@ -145,10 +145,9 @@ struct ToolsHubView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     toolSection("PROJECT TOOLS") {
-                        ToolHubButton(title: "Mixer & Inserts", detail: "Pro Tools rack, plugin overview & batch plugins", icon: "slider.vertical.3") {
-                            if let p = store.selectedProject ?? store.projects.first {
-                                store.openProjectMixer(p)
-                            }
+                        ToolHubButton(title: "Channel Plugin Runner", detail: "Batch paste plugins & VSTs across chosen channels in Live", icon: "slider.vertical.3") {
+                            openWindow(id: "channel-plugin-runner")
+                            WindowPresenter.showChannelPluginRunner()
                         }
                         ToolHubButton(title: "Versions", detail: "Arrange and compare sections", icon: "rectangle.split.2x1") {
                             openWindow(id: "ab-compare")

@@ -4,7 +4,6 @@ import AppKit
 public struct AbletonChannelPluginRunnerView: View {
     @StateObject private var engine = AbletonChannelMacroEngine.shared
     @EnvironmentObject private var store: AppStore
-    @State private var projectTrackCount: Int? = nil
 
     private let presetPlugins = [
         "Utility",
@@ -17,8 +16,6 @@ public struct AbletonChannelPluginRunnerView: View {
         "SPAN"
     ]
 
-    private let channelCountPresets = [4, 8, 12, 16, 24, 32]
-
     public init() {}
 
     public var body: some View {
@@ -26,25 +23,25 @@ public struct AbletonChannelPluginRunnerView: View {
             // Header Bar
             headerSection
                 .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .padding(.vertical, 14)
                 .background(Color.sidebarBg.opacity(0.85))
 
             Divider().background(Color.divider)
 
             // Main Content Scrollable
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Live Status & Permission Banner
+                VStack(alignment: .leading, spacing: 18) {
+                    // Status Banners (Live running, Accessibility permission)
                     statusBannersSection
 
-                    // Mode Selection
-                    modeSelectionSection
+                    // Track Selection Section (CHOOSE TRACKS)
+                    trackSelectionSection
 
-                    // Target View & Direction
+                    // Automation Method (Clipboard vs Search)
+                    methodSection
+
+                    // Live View & Direction
                     directionSection
-
-                    // Number of Channels
-                    channelCountSection
 
                     // Search details if in Search mode
                     if engine.mode == .searchAndInsert {
@@ -68,21 +65,10 @@ public struct AbletonChannelPluginRunnerView: View {
                 .padding(.vertical, 14)
                 .background(Color.sidebarBg.opacity(0.85))
         }
-        .frame(minWidth: 460, idealWidth: 490, maxWidth: 540, minHeight: 520, idealHeight: 590)
+        .frame(minWidth: 490, idealWidth: 520, maxWidth: 580, minHeight: 600, idealHeight: 680)
         .background(Color.appBg)
         .onAppear {
-            engine.checkEnvironment()
-            if let project = store.selectedProject,
-               let alsUrl = project.newestAbletonVersion?.url ?? project.versions.first?.url {
-                Task.detached(priority: .background) {
-                    if let parsed = AbletonArrangementParser.parse(from: alsUrl) {
-                        let count = parsed.tracks.count
-                        await MainActor.run {
-                            self.projectTrackCount = count
-                        }
-                    }
-                }
-            }
+            engine.refreshFromOpenSession(using: store.projects)
         }
     }
 
@@ -113,7 +99,7 @@ public struct AbletonChannelPluginRunnerView: View {
                         .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
                 }
 
-                Text("Batch automate VSTs & devices across tracks in your open Live set")
+                Text("Batch automate VSTs & devices across chosen channels in Ableton Live")
                     .font(.system(size: 11))
                     .foregroundColor(.secondaryText)
             }
@@ -133,6 +119,16 @@ public struct AbletonChannelPluginRunnerView: View {
             .padding(.vertical, 4)
             .background(Color.elevatedBg, in: Capsule())
             .overlay { Capsule().stroke(Color.subtleBorder, lineWidth: 1) }
+
+            Button {
+                engine.refreshFromOpenSession(using: store.projects)
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .help("Refresh connected Ableton set & tracks")
         }
     }
 
@@ -155,7 +151,7 @@ public struct AbletonChannelPluginRunnerView: View {
                 }
                 Spacer()
                 Button("Refresh") {
-                    engine.checkEnvironment()
+                    engine.refreshFromOpenSession(using: store.projects)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -193,9 +189,146 @@ public struct AbletonChannelPluginRunnerView: View {
         }
     }
 
-    // MARK: - Mode Selection
+    // MARK: - Track Selection (CHOOSE TRACKS)
 
-    private var modeSelectionSection: some View {
+    private var trackSelectionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header with project name and filters
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("CHOOSE TARGET TRACKS")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundColor(.tertiaryText)
+
+                    if let name = engine.loadedProjectName {
+                        Text(name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.primaryText)
+                    }
+                }
+
+                Spacer()
+
+                // Filter Buttons
+                HStack(spacing: 4) {
+                    filterButton("All") { engine.selectAllTracks() }
+                    filterButton("Audio") { engine.selectAudioTracksOnly() }
+                    filterButton("MIDI") { engine.selectMidiTracksOnly() }
+                    filterButton("Clear") { engine.deselectAllTracks() }
+                }
+            }
+
+            // Scrollable List of Tracks with Checkboxes
+            VStack(spacing: 0) {
+                ScrollView {
+                    LazyVStack(spacing: 1) {
+                        ForEach(engine.tracks) { track in
+                            trackRow(track)
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+                .background(Color.surfaceBg)
+                .cornerRadius(6)
+                .overlay { RoundedRectangle(cornerRadius: 6).stroke(Color.subtleBorder, lineWidth: 1) }
+            }
+
+            // Selection summary note
+            HStack {
+                HStack(spacing: 4) {
+                    Text("\(engine.selectedCount) of \(engine.tracks.count) tracks selected")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(engine.selectedCount > 0 ? .accent : .secondaryText)
+                }
+
+                Spacer()
+
+                if let first = engine.selectedTracks.first {
+                    Text("Starts at #\(first.index) '\(first.name)'")
+                        .font(.system(size: 10.5))
+                        .foregroundColor(.tertiaryText)
+                }
+            }
+        }
+    }
+
+    private func filterButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondaryText)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.elevatedBg, in: RoundedRectangle(cornerRadius: 4))
+                .overlay { RoundedRectangle(cornerRadius: 4).stroke(Color.subtleBorder, lineWidth: 0.5) }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func trackRow(_ track: MacroTrackTarget) -> some View {
+        HStack(spacing: 8) {
+            // Checkbox
+            Image(systemName: track.isSelected ? "checkmark.square.fill" : "square")
+                .font(.system(size: 13))
+                .foregroundColor(track.isSelected ? .accent : .tertiaryText)
+
+            // Index
+            Text("#\(track.index)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.tertiaryText)
+                .frame(width: 24, alignment: .leading)
+
+            // Track color bar
+            RoundedRectangle(cornerRadius: 1)
+                .fill(track.color)
+                .frame(width: 3.5, height: 16)
+
+            // Track type icon
+            Image(systemName: track.type.systemIcon)
+                .font(.system(size: 10))
+                .foregroundColor(track.color)
+                .frame(width: 14)
+
+            // Track name
+            Text(track.name)
+                .font(.system(size: 11.5, weight: track.isSelected ? .semibold : .regular))
+                .foregroundColor(track.isSelected ? .primaryText : .secondaryText)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Existing plugins badges
+            if !track.devices.isEmpty {
+                HStack(spacing: 3) {
+                    ForEach(track.devices.prefix(3), id: \.self) { devName in
+                        Text(devName)
+                            .font(.system(size: 8.5))
+                            .foregroundColor(.tertiaryText)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 3))
+                    }
+                    if track.devices.count > 3 {
+                        Text("+\(track.devices.count - 3)")
+                            .font(.system(size: 8))
+                            .foregroundColor(.tertiaryText)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(track.isSelected ? Color.accent.opacity(0.06) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            engine.toggleTrack(id: track.id)
+        }
+    }
+
+    // MARK: - Method Section
+
+    private var methodSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("AUTOMATION METHOD")
                 .font(.system(size: 10, weight: .bold))
@@ -255,88 +388,6 @@ public struct AbletonChannelPluginRunnerView: View {
                 }
             }
             .pickerStyle(.segmented)
-        }
-    }
-
-    // MARK: - Channels Count
-
-    private var channelCountSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("HOW MANY CHANNELS?")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundColor(.tertiaryText)
-
-                Spacer()
-
-                Text("\(engine.channelCount) channels selected")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.accent)
-            }
-
-            // Quick presets
-            HStack(spacing: 6) {
-                ForEach(channelCountPresets, id: \.self) { count in
-                    let isSelected = engine.channelCount == count
-                    Button {
-                        engine.channelCount = count
-                    } label: {
-                        Text("\(count)")
-                            .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                            .foregroundColor(isSelected ? .white : .secondaryText)
-                            .frame(width: 32, height: 26)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(isSelected ? Color.accent : Color.surfaceBg)
-                            )
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .stroke(isSelected ? Color.accent : Color.subtleBorder, lineWidth: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                // If user has a current project in goodvibrations HQ with parsed tracks
-                if let project = store.selectedProject,
-                   let trackCount = projectTrackCount,
-                   trackCount > 0 {
-                    Button {
-                        engine.channelCount = trackCount
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "music.note.list")
-                                .font(.system(size: 9))
-                            Text("Current '\(project.name)' (\(trackCount))")
-                                .font(.system(size: 10.5, weight: .semibold))
-                        }
-                        .foregroundColor(engine.channelCount == trackCount ? .white : .secondaryText)
-                        .padding(.horizontal, 8)
-                        .frame(height: 26)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(engine.channelCount == trackCount ? Color.accent : Color.surfaceBg)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(engine.channelCount == trackCount ? Color.accent : Color.subtleBorder, lineWidth: 1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            // Stepper slider for custom numbers
-            HStack(spacing: 12) {
-                Slider(value: Binding(
-                    get: { Double(engine.channelCount) },
-                    set: { engine.channelCount = Int($0) }
-                ), in: 1...64, step: 1)
-
-                Stepper("", value: $engine.channelCount, in: 1...128)
-                    .labelsHidden()
-            }
         }
     }
 
@@ -429,7 +480,7 @@ public struct AbletonChannelPluginRunnerView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.primaryText)
 
-                Text("1. In Ableton, copy your desired plugin (⌘C on the device header).\n2. Select your first channel in Live.\n3. Hit 'Run Macro' below — goodvibrations HQ will automatically switch to Live and duplicate the plugin down your channels.")
+                Text("1. In Ableton Live, copy your desired plugin (⌘C on the device header).\n2. Select your first target track in Live.\n3. Click 'Run Macro' below — goodvibrations HQ will paste on each checked track and skip unchecked ones.")
                     .font(.system(size: 10.5))
                     .foregroundColor(.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -454,9 +505,10 @@ public struct AbletonChannelPluginRunnerView: View {
                             Text("⏳ Starting in \(count)…")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.accent)
-                        } else {
-                            ProgressView(value: Double(engine.currentChannel), total: Double(max(1, engine.channelCount)))
-                                .tint(.accent)
+                        } else if let trackName = engine.currentProcessingTrack {
+                            Text("Processing: \(trackName)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.accent)
                         }
                     }
 
@@ -499,16 +551,16 @@ public struct AbletonChannelPluginRunnerView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
                                 .font(.system(size: 11, weight: .bold))
-                            Text("Run Macro on Live")
+                            Text(engine.selectedCount > 0 ? "Run on \(engine.selectedCount) Tracks" : "Select Tracks First")
                                 .font(.system(size: 12, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
-                        .background(Color.accent, in: RoundedRectangle(cornerRadius: 6))
+                        .background(engine.selectedCount > 0 ? Color.accent : Color.gray, in: RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!engine.isAbletonRunning && false) // Allow running even if not detected yet
+                    .disabled(engine.selectedCount == 0)
                     .keyboardShortcut("p", modifiers: [.command, .option])
                 }
             }

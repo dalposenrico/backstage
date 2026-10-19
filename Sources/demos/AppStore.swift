@@ -114,7 +114,6 @@ class AppStore: ObservableObject {
     }
 
     func openProjectMixer(_ project: Project) {
-        initialProjectInspectorSection = "mixer"
         openProjectTab(project)
     }
 

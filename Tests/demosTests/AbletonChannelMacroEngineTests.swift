@@ -40,11 +40,56 @@ final class AbletonChannelMacroEngineTests: XCTestCase {
         XCTAssertFalse(nativeDevice.isOn)
     }
 
+    func testMacroEngineTrackSelectionAndFilters() {
+        let engine = AbletonChannelMacroEngine()
+        engine.createDefaultTracks(count: 6)
+        XCTAssertEqual(engine.tracks.count, 6)
+        XCTAssertEqual(engine.selectedCount, 6)
+
+        engine.deselectAllTracks()
+        XCTAssertEqual(engine.selectedCount, 0)
+
+        engine.selectAudioTracksOnly()
+        XCTAssertTrue(engine.selectedTracks.allSatisfy { $0.type == .audio })
+
+        engine.selectMidiTracksOnly()
+        XCTAssertTrue(engine.selectedTracks.allSatisfy { $0.type == .midi })
+
+        engine.selectAllTracks()
+        XCTAssertEqual(engine.selectedCount, 6)
+
+        if let first = engine.tracks.first {
+            engine.toggleTrack(id: first.id)
+            XCTAssertEqual(engine.selectedCount, 5)
+        }
+    }
+
+    func testLoadTracksFromArrangement() {
+        let engine = AbletonChannelMacroEngine()
+        let arrangement = AbletonArrangement(
+            tracks: [
+                AbletonTrack(name: "Kick", type: .audio, devices: [AbletonDevice(name: "Utility")]),
+                AbletonTrack(name: "Bass", type: .midi, devices: [AbletonDevice(name: "EQ Eight")]),
+                AbletonTrack(name: "Drum Bus", type: .group, devices: [])
+            ]
+        )
+
+        engine.loadTracks(from: arrangement, projectName: "Summer Vibes")
+        XCTAssertEqual(engine.loadedProjectName, "Summer Vibes")
+        XCTAssertEqual(engine.tracks.count, 3)
+        XCTAssertEqual(engine.tracks[0].name, "Kick")
+        XCTAssertEqual(engine.tracks[0].devices, ["Utility"])
+        // Groups default to unselected
+        XCTAssertTrue(engine.tracks[0].isSelected)
+        XCTAssertTrue(engine.tracks[1].isSelected)
+        XCTAssertFalse(engine.tracks[2].isSelected)
+        XCTAssertEqual(engine.selectedCount, 2)
+    }
+
     func testMacroEngineInitialStateAndStop() {
         let engine = AbletonChannelMacroEngine()
         XCTAssertFalse(engine.isRunning)
         XCTAssertNil(engine.countdownRemaining)
-        XCTAssertEqual(engine.currentChannel, 0)
         XCTAssertEqual(engine.statusMessage, "Ready")
 
         // Stopping an idle engine shouldn't crash

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Combine
 
 public enum ChannelMacroMode: String, CaseIterable, Identifiable {
@@ -10,9 +11,9 @@ public enum ChannelMacroMode: String, CaseIterable, Identifiable {
     public var subtitle: String {
         switch self {
         case .pasteClipboard:
-            return "Copies your selected VST/device across channels with exact current settings"
+            return "Copies your selected VST/device across chosen channels with exact current settings"
         case .searchAndInsert:
-            return "Searches Ableton browser and loads the specified plugin on each channel"
+            return "Searches Ableton browser and loads the specified plugin on chosen channels"
         }
     }
 }
@@ -47,6 +48,38 @@ public enum ChannelMacroDirection: String, CaseIterable, Identifiable {
     }
 }
 
+public struct MacroTrackTarget: Identifiable, Equatable {
+    public let id: String
+    public let index: Int              // 1-based index (e.g. 1)
+    public let name: String            // e.g. "Kick"
+    public let type: AbletonTrackType  // .audio, .midi, .group
+    public let colorIndex: Int
+    public let devices: [String]       // existing device names
+    public var isSelected: Bool
+
+    public init(
+        id: String = UUID().uuidString,
+        index: Int,
+        name: String,
+        type: AbletonTrackType = .audio,
+        colorIndex: Int = 12,
+        devices: [String] = [],
+        isSelected: Bool = true
+    ) {
+        self.id = id
+        self.index = index
+        self.name = name
+        self.type = type
+        self.colorIndex = colorIndex
+        self.devices = devices
+        self.isSelected = isSelected
+    }
+
+    public var color: Color {
+        AbletonColorPalette.color(for: colorIndex)
+    }
+}
+
 @MainActor
 public final class AbletonChannelMacroEngine: ObservableObject {
     public static let shared = AbletonChannelMacroEngine()
@@ -59,20 +92,92 @@ public final class AbletonChannelMacroEngine: ObservableObject {
     @Published public var mode: ChannelMacroMode = .pasteClipboard
     @Published public var pacing: ChannelMacroPacing = .normal
     @Published public var direction: ChannelMacroDirection = .arrangementDown
-    @Published public var channelCount: Int = 8
     @Published public var pluginSearchQuery: String = "Utility"
+
+    // Target Tracks Selection
+    @Published public var loadedProjectName: String? = nil
+    @Published public var loadedProjectURL: URL? = nil
+    @Published public var tracks: [MacroTrackTarget] = []
+    @Published public var startTrackIndex: Int = 1
 
     @Published public var isRunning: Bool = false
     @Published public var countdownRemaining: Int? = nil
-    @Published public var currentChannel: Int = 0
+    @Published public var currentProcessingTrack: String? = nil
     @Published public var statusMessage: String = "Ready"
     @Published public var lastRunSummary: String? = nil
+    @Published public var executionLog: [String] = []
 
     private var activeTask: Task<Void, Never>? = nil
     private var isCancelled: Bool = false
 
     public init() {
         checkEnvironment()
+        createDefaultTracks(count: 8)
+    }
+
+    // MARK: - Track Management
+
+    public var selectedTracks: [MacroTrackTarget] {
+        tracks.filter(\.isSelected)
+    }
+
+    public var selectedCount: Int {
+        selectedTracks.count
+    }
+
+    public func createDefaultTracks(count: Int) {
+        self.loadedProjectName = nil
+        self.loadedProjectURL = nil
+        self.tracks = (1...max(1, count)).map { idx in
+            MacroTrackTarget(
+                index: idx,
+                name: "Track \(idx)",
+                type: idx % 2 == 1 ? .audio : .midi,
+                colorIndex: idx,
+                devices: [],
+                isSelected: true
+            )
+        }
+        self.startTrackIndex = 1
+    }
+
+    public func loadTracks(from arrangement: AbletonArrangement, projectName: String?, fileURL: URL? = nil) {
+        self.loadedProjectName = projectName
+        self.loadedProjectURL = fileURL
+        self.tracks = arrangement.tracks.enumerated().map { idx, track in
+            MacroTrackTarget(
+                id: track.id,
+                index: idx + 1,
+                name: track.name,
+                type: track.type,
+                colorIndex: track.colorIndex,
+                devices: track.devices.map(\.name),
+                isSelected: track.type != .group // Select audio and midi tracks by default
+            )
+        }
+        self.startTrackIndex = tracks.first(where: \.isSelected)?.index ?? 1
+    }
+
+    public func selectAllTracks() {
+        for i in tracks.indices { tracks[i].isSelected = true }
+    }
+
+    public func deselectAllTracks() {
+        for i in tracks.indices { tracks[i].isSelected = false }
+    }
+
+    public func selectAudioTracksOnly() {
+        for i in tracks.indices { tracks[i].isSelected = (tracks[i].type == .audio) }
+    }
+
+    public func selectMidiTracksOnly() {
+        for i in tracks.indices { tracks[i].isSelected = (tracks[i].type == .midi) }
+    }
+
+    public func toggleTrack(id: String) {
+        if let idx = tracks.firstIndex(where: { $0.id == id }) {
+            tracks[idx].isSelected.toggle()
+        }
     }
 
     // MARK: - Environment Checks
@@ -88,6 +193,23 @@ public final class AbletonChannelMacroEngine: ObservableObject {
 
         let trusted = AXIsProcessTrusted()
         self.isAccessibilityTrusted = trusted
+    }
+
+    func refreshFromOpenSession(using projects: [Project] = []) {
+        checkEnvironment()
+        let snapshot = AbletonSessionDetector.snapshot()
+        if let docURL = snapshot.loadedDocumentURLs.first,
+           let parsed = AbletonArrangementParser.parse(from: docURL) {
+            let name = docURL.deletingPathExtension().lastPathComponent
+            loadTracks(from: parsed, projectName: name, fileURL: docURL)
+            return
+        }
+
+        if let matched = AbletonSessionDetector.matchingProject(in: projects, loadedDocumentURLs: snapshot.loadedDocumentURLs) ?? projects.first,
+           let alsURL = matched.newestAbletonVersion?.url ?? matched.versions.first?.url,
+           let parsed = AbletonArrangementParser.parse(from: alsURL) {
+            loadTracks(from: parsed, projectName: matched.name, fileURL: alsURL)
+        }
     }
 
     public func requestAccessibilityPermission() {
@@ -112,14 +234,21 @@ public final class AbletonChannelMacroEngine: ObservableObject {
             return
         }
 
-        guard channelCount > 0 else {
-            statusMessage = "Please select at least 1 channel."
+        let selected = self.selectedTracks
+        guard !selected.isEmpty else {
+            statusMessage = "Please select at least 1 track to apply the plugin to."
             return
         }
 
+        guard let firstSelected = selected.first,
+              let lastSelected = selected.last else { return }
+
+        let startIndex = firstSelected.index
+        let endIndex = lastSelected.index
+
         isRunning = true
         isCancelled = false
-        currentChannel = 0
+        executionLog = []
         lastRunSummary = nil
 
         activeTask = Task { [weak self] in
@@ -129,7 +258,7 @@ public final class AbletonChannelMacroEngine: ObservableObject {
             for countdown in (1...2).reversed() {
                 if self.isCancelled { break }
                 self.countdownRemaining = countdown
-                self.statusMessage = "Switching to Ableton Live in \(countdown)… Click starting track in Live"
+                self.statusMessage = "Switching to Ableton Live in \(countdown)… Ensure Track #\(startIndex) ('\(firstSelected.name)') is selected in Live"
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
             self.countdownRemaining = nil
@@ -149,38 +278,46 @@ public final class AbletonChannelMacroEngine: ObservableObject {
                 return
             }
 
-            // 3. Execution loop across channels
-            let total = self.channelCount
+            // 3. Execution loop across tracks from startIndex to endIndex
             let pacingDelay = self.pacing.stepDelaySeconds
             let dirCode = self.direction.keyCode
             let currentMode = self.mode
             let searchQuery = self.pluginSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
             let startTime = CFAbsoluteTimeGetCurrent()
+            var modifiedCount = 0
 
-            for step in 1...total {
+            for trackNum in startIndex...endIndex {
                 if self.isCancelled { break }
 
-                self.currentChannel = step
-                self.statusMessage = "Applying to channel \(step) of \(total)…"
-
-                if currentMode == .pasteClipboard {
-                    // Paste (Cmd+V)
-                    await self.sendKeystrokeCmdV()
-                } else {
-                    // Search & Insert (Cmd+F -> type query -> Down Arrow -> Return)
-                    await self.sendSearchAndInsert(query: searchQuery)
+                guard let trackItem = self.tracks.first(where: { $0.index == trackNum }) else {
+                    continue
                 }
 
-                // Pacing delay after paste/insert
-                try? await Task.sleep(nanoseconds: UInt64(pacingDelay * 1_000_000_000))
+                self.currentProcessingTrack = trackItem.name
+
+                if trackItem.isSelected {
+                    self.statusMessage = "Pasting on #\(trackItem.index) '\(trackItem.name)'…"
+
+                    if currentMode == .pasteClipboard {
+                        await self.sendKeystrokeCmdV()
+                    } else {
+                        await self.sendSearchAndInsert(query: searchQuery)
+                    }
+
+                    modifiedCount += 1
+                    self.executionLog.append("✓ #\(trackItem.index) \(trackItem.name)")
+                    try? await Task.sleep(nanoseconds: UInt64(pacingDelay * 1_000_000_000))
+                } else {
+                    self.statusMessage = "Skipping #\(trackItem.index) '\(trackItem.name)'…"
+                    self.executionLog.append("↷ Skipped #\(trackItem.index) \(trackItem.name)")
+                }
 
                 if self.isCancelled { break }
 
                 // Move to next channel if not on last channel
-                if step < total {
+                if trackNum < endIndex {
                     await self.sendKeyCode(dirCode)
-                    // Pacing delay after navigation
                     try? await Task.sleep(nanoseconds: UInt64(pacingDelay * 0.8 * 1_000_000_000))
                 }
             }
@@ -188,10 +325,10 @@ public final class AbletonChannelMacroEngine: ObservableObject {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
             if self.isCancelled {
-                self.finishRun(summary: "Stopped at channel \(self.currentChannel) of \(total).")
+                self.finishRun(summary: "Stopped. Applied to \(modifiedCount) of \(selected.count) selected tracks.")
             } else {
                 let formattedTime = String(format: "%.1f", elapsed)
-                let summary = "✓ Successfully added across \(total) channels in \(formattedTime)s"
+                let summary = "✓ Successfully added to \(modifiedCount) selected tracks in \(formattedTime)s"
                 self.finishRun(summary: summary)
                 self.postNotification(title: "Channel Plugin Runner", message: summary)
             }
@@ -208,6 +345,7 @@ public final class AbletonChannelMacroEngine: ObservableObject {
     private func finishRun(summary: String) {
         isRunning = false
         countdownRemaining = nil
+        currentProcessingTrack = nil
         statusMessage = summary
         lastRunSummary = summary
     }
