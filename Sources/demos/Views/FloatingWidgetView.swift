@@ -256,8 +256,6 @@ struct FloatingWidgetView: View {
             return "goodvibrations HQ"
         }()
 
-        let hasDemoTrack = (store.currentOpenProject ?? activeProject)?.sortedTracks.first != nil
-
         return HStack(spacing: 8) {
             // Drag and click area covers indicator and text labels
             HStack(spacing: 8) {
@@ -297,22 +295,22 @@ struct FloatingWidgetView: View {
                 }
             )
 
-            Spacer(minLength: 2)
-
-            // Play / Pause Demo Button
-            if hasDemoTrack {
-                Button {
-                    audioPlayer.togglePlayPause()
-                } label: {
-                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
-                        .foregroundStyle(audioPlayer.isPlaying ? Color.accentColor : Color.secondary)
-                        .frame(width: size.capsuleHeight * 0.54, height: size.capsuleHeight * 0.54)
-                        .background(Color.primary.opacity(0.08), in: Circle())
+            // Open in Ableton Live Button
+            Button {
+                if let project = store.currentOpenProject ?? activeProject {
+                    store.openInAbleton(project)
+                } else {
+                    _ = AbletonSessionDetector.activateAbleton()
                 }
-                .buttonStyle(.plain)
-                .help(audioPlayer.isPlaying ? "Pause Demo" : "Play Demo")
+            } label: {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                    .background(Color.primary.opacity(0.1), in: Circle())
             }
+            .buttonStyle(.plain)
+            .help("Open in Ableton Live")
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
