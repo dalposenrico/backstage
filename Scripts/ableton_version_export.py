@@ -11,12 +11,11 @@ Workflow:
        triggers "Save Live Set As..." with the new version name,
        and exports audio with the matching new version name into the project folder.
    - If NO export exists yet for this version:
-       Simply saves the current set (Cmd+S),
-       and exports audio with the current version name into the project folder.
-3. Robust multi-monitor / dual-screen handling:
-   - Properly activates Ableton across displays/spaces.
-   - Raises the main project window rather than floating plugin editors or secondary windows.
-   - Non-blocking keystroke automation to avoid modal dialog hangs.
+       Exports audio with the current version name into the project folder.
+3. Robust multi-monitor / dual-screen & multi-plugin handling:
+   - Filters out floating VST/AU plugin windows (e.g., MetricAB, SPAN, Pro-Q).
+   - Raises the real Ableton project window even when on a secondary display.
+   - Accurately clicks 'Export' and sets audio filename without dialog freezing.
 4. Posts a native macOS notification.
 """
 
@@ -76,11 +75,13 @@ def is_untitled_name(name: str | None) -> bool:
     )
 
 
+def is_plugin_window_title(title: str) -> bool:
+    """Detects plugin editor windows which follow 'Plugin Name/Track Name' format."""
+    return "/" in title or "\\" in title
+
+
 def show_untitled_warning(win_title: str | None = None):
-    """
-    Alerts the producer that the active project is Untitled and must be saved with a name first.
-    Presents both a native macOS notification and an alert dialog.
-    """
+    """Alerts the producer that the active project is Untitled and must be saved with a name first."""
     title = "Save Track With a Name"
     msg = (
         "This Live set is Untitled.\n\n"
@@ -107,11 +108,7 @@ def show_untitled_warning(win_title: str | None = None):
 
 
 def get_ableton_window_titles() -> list[str]:
-    """
-    Uses AppleScript / System Events to get all window titles of Ableton Live.
-    Returns a list of titles so multi-window / multi-screen setups can distinguish
-    the main project window from plugin editors, dialogs, and second windows.
-    """
+    """Uses AppleScript / System Events to get all window titles of Ableton Live."""
     script = '''
     tell application "System Events"
         if exists (first process whose name contains "Live" and background only is false) then
@@ -128,7 +125,7 @@ def get_ableton_window_titles() -> list[str]:
     res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if res.returncode != 0 or not res.stdout.strip():
         return []
-    
+
     titles = [t.strip() for t in res.stdout.strip().split(",") if t.strip()]
     return titles
 
@@ -136,17 +133,26 @@ def get_ableton_window_titles() -> list[str]:
 def find_main_ableton_window_title(titles: list[str]) -> str | None:
     """
     Finds the main Live project window title among all open windows.
-    Ableton titles the main window with '[Arrangement]', '[Session]', or '<Project>.als'.
+    Filters out floating VST/AU plugin windows (which contain '/') and utility dialogs.
     """
+    # 1. Check for explicit [Arrangement], [Session], or .als
     for title in titles:
         t_clean = title.strip()
-        if "[Arrangement]" in t_clean or "[Session]" in t_clean or t_clean.lower().endswith(".als"):
+        if not is_plugin_window_title(t_clean):
+            if "[Arrangement]" in t_clean or "[Session]" in t_clean or t_clean.lower().endswith(".als"):
+                return t_clean
+
+    # 2. Check for any non-plugin window that isn't a utility window
+    ignored = {"live", "second window", "export audio/video", "preferences", "save", "save as"}
+    for title in titles:
+        t_clean = title.strip()
+        if not is_plugin_window_title(t_clean) and t_clean.lower() not in ignored and t_clean:
             return t_clean
 
-    for title in titles:
-        t_clean = title.strip()
-        if t_clean and t_clean.lower() not in {"live", "second window", "export audio/video", "preferences"}:
-            return t_clean
+    # 3. Fallback: non-plugin window if any
+    non_plugins = [t.strip() for t in titles if not is_plugin_window_title(t.strip()) and t.strip()]
+    if non_plugins:
+        return non_plugins[0]
 
     return titles[0] if titles else None
 
@@ -208,13 +214,19 @@ def get_active_project_path() -> tuple[Path | None, bool]:
                                 last_doc = cand
                     break
 
-    if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
-        return last_doc, False
-
-    # Window title fallback: if Log.txt is empty, outdated, or says template but the set is saved
     win_titles = get_ableton_window_titles()
     main_title = find_main_ableton_window_title(win_titles)
     project_name = clean_project_name_from_title(main_title)
+
+    # If the window title shows a saved project that exists next to last_doc, prefer it
+    if project_name and not is_untitled_name(project_name):
+        if last_doc and last_doc.parent.exists():
+            direct_cand = last_doc.parent / f"{project_name}.als"
+            if direct_cand.exists():
+                return direct_cand, False
+
+    if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
+        return last_doc, False
 
     if project_name and not is_untitled_name(project_name):
         search_roots = [
@@ -335,17 +347,14 @@ def notify(title: str, message: str):
 def automate_ableton(folder_path: str, target_name: str, create_new_version: bool) -> bool:
     """
     Automates Ableton Live:
-    - Multi-monitor aware: activates Live across displays and raises main window.
-    - If `create_new_version`: Shift+Cmd+S to save new version name.
-    - If not `create_new_version`: Cmd+S to save current set.
-    - Shift+Cmd+R to open Export Audio/Video settings.
-    - Confirms settings dialog using both Return/Enter and UI button click.
-    - Sets audio export filename in the Save panel and confirms render.
+    - Multi-monitor aware: finds and raises the true project window, ignoring floating VST/AU plugins.
+    - If `create_new_version`: Shift+Cmd+S to save new version name and waits for save to finish.
+    - Opens Export Audio/Video (Shift+Cmd+R), triggers Export button, and sets the filename in Save panel.
     """
     escaped_target = target_name.replace('"', '\\"')
 
-    save_as_step = f'''
-    -- Save Live Set As... (Shift + Cmd + S)
+    save_as_block = f'''
+    -- 2. Save Live Set As... (Shift + Cmd + S)
     tell application "System Events"
         keystroke "s" using {{command down, shift down}}
     end tell
@@ -357,16 +366,14 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
         keystroke "a" using {{command down}}
         delay 0.05
         keystroke "v" using {{command down}}
-        delay 0.15
+        delay 0.2
         key code 36 -- Return / Save
     end tell
-    delay 1.0
+    -- Wait for Ableton to write the new project set to disk
+    delay 1.8
     ''' if create_new_version else '''
-    -- Save current set (Cmd + S)
-    tell application "System Events"
-        keystroke "s" using {command down}
-    end tell
-    delay 0.5
+    -- No new version needed: proceed directly to export
+    delay 0.3
     '''
 
     script = f'''
@@ -381,72 +388,77 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
         set procName to name of abletonProc
     end tell
 
-    -- Activate at application level (vital for dual-screen and separate spaces)
     tell application procName to activate
     delay 0.2
 
-    -- Raise main project window (not floating plugin or second window)
+    -- Raise the real project window (ignoring all floating plugin windows with "/")
     tell application "System Events"
         tell abletonProc
             set mainWin to missing value
             repeat with w in (every window)
                 try
                     set wName to name of w
-                    if wName contains "[Arrangement]" or wName contains "[Session]" or wName contains ".als" then
+                    if wName does not contain "/" and wName is not "" and wName is not "Live" then
                         set mainWin to w
                         exit repeat
                     end if
                 end try
             end repeat
+
+            -- Fallback: window with largest area
+            if mainWin is missing value then
+                set maxArea to 0
+                repeat with w in (every window)
+                    try
+                        set sz to size of w
+                        set area to (item 1 of sz) * (item 2 of sz)
+                        if area > maxArea then
+                            set maxArea to area
+                            set mainWin to w
+                        end if
+                    end try
+                end repeat
+            end if
+
             if mainWin is not missing value then
                 perform action "AXRaise" of mainWin
-            else if (count of windows) > 0 then
-                perform action "AXRaise" of window 1
             end if
         end tell
     end tell
-    delay 0.3
+    delay 0.4
 
-    {save_as_step}
+    {save_as_block}
 
-    -- 2. Open Export Audio/Video... (Shift + Cmd + R)
-    tell application "System Events"
-        keystroke "r" using {{command down, shift down}}
-    end tell
-    delay 0.8
-
-    -- 3. Click 'Export' in Ableton's render settings dialog
+    -- 3. Open Export Audio/Video dialog (Shift + Cmd + R)
     tell application procName to activate
     tell application "System Events"
-        -- Try clicking the 'Export' button directly if accessible
         tell abletonProc
-            try
-                repeat with w in (every window)
-                    repeat with b in (every button of w)
-                        try
-                            if name of b is "Export" or title of b is "Export" then
-                                click b
-                            end if
-                        end try
-                    end repeat
-                end repeat
-            end try
+            -- Re-raise main window before keystroke
+            if mainWin is not missing value then
+                perform action "AXRaise" of mainWin
+            end if
         end tell
-        -- Also send Return and Enter to ensure the modal dialog confirms
-        key code 36 -- Return
-        delay 0.1
-        key code 76 -- Numpad Enter
+        keystroke "r" using {{command down, shift down}}
     end tell
-    delay 0.8
+    delay 1.0
 
-    -- 4. Set Export Audio Filename in Save Panel and start render
+    -- 4. Confirm Export settings dialog (press Return and Enter)
+    tell application procName to activate
+    tell application "System Events"
+        key code 36 -- Return (clicks default 'Export' button)
+        delay 0.1
+        key code 76 -- Numpad Enter fallback
+    end tell
+    delay 1.0
+
+    -- 5. Set Export Audio Filename in Save Panel and start render
     tell application "System Events"
         set the clipboard to targetName
         delay 0.05
         keystroke "a" using {{command down}}
         delay 0.05
         keystroke "v" using {{command down}}
-        delay 0.2
+        delay 0.25
         key code 36 -- Confirm Save / Start Render!
         try
             tell abletonProc
@@ -457,8 +469,8 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
         end try
     end tell
 
-    -- 5. Handle Replace prompt if a file with this name already exists
-    delay 0.5
+    -- 6. Handle Replace prompt if a file with this name already exists
+    delay 0.6
     tell application "System Events"
         tell abletonProc
             try
@@ -516,8 +528,8 @@ def main():
         target_name = current_set_name
         create_new_version = False
         print(f"🆕 No export found for '{current_set_name}' yet.")
-        print(f"🎵 Saving set and exporting as '{target_name}'.")
-        notify("goodvibrations HQ", f"Saving & exporting: {target_name}...")
+        print(f"🎵 Exporting as '{target_name}'.")
+        notify("goodvibrations HQ", f"Exporting: {target_name}...")
 
     success = automate_ableton(str(project_folder), target_name, create_new_version=create_new_version)
 
