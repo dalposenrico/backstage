@@ -593,6 +593,40 @@ def main():
         action_desc = "New version saved and exporting" if create_new_version else "Exporting"
         notify("goodvibrations HQ", f"{action_desc}: {target_name}")
         print(f"✅ Successfully initiated export for '{target_name}'.")
+
+        # Spawn background watcher to ensure the rendered file lands in project_folder
+        relocate_script = f"""
+import time, shutil
+from pathlib import Path
+
+target = "{target_name}"
+dst_dir = Path("{project_folder}")
+now = time.time()
+
+# Poll for up to 3 minutes for render to complete
+for _ in range(180):
+    time.sleep(1)
+    # Check if already in destination
+    if any(f.stem == target and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} for f in dst_dir.iterdir() if f.is_file()):
+        break
+    # Search common recent export locations
+    found = None
+    for root in [Path.home() / "Downloads", Path.home() / "Desktop", Path.home() / "Music", Path.home() / "Documents"]:
+        for f in root.glob(f"**/{target}.*"):
+            if f.is_file() and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} and f.parent != dst_dir:
+                if f.stat().st_mtime >= now - 60:
+                    found = f
+                    break
+        if found:
+            break
+    if found:
+        try:
+            shutil.move(str(found), str(dst_dir / found.name))
+        except Exception:
+            pass
+        break
+"""
+        subprocess.Popen([sys.executable, "-c", relocate_script])
     else:
         notify("goodvibrations HQ", "Export automation encountered an issue.")
         print("❌ Automation failed.", file=sys.stderr)
