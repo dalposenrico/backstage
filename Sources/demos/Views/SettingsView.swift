@@ -84,7 +84,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Enable F1 global hotkey", isOn: $globalHotkey.isEnabled)
 
-                Text("While goodvibrations HQ is running, press **F1** anywhere (including inside Ableton Live) to auto-version and export the active project.")
+                Text("While goodvibrations HQ is running, press **F1** or **⇧⌘E** anywhere (including inside Ableton Live) to auto-version and export the active project.\n\nTip: On keyboards where F1 adjusts display brightness, use **Fn+F1** or **⇧⌘E**.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

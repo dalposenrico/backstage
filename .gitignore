@@ -22,3 +22,5 @@ goodvibrations HQ.app/
 AppIcon.icns
 AppIcon.iconset/
 Previous Builds/
+__pycache__/
+*.pyc

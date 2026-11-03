@@ -245,7 +245,11 @@ final class GlobalHotkeyManager: ObservableObject {
         } else if success {
             summary = "Export triggered successfully"
         } else {
-            summary = "Export script finished with errors"
+            let lastLine = output
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .last { !$0.isEmpty }
+            summary = lastLine ?? "Export script finished with errors"
         }
         lastResult = summary
         isRunningExport = false

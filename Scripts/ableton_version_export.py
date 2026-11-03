@@ -13,7 +13,11 @@ Workflow:
    - If NO export exists yet for this version:
        Simply saves the current set (Cmd+S),
        and exports audio with the current version name into the project folder.
-3. Posts a native macOS notification.
+3. Robust multi-monitor / dual-screen handling:
+   - Properly activates Ableton across displays/spaces.
+   - Raises the main project window rather than floating plugin editors or secondary windows.
+   - Replaces blind delays with dynamic dialog state detection.
+4. Posts a native macOS notification.
 """
 
 from __future__ import annotations
@@ -102,44 +106,140 @@ def show_untitled_warning(win_title: str | None = None):
     subprocess.run(["osascript", "-e", alert_script])
 
 
+def get_ableton_window_titles() -> list[str]:
+    """
+    Uses AppleScript / System Events to get all window titles of Ableton Live.
+    Returns a list of titles so multi-window / multi-screen setups can distinguish
+    the main project window from plugin editors, dialogs, and second windows.
+    """
+    script = '''
+    tell application "System Events"
+        if exists (first process whose name contains "Live" and background only is false) then
+            set abletonProc to (first process whose name contains "Live" and background only is false)
+            try
+                return name of every window of abletonProc
+            on error
+                return {}
+            end try
+        end if
+    end tell
+    return {}
+    '''
+    res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+    
+    # AppleScript returns comma-separated strings
+    titles = [t.strip() for t in res.stdout.strip().split(",") if t.strip()]
+    return titles
+
+
+def find_main_ableton_window_title(titles: list[str]) -> str | None:
+    """
+    Finds the main Live project window title among all open windows.
+    Ableton titles the main window with '[Arrangement]', '[Session]', or '<Project>.als'.
+    """
+    for title in titles:
+        t_clean = title.strip()
+        if "[Arrangement]" in t_clean or "[Session]" in t_clean or t_clean.lower().endswith(".als"):
+            return t_clean
+
+    # Fallback: find any non-empty window title that doesn't look like a generic second window or plugin
+    for title in titles:
+        t_clean = title.strip()
+        if t_clean and t_clean.lower() not in {"live", "second window", "export audio/video", "preferences"}:
+            return t_clean
+
+    return titles[0] if titles else None
+
+
+def clean_project_name_from_title(title: str | None) -> str | None:
+    """Extracts project stem name from Ableton window title."""
+    if not title:
+        return None
+    s = title.strip()
+    # Remove [Arrangement] or [Session]
+    s = re.sub(r"\s*\[(Arrangement|Session)\]\s*", "", s, flags=re.IGNORECASE)
+    # Remove dirty indicator asterisk
+    s = s.rstrip("*").strip()
+    if s.lower().endswith(".als"):
+        s = s[:-4].strip()
+    return s if s else None
+
+
 def get_active_project_path() -> tuple[Path | None, bool]:
     """
-    Parses Ableton's active Log.txt to find the currently open .als project.
+    Parses Ableton's active Log.txt and window titles to find the currently open .als project.
     Returns (als_path, is_untitled_or_template).
     """
     log_path = get_latest_ableton_log()
-    if not log_path or not log_path.exists():
-        return None, True
-
-    file_size = log_path.stat().st_size
-    bytes_to_read = min(file_size, 1024 * 1024)
-
-    with open(log_path, "rb") as f:
-        f.seek(max(0, file_size - bytes_to_read))
-        content = f.read().decode("utf-8", errors="ignore")
-
-    doc_marker = ': info: Loading document "'
-    template_marker = "TryToLoadTemplate:"
-
     last_doc: Path | None = None
     is_template = False
 
-    for line in content.splitlines():
-        if template_marker in line:
-            is_template = True
-        elif doc_marker in line:
-            start = line.find(doc_marker) + len(doc_marker)
-            end = line.find('"', start)
-            if end != -1:
-                path_str = line[start:end]
-                if path_str.endswith(".als"):
-                    cand = Path(path_str)
-                    if is_template_path(cand):
-                        is_template = True
-                        last_doc = cand
-                    else:
-                        is_template = False
-                        last_doc = cand
+    if log_path and log_path.exists():
+        file_size = log_path.stat().st_size
+        # Read up to 20MB of log to handle long studio sessions
+        bytes_to_read = min(file_size, 20 * 1024 * 1024)
+
+        with open(log_path, "rb") as f:
+            f.seek(max(0, file_size - bytes_to_read))
+            content = f.read().decode("utf-8", errors="ignore")
+
+        template_marker = "TryToLoadTemplate:"
+        doc_markers = [
+            ': info: Loading document "',
+            ': info: Saving document "',
+            'Loading document "',
+            'Saving document "',
+            ': info: Document "',
+        ]
+
+        for line in content.splitlines():
+            if template_marker in line:
+                is_template = True
+            for marker in doc_markers:
+                if marker in line:
+                    start = line.find(marker) + len(marker)
+                    end = line.find('"', start)
+                    if end != -1:
+                        path_str = line[start:end]
+                        if path_str.endswith(".als"):
+                            cand = Path(path_str)
+                            if is_template_path(cand):
+                                is_template = True
+                                last_doc = cand
+                            else:
+                                is_template = False
+                                last_doc = cand
+                    break
+
+    # If log yielded a valid non-template document that exists, verify
+    if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
+        return last_doc, False
+
+    # Window title fallback: if Log.txt is empty, outdated, or says template but the set is saved
+    win_titles = get_ableton_window_titles()
+    main_title = find_main_ableton_window_title(win_titles)
+    project_name = clean_project_name_from_title(main_title)
+
+    if project_name and not is_untitled_name(project_name):
+        # Look for the project file in user's home / music folders
+        search_roots = [
+            Path.home() / "Music",
+            Path.home() / "Documents",
+            Path.home() / "Desktop",
+        ]
+        if last_doc and last_doc.parent.exists():
+            search_roots.insert(0, last_doc.parent)
+
+        for root in search_roots:
+            if not root.exists():
+                continue
+            matches = list(root.glob(f"**/{project_name}.als"))
+            if matches:
+                # Pick the most recently modified matching .als
+                best = max(matches, key=lambda p: p.stat().st_mtime)
+                return best, False
 
     if is_template or not last_doc:
         return last_doc, True
@@ -150,26 +250,6 @@ def get_active_project_path() -> tuple[Path | None, bool]:
     return last_doc, False
 
 
-def get_ableton_window_title() -> str | None:
-    """Uses AppleScript / System Events to get the front window title of Ableton Live."""
-    script = '''
-    tell application "System Events"
-        if exists (first process whose name contains "Live" and background only is false) then
-            set abletonProc to (first process whose name contains "Live" and background only is false)
-            try
-                return name of front window of abletonProc
-            on error
-                return ""
-            end try
-        end if
-    end tell
-    return ""
-    '''
-    res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    title = res.stdout.strip()
-    return title if title else None
-
-
 def has_existing_export(folder: Path, current_name: str) -> bool:
     """
     Checks if an audio export (.wav, .mp3, etc.) already exists for current_name
@@ -177,7 +257,6 @@ def has_existing_export(folder: Path, current_name: str) -> bool:
     """
     stem_target = current_name.lower()
 
-    # Search directly in the project folder and in common export subdirectories
     search_dirs = [folder]
     for sub in ["Exports", "exports", "Bounces", "bounces", "Demos", "demos"]:
         sub_dir = folder / sub
@@ -199,7 +278,7 @@ def has_existing_export(folder: Path, current_name: str) -> bool:
 def extract_base_and_versions(folder: Path, current_name: str) -> tuple[str, int]:
     """
     Determines the project's base name and highest existing version number
-    by scanning all .als files and audio exports in the folder.
+    by scanning all .als files and audio exports in the folder and export subfolders.
     """
     name = current_name[:-4] if current_name.lower().endswith(".als") else current_name
 
@@ -219,18 +298,25 @@ def extract_base_and_versions(folder: Path, current_name: str) -> tuple[str, int
         re.IGNORECASE
     )
 
-    try:
-        for entry in folder.iterdir():
-            if entry.is_file():
-                m = pattern.match(entry.name)
-                if m:
-                    num_str = m.group(1)
-                    if num_str:
-                        highest_version = max(highest_version, int(num_str))
-                    else:
-                        highest_version = max(highest_version, 1)
-    except Exception as e:
-        print(f"Warning scanning folder: {e}", file=sys.stderr)
+    search_dirs = [folder]
+    for sub in ["Exports", "exports", "Bounces", "bounces", "Demos", "demos"]:
+        sub_dir = folder / sub
+        if sub_dir.is_dir():
+            search_dirs.append(sub_dir)
+
+    for directory in search_dirs:
+        try:
+            for entry in directory.iterdir():
+                if entry.is_file():
+                    m = pattern.match(entry.name)
+                    if m:
+                        num_str = m.group(1)
+                        if num_str:
+                            highest_version = max(highest_version, int(num_str))
+                        else:
+                            highest_version = max(highest_version, 1)
+        except Exception as e:
+            print(f"Warning scanning folder {directory}: {e}", file=sys.stderr)
 
     return base_name, highest_version
 
@@ -254,91 +340,266 @@ def notify(title: str, message: str):
     ])
 
 
-def automate_ableton(folder_path: str, target_name: str, create_new_version: bool):
+def automate_ableton(folder_path: str, target_name: str, create_new_version: bool) -> bool:
     """
     Automates Ableton Live:
+    - Multi-monitor aware: brings Ableton to front using application-level activation,
+      raises the main arrangement/session window rather than plugin windows.
     - If `create_new_version` is True:
-        Runs 'Save Live Set As...' with `target_name`.
+        Runs 'Save Live Set As...' with `target_name`, waiting dynamically for dialogs.
     - If `create_new_version` is False:
-        Runs standard 'Save' (Cmd+S) to preserve changes without renaming.
-    - Runs 'Export Audio/Video...' navigating to `folder_path` with `target_name`.
+        Runs standard 'Save' (Cmd+S).
+    - Runs 'Export Audio/Video...', confirms settings, sets filename to `target_name` in `folder_path`.
     """
-    save_as_logic = f'''
-    -- Save Live Set As... (Shift + Cmd + S)
-    tell application "System Events"
-        keystroke "s" using {{command down, shift down}}
-    end tell
-    delay 0.8
+    escaped_folder = folder_path.replace('"', '\\"')
+    escaped_target = target_name.replace('"', '\\"')
 
+    save_as_logic = f'''
+    -- 1. Save Live Set As... (Shift + Cmd + S)
     tell application "System Events"
-        set the clipboard to targetName
-        keystroke "a" using {{command down}}
-        delay 0.1
-        keystroke "v" using {{command down}}
-        delay 0.2
-        key code 36 -- Return / Enter
+        tell abletonProc
+            set menuSaved to false
+            try
+                tell menu "File" of menu bar 1
+                    if exists menu item "Save Live Set As..." then
+                        click menu item "Save Live Set As..."
+                        set menuSaved to true
+                    end if
+                end tell
+            end try
+            if not menuSaved then
+                keystroke "s" using {{command down, shift down}}
+            end if
+        end tell
     end tell
-    delay 1.0
+
+    -- Wait for Save dialog to appear (up to 4.0s)
+    repeat 40 times
+        set savePanelExists to false
+        tell application "System Events"
+            tell abletonProc
+                repeat with w in (every window)
+                    try
+                        set sRole to subrole of w
+                        set wRole to role of w
+                        set wName to name of w
+                        if sRole is "AXSavePanel" or wRole is "AXSavePanel" or wName contains "Save" or (exists (first sheet of w)) then
+                            set savePanelExists to true
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+        end tell
+        if savePanelExists then exit repeat
+        delay 0.1
+    end repeat
+    delay 0.2
+
+    -- Type new set name into Save dialog
+    tell application "System Events"
+        set the clipboard to "{escaped_target}"
+        keystroke "a" using {{command down}}
+        delay 0.05
+        keystroke "v" using {{command down}}
+        delay 0.15
+        key code 36 -- Return / Save
+    end tell
+
+    -- Wait for Save dialog to close (up to 6.0s)
+    repeat 60 times
+        set stillOpen to false
+        tell application "System Events"
+            tell abletonProc
+                repeat with w in (every window)
+                    try
+                        set sRole to subrole of w
+                        set wRole to role of w
+                        set wName to name of w
+                        if sRole is "AXSavePanel" or wRole is "AXSavePanel" or wName contains "Save" or (exists (first sheet of w)) then
+                            set stillOpen to true
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+        end tell
+        if not stillOpen then exit repeat
+        delay 0.1
+    end repeat
+    delay 0.4
     ''' if create_new_version else '''
     -- Save current set (Cmd + S)
     tell application "System Events"
-        keystroke "s" using {{command down}}
+        tell abletonProc
+            set menuSaved to false
+            try
+                tell menu "File" of menu bar 1
+                    if exists menu item "Save Live Set" then
+                        click menu item "Save Live Set"
+                        set menuSaved to true
+                    end if
+                end tell
+            end try
+            if not menuSaved then
+                keystroke "s" using {command down}
+            end if
+        end tell
     end tell
-    delay 0.6
+    delay 0.5
     '''
 
     script = f'''
-    set folderPath to "{folder_path}"
-    set targetName to "{target_name}"
+    set folderPath to "{escaped_folder}"
+    set targetName to "{escaped_target}"
 
-    -- 1. Activate Ableton Live
+    -- 1. Identify and activate Ableton Live across screens/spaces
     tell application "System Events"
         if not (exists (first process whose name contains "Live" and background only is false)) then
             error "Ableton Live is not currently running."
         end if
         set abletonProc to (first process whose name contains "Live" and background only is false)
-        set frontmost of abletonProc to true
+        set procName to name of abletonProc
+    end tell
+
+    -- Activate at application level (vital for dual-screen and separate spaces)
+    tell application procName to activate
+
+    -- Raise main project window (not floating plugin or second window)
+    tell application "System Events"
+        tell abletonProc
+            set mainWin to missing value
+            repeat with w in (every window)
+                try
+                    set wName to name of w
+                    if wName contains "[Arrangement]" or wName contains "[Session]" or wName contains ".als" then
+                        set mainWin to w
+                        exit repeat
+                    end if
+                end try
+            end repeat
+            if mainWin is not missing value then
+                perform action "AXRaise" of mainWin
+            else if (count of windows) > 0 then
+                perform action "AXRaise" of window 1
+            end if
+        end tell
     end tell
     delay 0.3
 
     {save_as_logic}
 
-    -- 2. Export Audio/Video... (Shift + Cmd + R)
+    -- 2. Export Audio/Video... (Shift + Cmd + R or File menu)
     tell application "System Events"
-        keystroke "r" using {{command down, shift down}}
+        tell abletonProc
+            set menuExported to false
+            try
+                tell menu "File" of menu bar 1
+                    if exists menu item "Export Audio/Video..." then
+                        click menu item "Export Audio/Video..."
+                        set menuExported to true
+                    end if
+                end tell
+            end try
+            if not menuExported then
+                keystroke "r" using {{command down, shift down}}
+            end if
+        end tell
     end tell
-    delay 1.0
+
+    -- Wait dynamically for Ableton's Export settings modal dialog (up to 4.0s)
+    repeat 40 times
+        set exportDialogExists to false
+        tell application "System Events"
+            tell abletonProc
+                repeat with w in (every window)
+                    try
+                        set wName to name of w
+                        if wName contains "Export" or wName contains "Render" then
+                            set exportDialogExists to true
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+        end tell
+        if exportDialogExists then exit repeat
+        delay 0.1
+    end repeat
+    delay 0.3
 
     -- In Ableton's render settings dialog, press Return to click default 'Export'
     tell application "System Events"
-        key code 36 -- Return to open save dialog
+        key code 36 -- Return to open file save dialog
     end tell
-    delay 0.8
 
-    -- 3. Navigate to Project Folder in the macOS Save Dialog (Cmd + Shift + G)
+    -- Wait dynamically for macOS Save Panel to appear (up to 4.0s)
+    repeat 40 times
+        set saveDialogExists to false
+        tell application "System Events"
+            tell abletonProc
+                repeat with w in (every window)
+                    try
+                        set sRole to subrole of w
+                        set wRole to role of w
+                        set wName to name of w
+                        if sRole is "AXSavePanel" or wRole is "AXSavePanel" or (wName contains "Export" and exists (first button of w whose name is "Save" or name is "Export")) or (exists (first sheet of w)) then
+                            set saveDialogExists to true
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+        end tell
+        if saveDialogExists then exit repeat
+        delay 0.1
+    end repeat
+    delay 0.3
+
+    -- 3. Navigate to Project Folder in Save Dialog (Cmd + Shift + G)
     tell application "System Events"
         keystroke "g" using {{command down, shift down}}
     end tell
-    delay 0.5
+    delay 0.4
 
     tell application "System Events"
         set the clipboard to folderPath
+        delay 0.05
         keystroke "a" using {{command down}}
-        delay 0.1
+        delay 0.05
         keystroke "v" using {{command down}}
-        delay 0.2
+        delay 0.15
         key code 36 -- Confirm folder path
     end tell
-    delay 0.6
+    delay 0.5
 
     -- 4. Set Export Audio Filename to targetName and confirm
     tell application "System Events"
+        -- Ensure filename text field has focus
+        tell abletonProc
+            try
+                set focused of text field 1 of (first window whose subrole is "AXSavePanel" or role is "AXSavePanel") to true
+            end try
+        end tell
         set the clipboard to targetName
+        delay 0.05
         keystroke "a" using {{command down}}
-        delay 0.1
+        delay 0.05
         keystroke "v" using {{command down}}
-        delay 0.2
+        delay 0.15
         key code 36 -- Confirm Save / Start Render!
+    end tell
+
+    -- 5. Handle Replace/Overwrite prompt if it appears
+    delay 0.5
+    tell application "System Events"
+        tell abletonProc
+            try
+                if exists (first button whose name is "Replace") then
+                    click (first button whose name is "Replace")
+                end if
+            end try
+        end tell
     end tell
     '''
 
@@ -347,24 +608,24 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
 
 def main():
     print("🔍 Inspecting active Ableton Live session...")
-    win_title = get_ableton_window_title()
+    win_titles = get_ableton_window_titles()
+    main_win = find_main_ableton_window_title(win_titles)
 
-    # 1. Check if Ableton window title indicates an Untitled set
-    if win_title and (
-        "untitled" in win_title.lower()
-        or "sans titre" in win_title.lower()
-        or "ohne titel" in win_title.lower()
-    ):
-        print(f"⚠️ Active Ableton window is Untitled: '{win_title}'.", file=sys.stderr)
-        show_untitled_warning(win_title)
-        sys.exit(2)
+    # 1. Check if the MAIN Ableton window title indicates an Untitled set
+    # (Ignore floating plugin windows whose presets might be named 'Untitled')
+    if main_win:
+        main_stem = clean_project_name_from_title(main_win)
+        if is_untitled_name(main_stem):
+            print(f"⚠️ Active Ableton window is Untitled: '{main_win}'.", file=sys.stderr)
+            show_untitled_warning(main_win)
+            sys.exit(2)
 
     als_path, is_untitled_or_template = get_active_project_path()
 
     # 2. Check if the project is a template, nonexistent, or named Untitled
     if is_untitled_or_template or not als_path or not als_path.exists() or is_untitled_name(als_path.stem):
-        print(f"⚠️ Active project is Untitled or a template (Path: '{als_path}', Window: '{win_title}').", file=sys.stderr)
-        show_untitled_warning(win_title)
+        print(f"⚠️ Active project is Untitled or a template (Path: '{als_path}', Window: '{main_win}').", file=sys.stderr)
+        show_untitled_warning(main_win)
         sys.exit(2)
 
     project_folder = als_path.parent
