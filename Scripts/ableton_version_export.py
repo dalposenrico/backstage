@@ -13,9 +13,10 @@ Workflow:
    - If NO export exists yet for this version:
        Exports audio with the current version name into the project folder.
 3. Robust multi-monitor / dual-screen & multi-plugin handling:
-   - Filters out floating VST/AU plugin windows (e.g., MetricAB, SPAN, Pro-Q).
-   - Raises the real Ableton project window even when on a secondary display.
-   - Accurately clicks 'Export' and sets audio filename without dialog freezing.
+   - Filters out floating VST/AU plugin windows (which contain '/').
+   - Raises the real Ableton project window even when positioned on a secondary display.
+   - Detects the Export Audio/Video dialog bounds and triggers the Export button directly.
+   - Confirms the Save panel to begin rendering into the project folder.
 4. Posts a native macOS notification.
 """
 
@@ -26,10 +27,36 @@ import re
 import sys
 import glob
 import time
+import ctypes
 import subprocess
+from ctypes import c_double, c_uint32, c_void_p, Structure
 from pathlib import Path
 
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".aif", ".aiff", ".flac", ".m4a"}
+
+# CoreGraphics mouse click definitions
+class CGPoint(Structure):
+    _fields_ = [("x", c_double), ("y", c_double)]
+
+try:
+    cg = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cg.CGEventCreateMouseEvent.restype = c_void_p
+    cg.CGEventCreateMouseEvent.argtypes = [c_void_p, c_uint32, CGPoint, c_uint32]
+    cg.CGEventPost.argtypes = [c_uint32, c_void_p]
+except Exception:
+    cg = None
+
+
+def click_screen_point(x: float, y: float):
+    """Sends a hardware mouse double-click to (x, y) to reliably activate modal buttons across screens."""
+    if cg is None:
+        return
+    pt = CGPoint(x, y)
+    for _ in range(2):
+        cg.CGEventPost(0, cg.CGEventCreateMouseEvent(None, 1, pt, 0))
+        time.sleep(0.04)
+        cg.CGEventPost(0, cg.CGEventCreateMouseEvent(None, 2, pt, 0))
+        time.sleep(0.08)
 
 
 def get_latest_ableton_log() -> Path | None:
@@ -135,21 +162,18 @@ def find_main_ableton_window_title(titles: list[str]) -> str | None:
     Finds the main Live project window title among all open windows.
     Filters out floating VST/AU plugin windows (which contain '/') and utility dialogs.
     """
-    # 1. Check for explicit [Arrangement], [Session], or .als
     for title in titles:
         t_clean = title.strip()
         if not is_plugin_window_title(t_clean):
             if "[Arrangement]" in t_clean or "[Session]" in t_clean or t_clean.lower().endswith(".als"):
                 return t_clean
 
-    # 2. Check for any non-plugin window that isn't a utility window
     ignored = {"live", "second window", "export audio/video", "preferences", "save", "save as"}
     for title in titles:
         t_clean = title.strip()
         if not is_plugin_window_title(t_clean) and t_clean.lower() not in ignored and t_clean:
             return t_clean
 
-    # 3. Fallback: non-plugin window if any
     non_plugins = [t.strip() for t in titles if not is_plugin_window_title(t.strip()) and t.strip()]
     if non_plugins:
         return non_plugins[0]
@@ -218,7 +242,6 @@ def get_active_project_path() -> tuple[Path | None, bool]:
     main_title = find_main_ableton_window_title(win_titles)
     project_name = clean_project_name_from_title(main_title)
 
-    # If the window title shows a saved project that exists next to last_doc, prefer it
     if project_name and not is_untitled_name(project_name):
         if last_doc and last_doc.parent.exists():
             direct_cand = last_doc.parent / f"{project_name}.als"
@@ -325,15 +348,6 @@ def extract_base_and_versions(folder: Path, current_name: str) -> tuple[str, int
     return base_name, highest_version
 
 
-def run_applescript(script: str) -> bool:
-    """Executes AppleScript code via osascript."""
-    res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    if res.returncode != 0:
-        print(f"AppleScript error: {res.stderr.strip()}", file=sys.stderr)
-        return False
-    return True
-
-
 def notify(title: str, message: str):
     """Sends a native macOS notification."""
     escaped_title = title.replace('"', '\\"')
@@ -347,53 +361,24 @@ def notify(title: str, message: str):
 def automate_ableton(folder_path: str, target_name: str, create_new_version: bool) -> bool:
     """
     Automates Ableton Live:
-    - Multi-monitor aware: finds and raises the true project window, ignoring floating VST/AU plugins.
-    - If `create_new_version`: Shift+Cmd+S to save new version name and waits for save to finish.
-    - Opens Export Audio/Video (Shift+Cmd+R), triggers Export button, and sets the filename in Save panel.
+    - Multi-monitor aware: activates Live, ignores floating plugin windows, raises project window.
+    - If `create_new_version`: Shift+Cmd+S to save new set name and waits for save.
+    - Opens Export Audio/Video (Shift+Cmd+R).
+    - Clicks the 'Export' button via exact dialog bounds and CoreGraphics click.
+    - Confirms Save panel to render audio.
     """
     escaped_target = target_name.replace('"', '\\"')
 
-    save_as_block = f'''
-    -- 2. Save Live Set As... (Shift + Cmd + S)
+    # 1. Activate Live, make frontmost, and raise the main project window
+    activate_script = """
+    tell application "Live" to activate
     tell application "System Events"
-        keystroke "s" using {{command down, shift down}}
-    end tell
-    delay 0.8
-
-    tell application "System Events"
-        set the clipboard to "{escaped_target}"
-        delay 0.05
-        keystroke "a" using {{command down}}
-        delay 0.05
-        keystroke "v" using {{command down}}
-        delay 0.2
-        key code 36 -- Return / Save
-    end tell
-    -- Wait for Ableton to write the new project set to disk
-    delay 1.8
-    ''' if create_new_version else '''
-    -- No new version needed: proceed directly to export
-    delay 0.3
-    '''
-
-    script = f'''
-    set targetName to "{escaped_target}"
-
-    -- 1. Identify and activate Ableton Live across screens/spaces
-    tell application "System Events"
-        if not (exists (first process whose name contains "Live" and background only is false)) then
-            error "Ableton Live is not currently running."
-        end if
-        set abletonProc to (first process whose name contains "Live" and background only is false)
-        set procName to name of abletonProc
-    end tell
-
-    tell application procName to activate
-    delay 0.2
-
-    -- Raise the real project window (ignoring all floating plugin windows with "/")
-    tell application "System Events"
-        tell abletonProc
+        set frontmost of process "Live" to true
+        repeat 20 times
+            if frontmost of process "Live" then exit repeat
+            delay 0.05
+        end repeat
+        tell process "Live"
             set mainWin to missing value
             repeat with w in (every window)
                 try
@@ -404,85 +389,156 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
                     end if
                 end try
             end repeat
+            if mainWin is not missing value then
+                perform action "AXRaise" of mainWin
+            end if
+        end tell
+    end tell
+    """
+    subprocess.run(["osascript", "-e", activate_script])
+    time.sleep(0.3)
 
-            -- Fallback: window with largest area
-            if mainWin is missing value then
-                set maxArea to 0
-                repeat with w in (every window)
+    # 2. Save Live Set As... if creating a new version
+    if create_new_version:
+        save_as_script = f"""
+        tell application "System Events"
+            tell process "Live"
+                keystroke "s" using {{command down, shift down}}
+            end tell
+        end tell
+        """
+        subprocess.run(["osascript", "-e", save_as_script])
+        time.sleep(0.8)
+
+        type_name_script = f"""
+        tell application "System Events"
+            set the clipboard to "{escaped_target}"
+            delay 0.05
+            keystroke "a" using {{command down}}
+            delay 0.05
+            keystroke "v" using {{command down}}
+            delay 0.2
+            key code 36 -- Return / Save
+        end tell
+        """
+        subprocess.run(["osascript", "-e", type_name_script])
+        # Wait for Ableton to write the new project set to disk
+        time.sleep(1.8)
+
+    # 3. Open Export Audio/Video dialog (Shift + Cmd + R)
+    open_export_script = """
+    tell application "Live" to activate
+    tell application "System Events"
+        set frontmost of process "Live" to true
+        tell process "Live"
+            set mainWin to missing value
+            repeat with w in (every window)
+                try
+                    set wName to name of w
+                    if wName does not contain "/" and wName is not "" and wName is not "Live" then
+                        set mainWin to w
+                        exit repeat
+                    end if
+                end try
+            end repeat
+            if mainWin is not missing value then
+                perform action "AXRaise" of mainWin
+            end if
+        end tell
+        delay 0.2
+        keystroke "r" using {command down, shift down}
+    end tell
+    """
+    subprocess.run(["osascript", "-e", open_export_script])
+
+    # 4. Wait for Export Audio/Video dialog and get its exact screen bounds
+    dlg_bounds = None
+    for _ in range(40):
+        time.sleep(0.1)
+        res = subprocess.run(["osascript", "-e", """
+        tell application "System Events"
+            tell process "Live"
+                repeat with w in windows
                     try
-                        set sz to size of w
-                        set area to (item 1 of sz) * (item 2 of sz)
-                        if area > maxArea then
-                            set maxArea to area
-                            set mainWin to w
+                        if name of w is "Export Audio/Video" or subrole of w is "AXDialog" then
+                            set pos to position of w
+                            set sz to size of w
+                            return "" & (item 1 of pos) & " " & (item 2 of pos) & " " & (item 1 of sz) & " " & (item 2 of sz)
                         end if
                     end try
                 end repeat
-            end if
-
-            if mainWin is not missing value then
-                perform action "AXRaise" of mainWin
-            end if
+            end tell
         end tell
-    end tell
-    delay 0.4
+        """], capture_output=True, text=True)
+        out = res.stdout.strip()
+        if out:
+            parts = out.split()
+            if len(parts) == 4:
+                dlg_bounds = [float(p) for p in parts]
+                break
 
-    {save_as_block}
+    if dlg_bounds:
+        dx, dy, dw, dh = dlg_bounds
+        # The Export button is at x + 108.0, y + h - 22.0
+        btnX = dx + 108.0
+        btnY = dy + dh - 22.0
+        click_screen_point(btnX, btnY)
+    else:
+        # Fallback: send Return directly
+        subprocess.run(["osascript", "-e", "tell application \"System Events\" to tell process \"Live\" to key code 36"])
 
-    -- 3. Open Export Audio/Video dialog (Shift + Cmd + R)
-    tell application procName to activate
-    tell application "System Events"
-        tell abletonProc
-            -- Re-raise main window before keystroke
-            if mainWin is not missing value then
-                perform action "AXRaise" of mainWin
-            end if
-        end tell
-        keystroke "r" using {{command down, shift down}}
-    end tell
-    delay 1.0
-
-    -- 4. Confirm Export settings dialog (press Return and Enter)
-    tell application procName to activate
-    tell application "System Events"
-        key code 36 -- Return (clicks default 'Export' button)
-        delay 0.1
-        key code 76 -- Numpad Enter fallback
-    end tell
-    delay 1.0
-
-    -- 5. Set Export Audio Filename in Save Panel and start render
-    tell application "System Events"
-        set the clipboard to targetName
-        delay 0.05
-        keystroke "a" using {{command down}}
-        delay 0.05
-        keystroke "v" using {{command down}}
-        delay 0.25
-        key code 36 -- Confirm Save / Start Render!
-        try
-            tell abletonProc
-                if exists (first button whose name is "Save") then
-                    click (first button whose name is "Save")
+    # 5. Wait for the macOS Save panel to appear
+    save_opened = False
+    for _ in range(40):
+        time.sleep(0.1)
+        res = subprocess.run(["osascript", "-e", """
+        tell application "System Events"
+            tell process "Live"
+                if exists (first window whose name is "Save") then
+                    return "yes"
                 end if
             end tell
-        end try
-    end tell
+        end tell
+        """], capture_output=True, text=True)
+        if "yes" in res.stdout:
+            save_opened = True
+            break
 
-    -- 6. Handle Replace prompt if a file with this name already exists
-    delay 0.6
+    if not save_opened:
+        # Extra fallback: send Return to trigger Export button if it didn't click
+        subprocess.run(["osascript", "-e", "tell application \"System Events\" to tell process \"Live\" to key code 36"])
+        time.sleep(0.6)
+
+    # 6. Click Save in the Save dialog
+    subprocess.run(["osascript", "-e", """
     tell application "System Events"
-        tell abletonProc
+        tell process "Live"
+            if exists (first window whose name is "Save") then
+                set s to window "Save"
+                try
+                    set sg to first UI element of s whose role is "AXSplitGroup"
+                    click (first button of sg whose name is "Save" or title is "Save")
+                on error
+                    key code 36
+                end try
+            end if
+        end tell
+    end tell
+    """])
+
+    time.sleep(0.5)
+    # 7. Confirm Replace if file already exists
+    subprocess.run(["osascript", "-e", """
+    tell application "System Events"
+        tell process "Live"
             try
-                if exists (first button whose name is "Replace") then
-                    click (first button whose name is "Replace")
-                end if
+                click (first button of (first sheet of window "Save") whose name is "Replace")
             end try
         end tell
     end tell
-    '''
+    """])
 
-    return run_applescript(script)
+    return True
 
 
 def main():
