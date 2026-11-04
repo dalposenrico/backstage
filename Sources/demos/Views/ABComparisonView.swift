@@ -22,7 +22,7 @@ struct ABComparisonView: View {
     @AppStorage("abComparisonBeatGrid") private var beatGridEnabled = true
 
     private var currentProject: Project? {
-        embeddedProject ?? store.selectedProject
+        embeddedProject ?? store.selectedProject ?? store.currentOpenProject ?? store.recentProjects.first
     }
 
     private var comparisonPlayer: ComparisonAudioPlayer {
@@ -32,27 +32,33 @@ struct ABComparisonView: View {
     var body: some View {
         Group {
             if let project = currentProject {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(project)
-                    matchingControls(project)
-                    Divider().overlay(Color.white.opacity(0.10))
-                    HStack(spacing: 0) {
-                        sourceWaveforms(project)
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(project)
+                        matchingControls(project)
                         Divider().overlay(Color.white.opacity(0.10))
-                        sectionInspector(project)
+                        HStack(spacing: 0) {
+                            sourceWaveforms(project)
+                            Divider().overlay(Color.white.opacity(0.10))
+                            sectionInspector(project)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        Divider().overlay(Color.white.opacity(0.10))
+                        assemblyRail(project)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    Divider().overlay(Color.white.opacity(0.10))
-                    assemblyRail(project)
-                    if embeddedProject == nil {
-                        ComparisonPlayerBarView(
-                            controller: comparisonPlayer,
-                            sourcesOverride: sources(project),
-                            loudnessResultsOverride: results,
-                            markersOverride: comparisonMarkers.markers(for: project)
-                        )
-                    }
+
+                    Divider().overlay(Color.white.opacity(0.15))
+                    ComparisonPlayerBarView(
+                        controller: comparisonPlayer,
+                        sourcesOverride: sources(project),
+                        loudnessResultsOverride: results,
+                        markersOverride: comparisonMarkers.markers(for: project)
+                    )
+                    .frame(height: 56)
+                    .layoutPriority(10)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
                     let s = store
                     comparisonPlayer.onStartPlayback = {
@@ -650,8 +656,8 @@ struct ABComparisonView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .frame(height: 66)
+        .padding(.vertical, items.isEmpty ? 6 : 8)
+        .frame(height: items.isEmpty ? 36 : 52)
         .background(Color(hex: "141619"))
     }
 

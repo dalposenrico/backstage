@@ -58,10 +58,8 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider().background(Color.divider)
-            if store.isVersionsTabActive {
-                ComparisonPlayerBarView(controller: store.comparisonAudioPlayer)
-            } else {
+            if !store.isVersionsTabActive {
+                Divider().background(Color.divider)
                 PlayerBarView()
             }
         }
