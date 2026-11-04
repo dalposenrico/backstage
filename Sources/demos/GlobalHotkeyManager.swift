@@ -226,31 +226,30 @@ final class GlobalHotkeyManager: ObservableObject {
             return
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [scriptPath]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        // Run the blocking process execution completely off the main actor
+        // so the UI never freezes or beachballs.
+        let (output, exitCode): (String, Int32) = await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = [scriptPath]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
 
-        do {
-            try process.run()
-        } catch {
-            let msg = "Failed to launch export script: \(error.localizedDescription)"
-            lastResult = msg
-            isRunningExport = false
-            AccountDiagnostics.record(msg)
-            sendNotification(title: "goodvibrations HQ", body: msg)
-            return
-        }
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let outStr = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return (outStr, process.terminationStatus)
+            } catch {
+                return (error.localizedDescription, -1)
+            }
+        }.value
 
-        // Wait off the main actor so we don't block the UI.
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let isUntitled = process.terminationStatus == 2 || output.localizedCaseInsensitiveContains("untitled")
-        let success = process.terminationStatus == 0 && !isUntitled
+        // Back on MainActor: update UI state and publish results
+        let isUntitled = exitCode == 2 || output.localizedCaseInsensitiveContains("untitled")
+        let success = exitCode == 0 && !isUntitled
         let summary: String
         if isUntitled {
             summary = "⚠️ Track is Untitled — please save with a name first"
