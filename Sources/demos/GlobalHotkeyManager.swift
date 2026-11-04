@@ -19,6 +19,10 @@ final class GlobalHotkeyManager: ObservableObject {
     @Published var isRunningExport = false
     @Published private(set) var lastResult: String?
 
+    private var activeProcess: Process?
+    private var exportStartedAt: Date?
+    private var timeoutTask: Task<Void, Never>?
+
     static weak var shared: GlobalHotkeyManager?
 
     private static let enabledKey = "abletonExportHotkeyEnabled"
@@ -173,10 +177,27 @@ final class GlobalHotkeyManager: ObservableObject {
 
     // MARK: - Public trigger (for Tools Hub button & Menu commands)
 
-    func triggerExport() {
-        guard !isRunningExport else {
-            sendNotification(title: "goodvibrations HQ", body: "⏳ Export is already running...")
-            return
+    func cancelExport() {
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        activeProcess?.terminate()
+        activeProcess = nil
+        isRunningExport = false
+        exportStartedAt = nil
+        lastResult = "Export cancelled"
+        try? FileManager.default.removeItem(atPath: "/tmp/gv_ableton_export.lock")
+        AccountDiagnostics.record("Ableton export cancelled/reset by user")
+    }
+
+    func triggerExport(force: Bool = false) {
+        if isRunningExport {
+            // If export has been running for longer than 15s or force is requested, auto-reset
+            if force || (exportStartedAt.map { Date().timeIntervalSince($0) > 15 } ?? true) {
+                cancelExport()
+            } else {
+                sendNotification(title: "goodvibrations HQ", body: "⏳ Export is running — click ✕ on banner to cancel.")
+                return
+            }
         }
         Task { await runExport() }
     }
@@ -212,6 +233,7 @@ final class GlobalHotkeyManager: ObservableObject {
 
     private func runExport() async {
         isRunningExport = true
+        exportStartedAt = Date()
         lastResult = "⚡ Running Ableton auto-export..."
         AccountDiagnostics.record("F1 pressed — launching Ableton export script")
         sendNotification(title: "goodvibrations HQ", body: "⚡ F1 triggered: Preparing Ableton auto-export...")
@@ -221,21 +243,33 @@ final class GlobalHotkeyManager: ObservableObject {
             let msg = "Could not locate ableton_version_export.py"
             lastResult = msg
             isRunningExport = false
+            exportStartedAt = nil
             AccountDiagnostics.record(msg)
             sendNotification(title: "goodvibrations HQ", body: msg)
             return
         }
 
+        // Setup a 30-second watchdog so exports never hang indefinitely
+        timeoutTask?.cancel()
+        timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, self.isRunningExport else { return }
+            self.cancelExport()
+            self.lastResult = "Export timed out after 30s"
+            self.sendNotification(title: "goodvibrations HQ", body: "⚠️ Export timed out — reset ready.")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [scriptPath]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        self.activeProcess = process
+
         // Run the blocking process execution completely off the main actor
         // so the UI never freezes or beachballs.
         let (output, exitCode): (String, Int32) = await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [scriptPath]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-
             do {
                 try process.run()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -246,6 +280,11 @@ final class GlobalHotkeyManager: ObservableObject {
                 return (error.localizedDescription, -1)
             }
         }.value
+
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        self.activeProcess = nil
+        self.exportStartedAt = nil
 
         // Back on MainActor: update UI state and publish results
         let isUntitled = exitCode == 2 || output.localizedCaseInsensitiveContains("untitled")

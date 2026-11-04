@@ -79,6 +79,18 @@ struct ContentView: View {
                         Text(globalHotkey.lastResult ?? "⚡ Running Ableton auto-export...")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.primaryText)
+
+                        Button {
+                            globalHotkey.cancelExport()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.secondaryText)
+                                .padding(3)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel export / reset")
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)

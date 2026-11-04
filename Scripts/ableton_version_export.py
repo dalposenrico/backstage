@@ -576,7 +576,12 @@ for _ in range(180):
     except Exception:
         pass
 """
-        subprocess.Popen([sys.executable, "-c", relocate_script])
+        subprocess.Popen(
+            [sys.executable, "-c", relocate_script],
+            close_fds=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
     else:
         notify("goodvibrations HQ", "Export automation encountered an issue.")
         print("❌ Automation failed.", file=sys.stderr)

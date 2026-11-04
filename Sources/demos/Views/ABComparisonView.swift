@@ -210,20 +210,26 @@ struct ABComparisonView: View {
             .buttonStyle(IndustrialButtonStyle())
 
             Button {
-                store.openAndExport(project)
+                if globalHotkey.isRunningExport {
+                    globalHotkey.cancelExport()
+                } else if store.openingAbletonProject != nil {
+                    store.dismissAbletonOpeningAlert()
+                } else {
+                    store.openAndExport(project)
+                }
             } label: {
                 if isExportingThisProject(project) {
                     HStack(spacing: 5) {
                         ProgressView().controlSize(.small)
-                        Text(store.openingAbletonProject?.phase == .opening ? "OPENING…" : "EXPORTING…")
+                        Text(store.openingAbletonProject?.phase == .opening ? "OPENING…" : "CANCEL EXPORT")
                     }
                 } else {
                     Label("FAST EXPORT", systemImage: "bolt.fill")
                 }
             }
             .buttonStyle(IndustrialButtonStyle(accent: true))
-            .disabled(project.newestAbletonVersion == nil || isExportingThisProject(project))
-            .help("Open in Ableton Live (waits for save dialog if needed) and automatically export a new version")
+            .disabled(project.newestAbletonVersion == nil)
+            .help(isExportingThisProject(project) ? "Export in progress — click to cancel / reset" : "Open in Ableton Live (waits for save dialog if needed) and automatically export a new version")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)

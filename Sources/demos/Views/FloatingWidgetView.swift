@@ -323,7 +323,9 @@ struct FloatingWidgetView: View {
 
             // Auto-Export Button ("E")
             Button {
-                if let project = activeProject {
+                if globalHotkey.isRunningExport {
+                    globalHotkey.cancelExport()
+                } else if let project = activeProject {
                     store.openAndExport(project)
                 } else {
                     globalHotkey.triggerExport()
@@ -342,8 +344,7 @@ struct FloatingWidgetView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("Export active project (F1 / ⇧⌘E)")
-            .disabled(globalHotkey.isRunningExport)
+            .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
