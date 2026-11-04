@@ -74,7 +74,7 @@ def get_latest_ableton_log() -> Path | None:
 
 
 def is_template_path(path: Path | None) -> bool:
-    """Checks whether the file path points to an Ableton template or factory default."""
+    """Checks whether the file path points to an Ableton template, autosave, or factory default."""
     if not path:
         return False
     p_lower = str(path).lower()
@@ -82,7 +82,40 @@ def is_template_path(path: Path | None) -> bool:
         return True
     if "/factory packs/" in p_lower or "/core library/" in p_lower or "/app-resources/" in p_lower:
         return True
+    if "/basefiles/" in p_lower or "/preferences/ableton/" in p_lower or "/crash/" in p_lower or "/undo/" in p_lower:
+        return True
     return False
+
+
+def find_project_by_name(project_name: str) -> Path | None:
+    """Instantly finds a project's .als file using Spotlight mdfind (runs in milliseconds)."""
+    if not project_name:
+        return None
+    try:
+        escaped = project_name.replace("'", "\\'")
+        res = subprocess.run(
+            ["mdfind", f"kMDItemFSName == '{escaped}.als'"],
+            capture_output=True, text=True, timeout=2.0
+        )
+        for line in res.stdout.splitlines():
+            p = Path(line.strip())
+            if p.exists() and not is_template_path(p):
+                return p
+    except Exception:
+        pass
+
+    # Quick fallback: check common music project locations (shallow / direct)
+    candidates = [
+        Path.home() / "Documents" / "Music Projects",
+        Path.home() / "Music",
+    ]
+    for c in candidates:
+        if c.exists():
+            direct = list(c.glob(f"**/{project_name}.als"))
+            for p in direct:
+                if not is_template_path(p):
+                    return p
+    return None
 
 
 def is_untitled_name(name: str | None) -> bool:
@@ -242,31 +275,21 @@ def get_active_project_path() -> tuple[Path | None, bool]:
     main_title = find_main_ableton_window_title(win_titles)
     project_name = clean_project_name_from_title(main_title)
 
+    # 1. If window title points to a saved project, try finding it instantly via Spotlight
     if project_name and not is_untitled_name(project_name):
+        spotlight_hit = find_project_by_name(project_name)
+        if spotlight_hit and spotlight_hit.exists():
+            return spotlight_hit, False
+
+        # Check adjacent to last_doc
         if last_doc and last_doc.parent.exists():
             direct_cand = last_doc.parent / f"{project_name}.als"
-            if direct_cand.exists():
+            if direct_cand.exists() and not is_template_path(direct_cand):
                 return direct_cand, False
 
+    # 2. Check last_doc from Log.txt
     if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
         return last_doc, False
-
-    if project_name and not is_untitled_name(project_name):
-        search_roots = [
-            Path.home() / "Music",
-            Path.home() / "Documents",
-            Path.home() / "Desktop",
-        ]
-        if last_doc and last_doc.parent.exists():
-            search_roots.insert(0, last_doc.parent)
-
-        for root in search_roots:
-            if not root.exists():
-                continue
-            matches = list(root.glob(f"**/{project_name}.als"))
-            if matches:
-                best = max(matches, key=lambda p: p.stat().st_mtime)
-                return best, False
 
     if is_template or not last_doc:
         return last_doc, True
@@ -595,36 +618,41 @@ def main():
         print(f"✅ Successfully initiated export for '{target_name}'.")
 
         # Spawn background watcher to ensure the rendered file lands in project_folder
+        escaped_proj = str(project_folder).replace('"', '\\"')
         relocate_script = f"""
 import time, shutil
 from pathlib import Path
 
-target = "{target_name}"
-dst_dir = Path("{project_folder}")
+target_stem = "{escaped_target}"
+dst_dir = Path("{escaped_proj}")
 now = time.time()
 
 # Poll for up to 3 minutes for render to complete
 for _ in range(180):
     time.sleep(1)
-    # Check if already in destination
-    if any(f.stem == target and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} for f in dst_dir.iterdir() if f.is_file()):
-        break
-    # Search common recent export locations
-    found = None
-    for root in [Path.home() / "Downloads", Path.home() / "Desktop", Path.home() / "Music", Path.home() / "Documents"]:
-        for f in root.glob(f"**/{target}.*"):
-            if f.is_file() and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} and f.parent != dst_dir:
-                if f.stat().st_mtime >= now - 60:
-                    found = f
-                    break
-        if found:
+    try:
+        # Check if already in destination
+        if any(f.stem == target_stem and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} for f in dst_dir.iterdir() if f.is_file()):
             break
-    if found:
-        try:
-            shutil.move(str(found), str(dst_dir / found.name))
-        except Exception:
-            pass
-        break
+        # Search common recent export locations
+        found = None
+        for root in [Path.home() / "Downloads", Path.home() / "Desktop", Path.home() / "Music", Path.home() / "Documents"]:
+            pattern = "**/" + target_stem + ".*"
+            for f in root.glob(pattern):
+                if f.is_file() and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} and f.parent != dst_dir:
+                    if f.stat().st_mtime >= now - 60:
+                        found = f
+                        break
+            if found:
+                break
+        if found:
+            try:
+                shutil.move(str(found), str(dst_dir / found.name))
+            except Exception:
+                pass
+            break
+    except Exception:
+        pass
 """
         subprocess.Popen([sys.executable, "-c", relocate_script])
     else:
