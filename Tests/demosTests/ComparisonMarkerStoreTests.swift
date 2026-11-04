@@ -34,6 +34,44 @@ final class ComparisonMarkerStoreTests: XCTestCase {
         XCTAssertEqual(store.markers(for: project).count, 1)
     }
 
+    func testAbletonMarkerPositionsAcrossAllVersionsWithFallback() {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("comparison-markers-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let project = makeProject(named: "Song Ableton")
+        let store = ComparisonMarkerStore(fileURL: fileURL)
+        let locator = AbletonLocator(timeInBeats: 128, name: "Drop 2", annotation: "Bass heavy")
+
+        store.importAbleton([(0.5, locator)], into: project)
+        let marker = try! XCTUnwrap(store.markers(for: project).first)
+
+        // Ableton markers should resolve for any version, falling back to arrangement fraction
+        XCTAssertEqual(marker.position(for: "/tmp/version-a.wav", legacySourcePath: nil), 0.5)
+        XCTAssertEqual(marker.position(for: "/tmp/version-b.wav", legacySourcePath: nil), 0.5)
+    }
+
+    func testAbletonImportStoresPerSourceFractionsWhenProvided() {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("comparison-markers-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let project = makeProject(named: "Song PerSource")
+        let store = ComparisonMarkerStore(fileURL: fileURL)
+        let locator = AbletonLocator(timeInBeats: 64, name: "Drop", annotation: "")
+
+        let v1 = "/tmp/song-v1.wav"
+        let v2 = "/tmp/song-v2.wav"
+        let candidates = [(
+            fraction: 0.25,
+            locator: locator,
+            sourceFractions: [v1: 0.25, v2: 0.24]
+        )]
+        store.importAbleton(candidates, into: project)
+
+        let marker = try! XCTUnwrap(store.markers(for: project).first)
+        XCTAssertEqual(marker.position(for: v1, legacySourcePath: nil), 0.25)
+        XCTAssertEqual(marker.position(for: v2, legacySourcePath: nil), 0.24)
+    }
+
     func testStoresASeparatePositionForEachVersion() {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("comparison-markers-\(UUID().uuidString).json")

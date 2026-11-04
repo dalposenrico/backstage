@@ -112,7 +112,8 @@ struct ComparisonPlayerBarView: View {
 
                 // Markers overlay
                 ForEach(markers) { marker in
-                    if let pos = marker.sourceFractions[activeSource?.url.path ?? ""] ?? marker.sourceFractions.values.first {
+                    if let pos = marker.position(for: activeSource?.url.path ?? "", legacySourcePath: nil)
+                        ?? (marker.origin == .ableton ? marker.fraction : marker.sourceFractions.values.first) {
                         Rectangle()
                             .fill(Color(hex: "FF9F0A").opacity(0.55))
                             .frame(width: 1.5, height: 8)

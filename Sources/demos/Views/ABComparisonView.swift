@@ -73,6 +73,9 @@ struct ABComparisonView: View {
                         )
                     }
                     resetAnalysis(project)
+                    Task {
+                        await importAbletonMarkers(into: project, userInitiated: false)
+                    }
                 }
                 .onDisappear {
                     if embeddedProject == nil {
@@ -97,6 +100,9 @@ struct ABComparisonView: View {
                         )
                     }
                     resetAnalysis(project)
+                    Task {
+                        await importAbletonMarkers(into: project, userInitiated: false)
+                    }
                 }
                 .onKeyPress(.space) {
                     let all = sources(project)
@@ -181,7 +187,7 @@ struct ABComparisonView: View {
             }
             .buttonStyle(IndustrialButtonStyle())
             .help("Add a resizable range for looping and assembly")
-            Button { Task { await importAbletonMarkers(into: project) } } label: {
+            Button { Task { await importAbletonMarkers(into: project, userInitiated: true) } } label: {
                 if isImportingMarkers {
                     ProgressView().controlSize(.small)
                 } else {
@@ -189,7 +195,7 @@ struct ABComparisonView: View {
                 }
             }
             .buttonStyle(IndustrialButtonStyle())
-            .disabled(isImportingMarkers || project.newestAbletonVersion == nil || project.bpm == nil || project.sortedTracks.isEmpty)
+            .disabled(isImportingMarkers || project.newestAbletonVersion == nil || project.sortedTracks.isEmpty)
             .help("Import locators from the newest Ableton set")
             Button { references.addReferences(to: project) } label: {
                 Label("REFERENCE", systemImage: "plus")
@@ -384,16 +390,27 @@ struct ABComparisonView: View {
     }
 
     @MainActor
-    private func importAbletonMarkers(into project: Project) async {
-        guard let setURL = project.newestAbletonVersion?.url,
-              let bpm = project.bpm,
-              let exportURL = project.sortedTracks.first?.url else {
-            markerStatus = "Need an Ableton set, tempo, and export"
+    private func importAbletonMarkers(into project: Project, userInitiated: Bool = false) async {
+        guard let setURL = project.newestAbletonVersion?.url else {
+            if userInitiated { markerStatus = "Need an Ableton set file (.als)" }
             return
         }
-        let duration = audioDuration(exportURL)
-        guard duration > 0 else {
-            markerStatus = "Couldn’t read the export duration"
+
+        var resolvedBpm = project.bpm
+        if resolvedBpm == nil {
+            resolvedBpm = await Task.detached(priority: .utility) {
+                AbletonProjectInspector.readTempo(from: setURL)
+            }.value
+        }
+
+        guard let bpm = resolvedBpm, bpm > 0 else {
+            if userInitiated { markerStatus = "Tempo unavailable in Ableton set" }
+            return
+        }
+
+        let allSources = sources(project)
+        guard !allSources.isEmpty else {
+            if userInitiated { markerStatus = "No audio versions to align with" }
             return
         }
 
@@ -401,16 +418,53 @@ struct ABComparisonView: View {
         let locators = await Task.detached(priority: .utility) {
             AbletonProjectInspector.readLocators(from: setURL)
         }.value
-        let candidates = locators.compactMap { locator -> (fraction: Double, locator: AbletonLocator)? in
-            let fraction = (locator.timeInBeats * 60 / bpm) / duration
-            guard fraction >= 0, fraction <= 1.01 else { return nil }
-            return (min(fraction, 1), locator)
+
+        guard !locators.isEmpty else {
+            isImportingMarkers = false
+            if userInitiated { markerStatus = "No Ableton locators found in set" }
+            return
         }
-        let count = comparisonMarkers.importAbleton(candidates, into: project, sourcePath: exportURL.path)
+
+        var sourceDurations: [String: Double] = [:]
+        for src in allSources {
+            let dur = audioDurations[src.url.path] ?? audioDuration(src.url)
+            if dur > 0 {
+                sourceDurations[src.url.path] = dur
+            }
+        }
+
+        let baseDuration = (project.sortedTracks.first?.url.path).flatMap { sourceDurations[$0] }
+            ?? sourceDurations.values.first ?? 0
+        guard baseDuration > 0 else {
+            isImportingMarkers = false
+            if userInitiated { markerStatus = "Couldn't read audio duration" }
+            return
+        }
+
+        let candidates = locators.compactMap { locator -> (fraction: Double, locator: AbletonLocator, sourceFractions: [String: Double])? in
+            let locatorSeconds = locator.timeInBeats * (60.0 / bpm)
+            let baseFraction = locatorSeconds / baseDuration
+            guard baseFraction >= 0, baseFraction <= 1.05 else { return nil }
+
+            var perSource: [String: Double] = [:]
+            for (path, dur) in sourceDurations {
+                let frac = locatorSeconds / dur
+                if frac >= 0 && frac <= 1.05 {
+                    perSource[path] = min(max(frac, 0), 1)
+                }
+            }
+
+            return (fraction: min(max(baseFraction, 0), 1), locator: locator, sourceFractions: perSource)
+        }
+
+        let count = comparisonMarkers.importAbleton(candidates, into: project)
+        comparisonPlayer.markers = comparisonMarkers.markers(for: project)
         isImportingMarkers = false
-        markerStatus = count > 0
-            ? "Imported \(count) Ableton section\(count == 1 ? "" : "s")"
-            : "No new Ableton locators found"
+        if count > 0 {
+            markerStatus = "Loaded \(count) Ableton marker\(count == 1 ? "" : "s")"
+        } else if userInitiated {
+            markerStatus = "Ableton locators already loaded"
+        }
     }
 
     private func selectedMarker(for project: Project) -> ComparisonMarker? {
@@ -802,7 +856,8 @@ private struct CompareWaveformRow: View {
                         SpectralWaveformView(
                             samples: samples,
                             playedFraction: playhead,
-                            hoverFraction: hoverFraction
+                            hoverFraction: hoverFraction,
+                            sectionMarkers: markers.compactMap { $0.position(for: source.url.path, legacySourcePath: legacySourcePath) }
                         )
                         .padding(.horizontal, 7)
                         .padding(.vertical, 5)
@@ -863,7 +918,7 @@ private struct CompareWaveformRow: View {
                                     onMove: { onMoveMarker(marker, $0) }
                                 )
                                 .position(
-                                    x: min(max(CGFloat(position) * geometry.size.width, 8), geometry.size.width - 8),
+                                    x: min(max(CGFloat(position) * geometry.size.width, 16), geometry.size.width - 16),
                                     y: geometry.size.height / 2
                                 )
                             }
@@ -961,17 +1016,29 @@ private struct ComparisonPointMarker: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 0) {
-                Text(String(format: "%02d", number))
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundColor(.black)
-                    .frame(width: 20, height: 14)
-                    .background(color)
+                HStack(spacing: 3) {
+                    Text(String(format: "%02d", number))
+                    if !marker.title.isEmpty && marker.title != "New marker" {
+                        Text(marker.title.uppercased())
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                .foregroundColor(.black)
+                .padding(.horizontal, 4)
+                .frame(height: 14)
+                .background(color)
+                .clipShape(RoundedRectangle(cornerRadius: 2))
+
                 Rectangle()
                     .fill(color.opacity(isSelected ? 1 : 0.74))
                     .frame(width: isSelected ? 2 : 1, height: 42)
             }
-            .frame(width: 22, height: 56, alignment: .top)
-            .overlay(Rectangle().stroke(.white.opacity(isSelected ? 0.8 : 0), lineWidth: 1))
+            .frame(height: 56, alignment: .top)
+            .overlay(
+                RoundedRectangle(cornerRadius: 2)
+                    .stroke(Color.white.opacity(isSelected ? 0.8 : 0), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .offset(x: dragOffset)
@@ -989,9 +1056,9 @@ private struct ComparisonPointMarker: View {
                     onMove(adjusted)
                 }
         )
-        .help("Drag to move marker \(marker.title)")
+        .help("Click to audition; drag to move marker \(marker.title)")
         .accessibilityLabel("Marker \(number), \(marker.title)")
-        .accessibilityHint("Drag horizontally to move")
+        .accessibilityHint("Drag horizontally to move, click to audition")
     }
 }
 

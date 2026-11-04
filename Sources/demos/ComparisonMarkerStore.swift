@@ -64,6 +64,8 @@ struct ComparisonMarker: Identifiable, Codable, Equatable, Sendable {
 
     func position(for sourcePath: String, legacySourcePath: String?) -> Double? {
         if let position = sourceFractions[sourcePath] { return position }
+        // Ableton locators belong to the project arrangement and apply across versions unless overridden
+        if origin == .ableton { return fraction }
         // Old markers used one shared percentage. Show that position only on
         // the newest export instead of pretending every arrangement aligns.
         if sourceFractions.isEmpty, sourcePath == legacySourcePath { return fraction }
@@ -234,23 +236,36 @@ final class ComparisonMarkerStore: ObservableObject {
         save()
     }
 
+    @discardableResult
     func importAbleton(
-        _ candidates: [(fraction: Double, locator: AbletonLocator)],
-        into project: Project,
-        sourcePath: String? = nil
+        _ candidates: [(fraction: Double, locator: AbletonLocator, sourceFractions: [String: Double])],
+        into project: Project
     ) -> Int {
         var existing = markersByProject[project.folderURL.path] ?? []
         var added = 0
         for candidate in candidates {
-            let duplicate = existing.contains {
+            if let index = existing.firstIndex(where: {
                 $0.origin == .ableton
                     && $0.title.caseInsensitiveCompare(candidate.locator.name) == .orderedSame
                     && abs($0.fraction - candidate.fraction) < 0.002
+            }) {
+                var updated = existing[index]
+                var changed = false
+                for (path, frac) in candidate.sourceFractions {
+                    if updated.sourceFractions[path] == nil {
+                        updated.sourceFractions[path] = frac
+                        changed = true
+                    }
+                }
+                if changed {
+                    existing[index] = updated
+                    added += 1
+                }
+                continue
             }
-            guard !duplicate else { continue }
             existing.append(ComparisonMarker(
                 fraction: candidate.fraction,
-                sourceFractions: sourcePath.map { [$0: candidate.fraction] } ?? [:],
+                sourceFractions: candidate.sourceFractions,
                 title: candidate.locator.name,
                 note: candidate.locator.annotation,
                 kind: .marker,
@@ -261,6 +276,22 @@ final class ComparisonMarkerStore: ObservableObject {
         markersByProject[project.folderURL.path] = existing
         if added > 0 { save() }
         return added
+    }
+
+    @discardableResult
+    func importAbleton(
+        _ candidates: [(fraction: Double, locator: AbletonLocator)],
+        into project: Project,
+        sourcePath: String? = nil
+    ) -> Int {
+        let expanded = candidates.map { candidate in
+            (
+                fraction: candidate.fraction,
+                locator: candidate.locator,
+                sourceFractions: sourcePath.map { [$0: candidate.fraction] } ?? [:]
+            )
+        }
+        return importAbleton(expanded, into: project)
     }
 
     private func save() {

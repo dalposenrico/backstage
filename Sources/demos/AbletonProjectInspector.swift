@@ -117,6 +117,11 @@ enum AbletonProjectInspector {
             ?? .distantPast
     }
 
+    static func readTempo(from url: URL) -> Double? {
+        guard let xml = Gunzip.readTextFile(at: url) else { return nil }
+        return readTempo(in: xml)
+    }
+
     private static func readTempo(in xml: String) -> Double? {
         let patterns = [
             #"<Tempo[\s\S]*?<Manual\s+Value=\"([0-9]+(?:\.[0-9]+)?)\""#,
