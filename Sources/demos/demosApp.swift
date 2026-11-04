@@ -267,6 +267,7 @@ struct demosApp: App {
                 .environmentObject(store)
                 .environmentObject(store.audioPlayer)
                 .environmentObject(settings)
+                .environmentObject(globalHotkey)
         }
         .defaultSize(width: 330, height: 580)
         .windowStyle(.hiddenTitleBar)

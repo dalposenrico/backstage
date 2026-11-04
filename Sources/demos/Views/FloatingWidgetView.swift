@@ -11,6 +11,7 @@ struct FloatingWidgetView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var audioPlayer: AudioPlayer
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @Environment(\.openWindow) private var openWindow
 
     @State private var filter: FloatingWidgetFilter = .recents
@@ -154,6 +155,9 @@ struct FloatingWidgetView: View {
                     Button("Open in Ableton Live") {
                         store.openInAbleton(project)
                     }
+                }
+                Button("Export Active Project (F1 / ⇧⌘E)") {
+                    globalHotkey.triggerExport()
                 }
                 if project.sortedTracks.first != nil {
                     Button(audioPlayer.isPlaying ? "Pause Demo" : "Play Demo") {
@@ -311,6 +315,26 @@ struct FloatingWidgetView: View {
             }
             .buttonStyle(.plain)
             .help("Open in Ableton Live")
+
+            // Auto-Export Button ("E")
+            Button {
+                globalHotkey.triggerExport()
+            } label: {
+                if globalHotkey.isRunningExport {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                } else {
+                    Text("E")
+                        .font(.system(size: size.capsuleSubtitleFontSize + 1.5, weight: .black, design: .rounded))
+                        .foregroundStyle(isLiveActive ? Color.accentColor : .primary)
+                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                        .background(isLiveActive ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.1), in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Export active project (F1 / ⇧⌘E)")
+            .disabled(globalHotkey.isRunningExport)
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
@@ -664,6 +688,33 @@ struct FloatingWidgetView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open in Finder")
+
+                // Export Button ("E")
+                Button {
+                    globalHotkey.triggerExport()
+                } label: {
+                    if globalHotkey.isRunningExport {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                    } else {
+                        HStack(spacing: 3) {
+                            Text("E")
+                                .font(.system(size: 9.5, weight: .black, design: .rounded))
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 8.5, weight: .bold))
+                        }
+                        .foregroundStyle(isLiveSession ? Color.accentColor : .primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke((isLiveSession ? Color.accentColor : Color.primary).opacity(0.2), lineWidth: 0.8))
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Export active project (F1 / ⇧⌘E)")
+                .disabled(globalHotkey.isRunningExport)
 
                 Button {
                     store.openInMainWindow(project)

@@ -113,10 +113,10 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
 
     var capsuleWidth: CGFloat {
         switch self {
-        case .small: return 175
-        case .medium: return 210
-        case .large: return 245
-        case .extraLarge: return 280
+        case .small: return 205
+        case .medium: return 245
+        case .large: return 285
+        case .extraLarge: return 325
         }
     }
 
