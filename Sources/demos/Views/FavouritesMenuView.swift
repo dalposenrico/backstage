@@ -579,6 +579,19 @@ struct FavouritesMenuView: View {
                 Spacer(minLength: 8)
 
                 Button {
+                    store.openAndExport(project)
+                } label: {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(Color.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+                .help("Fast Export: Open in Live & export new version")
+
+                Button {
                     store.openInAbleton(project)
                 } label: {
                     HStack(spacing: 4) {
@@ -642,6 +655,19 @@ struct FavouritesMenuView: View {
             // Open in DAW directly without opening goodvibrations HQ
             if project.newestAbletonVersion != nil {
                 Button {
+                    store.openAndExport(project)
+                } label: {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(Color.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+                .help("Fast Export: Open in Live & export new version")
+
+                Button {
                     store.openInAbleton(project)
                 } label: {
                     HStack(spacing: 3) {
@@ -684,6 +710,19 @@ struct FavouritesMenuView: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
         .contextMenu {
             if project.newestAbletonVersion != nil {
+                Button {
+                    store.openAndExport(project)
+                } label: {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(Color.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+                .help("Fast Export: Open in Live & export new version")
+
                 Button {
                     store.openInAbleton(project)
                 } label: {

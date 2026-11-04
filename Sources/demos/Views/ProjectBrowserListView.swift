@@ -877,6 +877,16 @@ private struct BrowserProjectRow: View {
                 }
 
                 Group {
+                    Button { store.openAndExport(project) } label: {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(project.newestAbletonVersion == nil ? .tertiaryText : .orange)
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(project.newestAbletonVersion == nil)
+                    .help("Fast Export: Open in Live & Export New Version")
+
                     Button { store.openInAbleton(project) } label: {
                         Image(systemName: "doc.badge.gearshape")
                             .font(.system(size: 11))
@@ -898,7 +908,7 @@ private struct BrowserProjectRow: View {
                 }
                 .opacity(hovered ? 1 : 0)
             }
-            .frame(width: 56, alignment: .trailing)
+            .frame(width: 76, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
@@ -911,6 +921,7 @@ private struct BrowserProjectRow: View {
         .opacity(store.isProjectHidden(project) ? 0.5 : 1)
         .contextMenu {
             if let version = project.newestAbletonVersion {
+                Button("Fast Export New Version…") { store.openAndExport(project, version: version) }
                 Button("Open in Ableton Live") { store.openInAbleton(project, version: version) }
             }
             Button("Check Versions (A/B)…") {

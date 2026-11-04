@@ -9,14 +9,25 @@ struct AbletonOpeningBanner: View {
             if opening.phase == .opening {
                 ProgressView()
                     .controlSize(.small)
-                Text("Opening \(opening.projectName) in Ableton Live…")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.primaryText)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(opening.autoExportOnReady
+                        ? "Opening \(opening.projectName) & exporting new version…"
+                        : "Opening \(opening.projectName) in Ableton Live…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.primaryText)
+                    if opening.autoExportOnReady {
+                        Text("Save or discard changes in Ableton if prompted")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondaryText)
+                    }
+                }
             } else {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: opening.autoExportOnReady ? "bolt.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.green)
-                Text("\(opening.projectName) is open in Ableton Live")
+                    .foregroundColor(opening.autoExportOnReady ? .orange : .green)
+                Text(opening.autoExportOnReady
+                    ? "\(opening.projectName) is ready — starting version export…"
+                    : "\(opening.projectName) is open in Ableton Live")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.primaryText)
             }
@@ -38,8 +49,8 @@ struct AbletonOpeningBanner: View {
             Capsule()
                 .stroke(
                     opening.phase == .opening
-                        ? Color.accent.opacity(0.4)
-                        : Color.green.opacity(0.4),
+                        ? (opening.autoExportOnReady ? Color.orange.opacity(0.5) : Color.accent.opacity(0.4))
+                        : (opening.autoExportOnReady ? Color.orange.opacity(0.6) : Color.green.opacity(0.4)),
                     lineWidth: 1
                 )
         )

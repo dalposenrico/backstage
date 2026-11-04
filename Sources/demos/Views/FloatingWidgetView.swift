@@ -154,6 +154,9 @@ struct FloatingWidgetView: View {
                 Divider()
                 Text(project.name).font(.caption).disabled(true)
                 if project.newestAbletonVersion != nil {
+                    Button("Fast Export New Version (Open & Export)") {
+                        store.openAndExport(project)
+                    }
                     Button("Open in Ableton Live") {
                         store.openInAbleton(project)
                     }
@@ -320,7 +323,11 @@ struct FloatingWidgetView: View {
 
             // Auto-Export Button ("E")
             Button {
-                globalHotkey.triggerExport()
+                if let project = activeProject {
+                    store.openAndExport(project)
+                } else {
+                    globalHotkey.triggerExport()
+                }
             } label: {
                 if globalHotkey.isRunningExport {
                     ProgressView()

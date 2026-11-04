@@ -216,6 +216,7 @@ struct demosApp: App {
                 .environmentObject(references)
                 .environmentObject(projectProgress)
                 .environmentObject(comparisonMarkers)
+                .environmentObject(globalHotkey)
         }
         .defaultSize(width: 1120, height: 720)
 

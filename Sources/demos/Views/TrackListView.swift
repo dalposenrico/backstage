@@ -91,6 +91,25 @@ struct TrackListView: View {
                         checkVersionsButton
 
                         if let version = activeVersion ?? project.newestAbletonVersion {
+                            Button { store.openAndExport(project, version: version) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text("Fast Export")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.orange.opacity(0.35), lineWidth: 0.8)
+                                )
+                                .foregroundColor(.orange)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open in Ableton Live (waits for save dialog if needed) and export a new version automatically")
+
                             Button { store.openInAbleton(project, version: version) } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.up.forward.app.fill")

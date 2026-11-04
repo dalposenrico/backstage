@@ -12,6 +12,7 @@ struct AbletonOpeningState: Equatable, Sendable {
     let targetVersionURL: URL
     let startedAt: Date
     var phase: AbletonOpeningPhase
+    var autoExportOnReady: Bool
 
     init(
         projectID: Project.ID,
@@ -19,7 +20,8 @@ struct AbletonOpeningState: Equatable, Sendable {
         projectName: String,
         targetVersionURL: URL,
         startedAt: Date = Date(),
-        phase: AbletonOpeningPhase = .opening
+        phase: AbletonOpeningPhase = .opening,
+        autoExportOnReady: Bool = false
     ) {
         self.projectID = projectID
         self.folderURL = folderURL
@@ -27,6 +29,7 @@ struct AbletonOpeningState: Equatable, Sendable {
         self.targetVersionURL = targetVersionURL
         self.startedAt = startedAt
         self.phase = phase
+        self.autoExportOnReady = autoExportOnReady
     }
 
     func matchesLoadedProject(folderURL: URL?) -> Bool {

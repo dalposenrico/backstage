@@ -6,6 +6,7 @@ struct ABComparisonView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var references: ReferenceStore
     @EnvironmentObject var comparisonMarkers: ComparisonMarkerStore
+    @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @Environment(\.openWindow) private var openWindow
     @State private var sectionStart = 0.40
     @State private var sectionEnd = 0.60
@@ -207,10 +208,38 @@ struct ABComparisonView: View {
                 Label("REFERENCE", systemImage: "plus")
             }
             .buttonStyle(IndustrialButtonStyle())
+
+            Button {
+                store.openAndExport(project)
+            } label: {
+                if isExportingThisProject(project) {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text(store.openingAbletonProject?.phase == .opening ? "OPENING…" : "EXPORTING…")
+                    }
+                } else {
+                    Label("FAST EXPORT", systemImage: "bolt.fill")
+                }
+            }
+            .buttonStyle(IndustrialButtonStyle(accent: true))
+            .disabled(project.newestAbletonVersion == nil || isExportingThisProject(project))
+            .help("Open in Ableton Live (waits for save dialog if needed) and automatically export a new version")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background(Color(hex: "181A1D"))
+    }
+
+    private func isExportingThisProject(_ project: Project) -> Bool {
+        if let opening = store.openingAbletonProject,
+           opening.matchesLoadedProject(folderURL: project.folderURL),
+           opening.autoExportOnReady {
+            return true
+        }
+        if globalHotkey.isRunningExport && store.isCurrentOpenProject(project) {
+            return true
+        }
+        return false
     }
 
     private func sourceWaveforms(_ project: Project) -> some View {
@@ -1188,13 +1217,15 @@ private struct ComparisonSectionRegion: View {
 }
 
 private struct IndustrialButtonStyle: ButtonStyle {
+    var accent: Bool = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 9, weight: .semibold, design: .monospaced))
             .padding(.horizontal, 9)
             .frame(height: 26)
-            .foregroundColor(configuration.isPressed ? .black : .white)
-            .background(configuration.isPressed ? Color(hex: "FF9F0A") : Color.white.opacity(0.045))
-            .overlay(Rectangle().stroke(Color.white.opacity(configuration.isPressed ? 0 : 0.18)))
+            .foregroundColor(configuration.isPressed ? .black : (accent ? Color(hex: "FF9F0A") : .white))
+            .background(configuration.isPressed ? Color(hex: "FF9F0A") : (accent ? Color(hex: "FF9F0A").opacity(0.14) : Color.white.opacity(0.045)))
+            .overlay(Rectangle().stroke(accent ? Color(hex: "FF9F0A").opacity(0.45) : Color.white.opacity(configuration.isPressed ? 0 : 0.18)))
     }
 }

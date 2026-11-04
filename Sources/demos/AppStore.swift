@@ -394,7 +394,44 @@ class AppStore: ObservableObject {
         startAbletonPolling(snappy: false)
     }
 
-    func openInAbleton(_ project: Project, version: AbletonVersion? = nil) {
+    func openAndExport(_ project: Project, version: AbletonVersion? = nil) {
+        let targetVersion = version ?? project.newestAbletonVersion
+        let isSameOrLatestVersion = version == nil || version?.url == project.newestAbletonVersion?.url
+
+        // If this project is ALREADY the current open session in Ableton Live:
+        let isAlreadyActive: Bool = {
+            if isSameOrLatestVersion && isCurrentOpenProject(project) {
+                return true
+            }
+            if isSameOrLatestVersion {
+                let snapshot = AbletonSessionDetector.snapshot()
+                if snapshot.isRunning,
+                   let match = AbletonSessionDetector.activeProject(
+                       in: [project],
+                       windowTitles: snapshot.windowTitles,
+                       loadedDocumentURLs: snapshot.loadedDocumentURLs
+                   ), match.folderURL == project.folderURL {
+                    setCurrentOpenProject(project.folderURL)
+                    return true
+                }
+            }
+            return false
+        }()
+
+        if isAlreadyActive {
+            _ = AbletonSessionDetector.activateAbleton()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                GlobalHotkeyManager.shared?.triggerExport()
+            }
+            return
+        }
+
+        // If not already active, launch project with autoExportOnReady
+        openInAbleton(project, version: targetVersion, autoExportOnReady: true)
+    }
+
+    func openInAbleton(_ project: Project, version: AbletonVersion? = nil, autoExportOnReady: Bool = false) {
         let targetVersion = version ?? project.newestAbletonVersion
 
         // If this project is ALREADY the current open session in Ableton Live,
@@ -403,6 +440,12 @@ class AppStore: ObservableObject {
         let isSameOrLatestVersion = version == nil || version?.url == project.newestAbletonVersion?.url
         if isSameOrLatestVersion && isCurrentOpenProject(project) {
             if AbletonSessionDetector.activateAbleton() {
+                if autoExportOnReady {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(350))
+                        GlobalHotkeyManager.shared?.triggerExport()
+                    }
+                }
                 return
             }
         } else if isSameOrLatestVersion {
@@ -417,6 +460,12 @@ class AppStore: ObservableObject {
                match.folderURL == project.folderURL {
                 setCurrentOpenProject(project.folderURL)
                 if AbletonSessionDetector.activateAbleton() {
+                    if autoExportOnReady {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(350))
+                            GlobalHotkeyManager.shared?.triggerExport()
+                        }
+                    }
                     return
                 }
             }
@@ -428,6 +477,9 @@ class AppStore: ObservableObject {
         if let opening = openingAbletonProject,
            opening.phase == .opening,
            opening.matchesLoadedProject(folderURL: project.folderURL) {
+            if autoExportOnReady && !opening.autoExportOnReady {
+                openingAbletonProject?.autoExportOnReady = true
+            }
             _ = AbletonSessionDetector.activateAbleton()
             return
         }
@@ -442,7 +494,8 @@ class AppStore: ObservableObject {
             projectName: project.name,
             targetVersionURL: targetVersion.url,
             startedAt: now,
-            phase: .opening
+            phase: .opening,
+            autoExportOnReady: autoExportOnReady
         )
         lastAbletonLaunchRequest = now
 
@@ -510,12 +563,15 @@ class AppStore: ObservableObject {
             }
 
             if isLoaded {
+                let shouldAutoExport = opening.autoExportOnReady
                 openingAbletonProject?.phase = .loaded
                 let projectName = opening.projectName
                 if UserDefaults.standard.object(forKey: "notifyOnAbletonReady") as? Bool ?? true {
                     SystemNotifier.post(
                         title: "goodvibrations HQ",
-                        message: "\"\(projectName)\" is ready in Ableton Live."
+                        message: shouldAutoExport
+                            ? "\"\(projectName)\" loaded — starting version export…"
+                            : "\"\(projectName)\" is ready in Ableton Live."
                     )
                 }
                 openingDismissTask?.cancel()
@@ -524,6 +580,16 @@ class AppStore: ObservableObject {
                     guard !Task.isCancelled else { return }
                     self?.openingAbletonProject = nil
                     self?.startAbletonPolling(snappy: false)
+                }
+
+                if shouldAutoExport {
+                    Task { @MainActor in
+                        // Brief settle window so Ableton finishes updating UI and release document lock
+                        try? await Task.sleep(for: .milliseconds(1200))
+                        _ = AbletonSessionDetector.activateAbleton()
+                        try? await Task.sleep(for: .milliseconds(350))
+                        GlobalHotkeyManager.shared?.triggerExport()
+                    }
                 }
             } else if opening.hasTimedOut(at: now, timeoutInterval: 60) {
                 openingAbletonProject = nil
