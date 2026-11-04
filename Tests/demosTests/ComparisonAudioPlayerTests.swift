@@ -67,6 +67,24 @@ final class ComparisonAudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.activeSource, sourceC)
     }
 
+    func testConvenienceOverloads() {
+        let player = ComparisonAudioPlayer()
+        let urlA = URL(fileURLWithPath: "/tmp/fake_a.wav")
+        let urlB = URL(fileURLWithPath: "/tmp/fake_b.wav")
+        let sourceA = CompareSource(url: urlA, name: "A", kind: "Export", exportedAt: nil, isReference: false)
+        let sourceB = CompareSource(url: urlB, name: "B", kind: "Export", exportedAt: nil, isReference: false)
+        player.sources = [sourceA, sourceB]
+
+        player.switchTo(sourceA, keepPosition: false, playImmediately: false)
+        XCTAssertEqual(player.activeSource, sourceA)
+
+        player.switchNext()
+        XCTAssertEqual(player.activeSource, sourceB)
+
+        player.toggleAB()
+        XCTAssertEqual(player.activeSource, sourceA)
+    }
+
     func testGainMatchingCalculation() {
         let player = ComparisonAudioPlayer()
         let urlA = URL(fileURLWithPath: "/tmp/fake_loud.wav")

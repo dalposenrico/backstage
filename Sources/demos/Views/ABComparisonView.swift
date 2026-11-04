@@ -4,7 +4,6 @@ import AVFoundation
 struct ABComparisonView: View {
     var embeddedProject: Project? = nil
     @EnvironmentObject var store: AppStore
-    @StateObject private var comparisonPlayer = ComparisonAudioPlayer()
     @EnvironmentObject var references: ReferenceStore
     @EnvironmentObject var comparisonMarkers: ComparisonMarkerStore
     @Environment(\.openWindow) private var openWindow
@@ -26,6 +25,10 @@ struct ABComparisonView: View {
         embeddedProject ?? store.selectedProject
     }
 
+    private var comparisonPlayer: ComparisonAudioPlayer {
+        store.comparisonAudioPlayer
+    }
+
     var body: some View {
         Group {
             if let project = currentProject {
@@ -38,14 +41,17 @@ struct ABComparisonView: View {
                         Divider().overlay(Color.white.opacity(0.10))
                         sectionInspector(project)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider().overlay(Color.white.opacity(0.10))
                     assemblyRail(project)
-                    ComparisonPlayerBarView(
-                        controller: comparisonPlayer,
-                        sources: sources(project),
-                        loudnessResults: results,
-                        markers: comparisonMarkers.markers(for: project)
-                    )
+                    if embeddedProject == nil {
+                        ComparisonPlayerBarView(
+                            controller: comparisonPlayer,
+                            sourcesOverride: sources(project),
+                            loudnessResultsOverride: results,
+                            markersOverride: comparisonMarkers.markers(for: project)
+                        )
+                    }
                 }
                 .onAppear {
                     let s = store
@@ -53,6 +59,9 @@ struct ABComparisonView: View {
                         s.audioPlayer.pause()
                     }
                     let all = sources(project)
+                    comparisonPlayer.sources = all
+                    comparisonPlayer.markers = comparisonMarkers.markers(for: project)
+                    comparisonPlayer.loudnessResults = results
                     comparisonPlayer.prewarm(sources: all)
                     if comparisonPlayer.activeSource == nil, let first = all.first {
                         comparisonPlayer.switchTo(
@@ -66,12 +75,17 @@ struct ABComparisonView: View {
                     resetAnalysis(project)
                 }
                 .onDisappear {
-                    comparisonPlayer.stop()
+                    if embeddedProject == nil {
+                        comparisonPlayer.stop()
+                    }
                 }
                 .onChange(of: project.id) { _, _ in
                     selectedMarkerID = nil
                     markerStatus = ""
                     let all = sources(project)
+                    comparisonPlayer.sources = all
+                    comparisonPlayer.markers = comparisonMarkers.markers(for: project)
+                    comparisonPlayer.loudnessResults = results
                     comparisonPlayer.prewarm(sources: all)
                     if let first = all.first {
                         comparisonPlayer.switchTo(
@@ -125,7 +139,7 @@ struct ABComparisonView: View {
                 Text("Select a project to compare audio").foregroundColor(.secondaryText)
             }
         }
-        .frame(minWidth: 860, minHeight: 600)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(hex: "111315"))
         .preferredColorScheme(.dark)
     }
@@ -621,6 +635,7 @@ struct ABComparisonView: View {
             guard generation == analysisGeneration else { return }
             analyzing.remove(source.url.path)
             results[source.url.path] = result
+            comparisonPlayer.loudnessResults[source.url.path] = result
             completion()
         }
     }

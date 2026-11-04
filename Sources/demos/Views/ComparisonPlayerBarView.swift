@@ -3,14 +3,26 @@ import AVFoundation
 
 struct ComparisonPlayerBarView: View {
     @ObservedObject var controller: ComparisonAudioPlayer
-    let sources: [CompareSource]
-    let loudnessResults: [String: LoudnessResult]
-    let markers: [ComparisonMarker]
+    var sourcesOverride: [CompareSource]? = nil
+    var loudnessResultsOverride: [String: LoudnessResult]? = nil
+    var markersOverride: [ComparisonMarker]? = nil
     var onToggleLoop: (() -> Void)? = nil
 
     @State private var isDraggingSeek = false
     @State private var dragSeekFraction: Double = 0
     @State private var hoverSeekFraction: Double? = nil
+
+    private var sources: [CompareSource] {
+        sourcesOverride ?? controller.sources
+    }
+
+    private var loudnessResults: [String: LoudnessResult] {
+        loudnessResultsOverride ?? controller.loudnessResults
+    }
+
+    private var markers: [ComparisonMarker] {
+        markersOverride ?? controller.markers
+    }
 
     private var activeSource: CompareSource? {
         controller.activeSource
@@ -49,25 +61,26 @@ struct ComparisonPlayerBarView: View {
             seekBarView
 
             // Main transport & A/B comparison control bar
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 // Left: Active Version Badge & Details
                 leftVersionInfo
-                    .frame(minWidth: 220, maxWidth: 300, alignment: .leading)
+                    .frame(minWidth: 160, maxWidth: 280, alignment: .leading)
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
 
                 // Center: Transport & Instant A/B Switching
                 centerTransportControls
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
 
                 // Right: Time, Gain Match Toggle & Volume
                 rightUtilityControls
-                    .frame(minWidth: 260, alignment: .trailing)
+                    .frame(minWidth: 220, alignment: .trailing)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
+        .frame(height: 56)
         .background(Color(hex: "121417"))
         .overlay(alignment: .top) {
             Rectangle()
@@ -303,43 +316,46 @@ struct ComparisonPlayerBarView: View {
 
             // Quick Version Pills (instant switch at same playhead)
             if sources.count > 1 {
-                HStack(spacing: 4) {
-                    ForEach(Array(sources.prefix(6).enumerated()), id: \.element.url) { index, source in
-                        let letter = ComparisonAudioPlayer.versionLetter(for: index)
-                        let isSelected = activeSource == source
-                        Button {
-                            controller.switchTo(
-                                source,
-                                allSources: sources,
-                                loudnessResults: loudnessResults,
-                                keepPosition: true
-                            )
-                        } label: {
-                            HStack(spacing: 3) {
-                                Text(letter)
-                                    .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                                    .foregroundColor(isSelected ? .black : Color(hex: "FF9F0A"))
-                                Text(source.name)
-                                    .font(.system(size: 9.5, weight: isSelected ? .bold : .medium))
-                                    .lineLimit(1)
-                                    .frame(maxWidth: 80)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(Array(sources.prefix(8).enumerated()), id: \.element.url) { index, source in
+                            let letter = ComparisonAudioPlayer.versionLetter(for: index)
+                            let isSelected = activeSource == source
+                            Button {
+                                controller.switchTo(
+                                    source,
+                                    allSources: sources,
+                                    loudnessResults: loudnessResults,
+                                    keepPosition: true
+                                )
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Text(letter)
+                                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                        .foregroundColor(isSelected ? .black : Color(hex: "FF9F0A"))
+                                    Text(source.name)
+                                        .font(.system(size: 9.5, weight: isSelected ? .bold : .medium))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: 80)
+                                }
+                                .padding(.horizontal, 6)
+                                .frame(height: 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4.5)
+                                        .fill(isSelected ? Color(hex: "FF9F0A") : Color.white.opacity(0.06))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4.5)
+                                        .stroke(isSelected ? Color(hex: "FF9F0A") : Color.white.opacity(0.12), lineWidth: 0.8)
+                                )
+                                .foregroundColor(isSelected ? .black : .white)
                             }
-                            .padding(.horizontal, 6)
-                            .frame(height: 24)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4.5)
-                                    .fill(isSelected ? Color(hex: "FF9F0A") : Color.white.opacity(0.06))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4.5)
-                                    .stroke(isSelected ? Color(hex: "FF9F0A") : Color.white.opacity(0.12), lineWidth: 0.8)
-                            )
-                            .foregroundColor(isSelected ? .black : .white)
+                            .buttonStyle(.plain)
+                            .help("Switch to \(letter): \(source.name) at exact current timestamp")
                         }
-                        .buttonStyle(.plain)
-                        .help("Switch to \(letter): \(source.name) at exact current timestamp")
                     }
                 }
+                .frame(maxWidth: 300)
                 .padding(.leading, 6)
             }
         }

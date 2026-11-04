@@ -40,6 +40,9 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
     @Published var playbackError: String?
     @Published var gainMatch: Bool = true
     @Published var sectionMode: Bool = false
+    @Published var sources: [CompareSource] = []
+    @Published var loudnessResults: [String: LoudnessResult] = [:]
+    @Published var markers: [ComparisonMarker] = []
 
     let timeline = PlaybackTimeline()
 
@@ -63,6 +66,7 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
     // MARK: - Pre-warming
 
     func prewarm(sources: [CompareSource]) {
+        self.sources = sources
         let urls = sources.map(\.url)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             var loaded: [URL: AVAudioPlayer] = [:]
@@ -279,7 +283,46 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         volume = min(max(0, newVolume), 1)
     }
 
+    func switchTo(
+        _ source: CompareSource,
+        keepPosition: Bool = true,
+        specifiedPosition: TimeInterval? = nil,
+        sectionRange: ClosedRange<Double>? = nil,
+        playImmediately: Bool? = nil
+    ) {
+        switchTo(
+            source,
+            allSources: self.sources.isEmpty ? [source] : self.sources,
+            loudnessResults: self.loudnessResults,
+            keepPosition: keepPosition,
+            specifiedPosition: specifiedPosition,
+            sectionRange: sectionRange,
+            playImmediately: playImmediately
+        )
+    }
+
+    func toggleAB(sectionRange: ClosedRange<Double>? = nil) {
+        toggleAB(allSources: self.sources, loudnessResults: self.loudnessResults, sectionRange: sectionRange)
+    }
+
+    func switchNext(sectionRange: ClosedRange<Double>? = nil) {
+        switchNext(allSources: self.sources, loudnessResults: self.loudnessResults, sectionRange: sectionRange)
+    }
+
+    func switchPrevious(sectionRange: ClosedRange<Double>? = nil) {
+        switchPrevious(allSources: self.sources, loudnessResults: self.loudnessResults, sectionRange: sectionRange)
+    }
+
+    func togglePlayPause(sectionRange: ClosedRange<Double>? = nil) {
+        togglePlayPause(allSources: self.sources, loudnessResults: self.loudnessResults, sectionRange: sectionRange)
+    }
+
+    func setGainMatch(_ enabled: Bool) {
+        setGainMatch(enabled, loudnessResults: self.loudnessResults)
+    }
+
     func setGainMatch(_ enabled: Bool, loudnessResults: [String: LoudnessResult]) {
+        self.loudnessResults = loudnessResults
         gainMatch = enabled
         if let active = activeSource {
             let targetLUFS = loudnessResults.values.map(\.integratedLUFS).min()

@@ -103,6 +103,7 @@ class AppStore: ObservableObject {
     }
 
     let audioPlayer = AudioPlayer()
+    let comparisonAudioPlayer = ComparisonAudioPlayer()
 
     @Published var initialProjectInspectorSection: String? = nil
     @Published var isVersionsTabActive = false
