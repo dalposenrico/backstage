@@ -174,6 +174,10 @@ final class GlobalHotkeyManager: ObservableObject {
     // MARK: - Public trigger (for Tools Hub button & Menu commands)
 
     func triggerExport() {
+        guard !isRunningExport else {
+            sendNotification(title: "goodvibrations HQ", body: "⏳ Export is already running...")
+            return
+        }
         Task { await runExport() }
     }
 
@@ -187,9 +191,17 @@ final class GlobalHotkeyManager: ObservableObject {
         if isF1 {
             let disallowedModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
             guard disallowedModifiers.isEmpty else { return false }
+            guard !isRunningExport else {
+                sendNotification(title: "goodvibrations HQ", body: "⏳ Export is already running...")
+                return true
+            }
             Task { await runExport() }
             return true
         } else if isCmdShiftE {
+            guard !isRunningExport else {
+                sendNotification(title: "goodvibrations HQ", body: "⏳ Export is already running...")
+                return true
+            }
             Task { await runExport() }
             return true
         }
