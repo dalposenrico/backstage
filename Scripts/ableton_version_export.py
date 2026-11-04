@@ -370,8 +370,11 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
     """
     Executes a single, fast, atomic AppleScript automation.
     Completes in ~2.5 - 3.5 seconds total with zero subprocess polling lag.
+    Navigates the Save dialog directly to folder_path using Cmd+Shift+G so exports
+    always land in the correct project folder.
     Works identically on single-screen and dual-screen configurations.
     """
+    escaped_folder = folder_path.replace('"', '\\"')
     escaped_target = target_name.replace('"', '\\"')
 
     save_as_part = f'''
@@ -379,7 +382,7 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
     tell process "Live"
         keystroke "s" using {{command down, shift down}}
     end tell
-    delay 0.6
+    delay 0.5
 
     set the clipboard to "{escaped_target}"
     tell process "Live"
@@ -389,7 +392,7 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
         delay 0.15
         key code 36 -- Return to save new set
     end tell
-    delay 1.2
+    delay 1.0
     ''' if create_new_version else '''
     delay 0.2
     '''
@@ -438,14 +441,26 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
             end tell
         end repeat
 
-        -- 4. Set export filename in Save panel and start render
-        set the clipboard to "{escaped_target}"
+        -- 4. Navigate Save panel to project folder and set export filename
+        set the clipboard to "{escaped_folder}"
         tell process "Live"
             if exists (first window whose name is "Save") then
+                -- Drop "Go to the folder:" sheet via Cmd+Shift+G
+                keystroke "g" using {{command down, shift down}}
+                delay 0.35
+                -- Paste target folder path and navigate
+                keystroke "v" using {{command down}}
+                delay 0.15
+                key code 36
+                delay 0.35
+
+                -- Set target filename
+                set the clipboard to "{escaped_target}"
                 keystroke "a" using {{command down}}
                 delay 0.05
                 keystroke "v" using {{command down}}
                 delay 0.15
+
                 try
                     set s to window "Save"
                     set sg to first UI element of s whose role is "AXSplitGroup"
@@ -532,7 +547,7 @@ def main():
         escaped_proj = str(project_folder).replace('"', '\\"')
         escaped_target = target_name.replace('"', '\\"')
         relocate_script = f"""
-import time, shutil
+import time, shutil, subprocess
 from pathlib import Path
 
 target_stem = "{escaped_target}"
@@ -544,15 +559,13 @@ for _ in range(180):
     try:
         if any(f.stem == target_stem and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} for f in dst_dir.iterdir() if f.is_file()):
             break
+        # Instant Spotlight search for rendered file
+        res = subprocess.run(["mdfind", f'kMDItemFSName == "{{target_stem}}.*" && kMDItemFSContentChangeDate >= $time.now(-300)'], capture_output=True, text=True)
         found = None
-        for root in [Path.home() / "Downloads", Path.home() / "Desktop", Path.home() / "Music", Path.home() / "Documents"]:
-            pattern = "**/" + target_stem + ".*"
-            for f in root.glob(pattern):
-                if f.is_file() and f.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} and f.parent != dst_dir:
-                    if f.stat().st_mtime >= now - 60:
-                        found = f
-                        break
-            if found:
+        for line in res.stdout.strip().splitlines():
+            cand = Path(line.strip())
+            if cand.is_file() and cand.suffix.lower() in {{".wav", ".mp3", ".aif", ".flac"}} and cand.parent != dst_dir:
+                found = cand
                 break
         if found:
             try:
