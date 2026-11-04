@@ -56,6 +56,7 @@ struct FloatingWidgetView: View {
                 expandedHudView
             }
         }
+        .background(Color.clear)
         .ignoresSafeArea()
         .onAppear {
             WindowPresenter.configureFloatingWidget(
@@ -117,7 +118,8 @@ struct FloatingWidgetView: View {
             puckCapsuleView(size: size)
         }
         .frame(width: currentPuckWidth, height: currentPuckHeight)
-        .contentShape(Rectangle())
+        .background(Color.clear)
+        .contentShape(Capsule())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
@@ -186,7 +188,7 @@ struct FloatingWidgetView: View {
                     .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
             } else {
                 Circle()
-                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .fill(Color(hex: "16191D"))
                     .overlay(
                         Circle()
                             .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
@@ -340,14 +342,14 @@ struct FloatingWidgetView: View {
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
         .background(
             Capsule()
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.85))
+                .fill(Color(hex: "181B20").opacity(0.92))
                 .background(.ultraThinMaterial, in: Capsule())
         )
+        .clipShape(Capsule())
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(0.18), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.28), radius: 6, x: 0, y: 2)
     }
 
     private var puckHelpText: String {
@@ -407,7 +409,7 @@ struct FloatingWidgetView: View {
         .frame(minWidth: 280, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
         .background(
             ZStack {
-                Color(nsColor: .windowBackgroundColor)
+                Color(hex: "13161A")
                 WindowDragArea()
             }
         )

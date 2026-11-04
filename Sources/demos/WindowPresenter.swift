@@ -208,13 +208,41 @@ enum WindowPresenter {
         window.orderFrontRegardless()
     }
 
+    static func applyFloatingWindowTransparency(_ window: NSWindow) {
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isMovable = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.hasShadow = false
+
+        if let contentView = window.contentView {
+            contentView.wantsLayer = true
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            contentView.layer?.isOpaque = false
+
+            if let superview = contentView.superview {
+                superview.wantsLayer = true
+                superview.layer?.backgroundColor = NSColor.clear.cgColor
+                superview.layer?.isOpaque = false
+            }
+
+            for subview in contentView.subviews {
+                subview.wantsLayer = true
+                subview.layer?.backgroundColor = NSColor.clear.cgColor
+                subview.layer?.isOpaque = false
+                if let effect = subview as? NSVisualEffectView {
+                    effect.isHidden = true
+                }
+            }
+        }
+    }
+
     static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil, targetWidth: CGFloat? = nil, targetHeight: CGFloat? = nil) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
 
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        applyFloatingWindowTransparency(window)
 
         let puckDim = puckSize ?? currentPuckDimension
         let finalWidth = targetWidth ?? puckDim
@@ -287,12 +315,7 @@ enum WindowPresenter {
         let finalWidth = targetWidth ?? puckDim
         let finalHeight = targetHeight ?? puckDim
 
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.isMovable = true
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        applyFloatingWindowTransparency(window)
 
         if collapsed {
             window.styleMask.remove(.titled)
