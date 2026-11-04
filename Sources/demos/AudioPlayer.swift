@@ -11,12 +11,12 @@ final class PlaybackTimeline: ObservableObject {
         duration > 0 ? currentTime / duration : 0
     }
 
-    fileprivate func update(currentTime: TimeInterval, duration: TimeInterval? = nil) {
+    func update(currentTime: TimeInterval, duration: TimeInterval? = nil) {
         self.currentTime = currentTime
         if let duration { self.duration = duration }
     }
 
-    fileprivate func reset() {
+    func reset() {
         currentTime = 0
         duration = 0
     }
@@ -106,6 +106,13 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isPlaying = true
             startTimer()
         }
+    }
+
+    func pause() {
+        guard let p = player, p.isPlaying else { return }
+        p.pause()
+        isPlaying = false
+        stopTimer()
     }
 
     func stop() {

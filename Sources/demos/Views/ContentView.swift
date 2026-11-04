@@ -58,8 +58,10 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider().background(Color.divider)
-            PlayerBarView()
+            if !store.isVersionsTabActive {
+                Divider().background(Color.divider)
+                PlayerBarView()
+            }
         }
         .background(Color.appBg)
         .overlay(alignment: .top) {

@@ -2,13 +2,12 @@ import SwiftUI
 import AVFoundation
 
 struct ABComparisonView: View {
+    var embeddedProject: Project? = nil
     @EnvironmentObject var store: AppStore
-    @EnvironmentObject var player: AudioPlayer
+    @StateObject private var comparisonPlayer = ComparisonAudioPlayer()
     @EnvironmentObject var references: ReferenceStore
     @EnvironmentObject var comparisonMarkers: ComparisonMarkerStore
-    @State private var activePath = ""
-    @State private var gainMatch = true
-    @State private var sectionMode = false
+    @Environment(\.openWindow) private var openWindow
     @State private var sectionStart = 0.40
     @State private var sectionEnd = 0.60
     @State private var results: [String: LoudnessResult] = [:]
@@ -23,9 +22,13 @@ struct ABComparisonView: View {
     @State private var markerStatus = ""
     @AppStorage("abComparisonBeatGrid") private var beatGridEnabled = true
 
+    private var currentProject: Project? {
+        embeddedProject ?? store.selectedProject
+    }
+
     var body: some View {
         Group {
-            if let project = store.selectedProject {
+            if let project = currentProject {
                 VStack(alignment: .leading, spacing: 0) {
                     header(project)
                     matchingControls(project)
@@ -37,13 +40,87 @@ struct ABComparisonView: View {
                     }
                     Divider().overlay(Color.white.opacity(0.10))
                     assemblyRail(project)
+                    ComparisonPlayerBarView(
+                        controller: comparisonPlayer,
+                        sources: sources(project),
+                        loudnessResults: results,
+                        markers: comparisonMarkers.markers(for: project)
+                    )
                 }
-                .onAppear { resetAnalysis(project) }
+                .onAppear {
+                    let s = store
+                    comparisonPlayer.onStartPlayback = {
+                        s.audioPlayer.pause()
+                    }
+                    let all = sources(project)
+                    comparisonPlayer.prewarm(sources: all)
+                    if comparisonPlayer.activeSource == nil, let first = all.first {
+                        comparisonPlayer.switchTo(
+                            first,
+                            allSources: all,
+                            loudnessResults: results,
+                            keepPosition: false,
+                            playImmediately: false
+                        )
+                    }
+                    resetAnalysis(project)
+                }
+                .onDisappear {
+                    comparisonPlayer.stop()
+                }
                 .onChange(of: project.id) { _, _ in
                     selectedMarkerID = nil
                     markerStatus = ""
+                    let all = sources(project)
+                    comparisonPlayer.prewarm(sources: all)
+                    if let first = all.first {
+                        comparisonPlayer.switchTo(
+                            first,
+                            allSources: all,
+                            loudnessResults: results,
+                            keepPosition: false,
+                            playImmediately: false
+                        )
+                    }
                     resetAnalysis(project)
                 }
+                .onKeyPress(.space) {
+                    let all = sources(project)
+                    let loopMarker = selectedMarker(for: project)
+                    let selectedRange = comparisonPlayer.sectionMode
+                        ? loopMarker?.range(for: comparisonPlayer.activeSource?.url.path ?? "", legacySourcePath: project.sortedTracks.first?.url.path)
+                        : nil
+                    comparisonPlayer.togglePlayPause(allSources: all, loudnessResults: results, sectionRange: selectedRange)
+                    return .handled
+                }
+                .onKeyPress(.tab) {
+                    let all = sources(project)
+                    let loopMarker = selectedMarker(for: project)
+                    let selectedRange = comparisonPlayer.sectionMode
+                        ? loopMarker?.range(for: comparisonPlayer.activeSource?.url.path ?? "", legacySourcePath: project.sortedTracks.first?.url.path)
+                        : nil
+                    comparisonPlayer.toggleAB(allSources: all, loudnessResults: results, sectionRange: selectedRange)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    let all = sources(project)
+                    let loopMarker = selectedMarker(for: project)
+                    let selectedRange = comparisonPlayer.sectionMode
+                        ? loopMarker?.range(for: comparisonPlayer.activeSource?.url.path ?? "", legacySourcePath: project.sortedTracks.first?.url.path)
+                        : nil
+                    comparisonPlayer.switchPrevious(allSources: all, loudnessResults: results, sectionRange: selectedRange)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    let all = sources(project)
+                    let loopMarker = selectedMarker(for: project)
+                    let selectedRange = comparisonPlayer.sectionMode
+                        ? loopMarker?.range(for: comparisonPlayer.activeSource?.url.path ?? "", legacySourcePath: project.sortedTracks.first?.url.path)
+                        : nil
+                    comparisonPlayer.switchNext(allSources: all, loudnessResults: results, sectionRange: selectedRange)
+                    return .handled
+                }
+                .focusable()
             } else {
                 Text("Select a project to compare audio").foregroundColor(.secondaryText)
             }
@@ -69,6 +146,16 @@ struct ABComparisonView: View {
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundColor(Color(hex: "FF9F0A"))
                     .transition(.opacity)
+            }
+            if embeddedProject != nil {
+                Button {
+                    openWindow(id: "ab-compare")
+                    WindowPresenter.showABCompare()
+                } label: {
+                    Label("POPOUT WINDOW", systemImage: "macwindow.on.rectangle")
+                }
+                .buttonStyle(IndustrialButtonStyle())
+                .help("Open Versions in a separate window")
             }
             Button { addItem(.marker, to: project) } label: {
                 Label("NEW MARKER", systemImage: "mappin")
@@ -101,16 +188,19 @@ struct ABComparisonView: View {
     }
 
     private func sourceWaveforms(_ project: Project) -> some View {
-        ScrollView {
+        let allSources = sources(project)
+        return ScrollView {
             LazyVStack(spacing: 1) {
-                ForEach(sources(project), id: \.url) { source in
+                ForEach(Array(allSources.enumerated()), id: \.element.url) { index, source in
+                    let letter = ComparisonAudioPlayer.versionLetter(for: index)
                     CompareWaveformRow(
                         source: source,
+                        letter: letter,
                         samples: waveforms[source.url.path] ?? [],
                         loudness: results[source.url.path],
-                        isActive: activePath == source.url.path,
+                        isActive: comparisonPlayer.activeSource?.url.path == source.url.path,
                         isLoading: waveformLoading.contains(source.url.path),
-                        timeline: player.timeline,
+                        timeline: comparisonPlayer.timeline,
                         duration: audioDurations[source.url.path] ?? 0,
                         bpm: project.bpm,
                         beatGridEnabled: beatGridEnabled,
@@ -118,6 +208,7 @@ struct ABComparisonView: View {
                         legacySourcePath: project.sortedTracks.first?.url.path,
                         selectedMarkerID: selectedMarkerID,
                         onAudition: { fraction in audition(source, at: fraction) },
+                        onSwitchAtPlayhead: { switchAtPlayhead(to: source) },
                         onSelectMarker: { marker in
                             selectedMarkerID = marker.id
                             if let position = marker.position(
@@ -155,7 +246,10 @@ struct ABComparisonView: View {
     private func matchingControls(_ project: Project) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Toggle("GAIN MATCH", isOn: $gainMatch).toggleStyle(.checkbox)
+                Toggle("GAIN MATCH", isOn: Binding(
+                    get: { comparisonPlayer.gainMatch },
+                    set: { comparisonPlayer.setGainMatch($0, loudnessResults: results) }
+                )).toggleStyle(.checkbox)
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                 Toggle("BEAT GRID", isOn: $beatGridEnabled)
                     .toggleStyle(.checkbox)
@@ -165,7 +259,10 @@ struct ABComparisonView: View {
                         ? "Set the project BPM to use the beat grid"
                         : "Snap section markers to beats; grid bars assume 4/4")
                 Spacer()
-                Picker("Range", selection: $sectionMode) {
+                Picker("Range", selection: Binding(
+                    get: { comparisonPlayer.sectionMode },
+                    set: { comparisonPlayer.sectionMode = $0 }
+                )) {
                     Text("FULL").tag(false)
                     Text("SECTION LOOP").tag(true)
                 }
@@ -184,43 +281,48 @@ struct ABComparisonView: View {
     }
 
     private func audition(_ source: CompareSource, at clickedFraction: Double, marker: ComparisonMarker? = nil) {
-        let duration = audioDuration(source.url)
-        let loopMarker: ComparisonMarker?
-        if let marker {
-            loopMarker = marker
-        } else if let project = store.selectedProject {
-            loopMarker = selectedMarker(for: project)
-        } else {
-            loopMarker = nil
-        }
-        let selectedRange = sectionMode
-            ? loopMarker?.range(for: source.url.path, legacySourcePath: store.selectedProject?.sortedTracks.first?.url.path)
+        guard let project = currentProject else { return }
+        let duration = audioDurations[source.url.path] ?? audioDuration(source.url)
+        let loopMarker: ComparisonMarker? = marker ?? selectedMarker(for: project)
+        let selectedRange = comparisonPlayer.sectionMode
+            ? loopMarker?.range(for: source.url.path, legacySourcePath: project.sortedTracks.first?.url.path)
             : nil
         let fraction = selectedRange?.lowerBound ?? min(max(clickedFraction, 0), 1)
         let start = duration * fraction
 
-        if !sectionMode, activePath == source.url.path, player.currentTrack?.url == source.url {
-            player.seek(to: start)
-            if !player.isPlaying { player.togglePlayPause() }
-            return
-        }
+        let all = sources(project)
+        comparisonPlayer.switchTo(
+            source,
+            allSources: all,
+            loudnessResults: results,
+            keepPosition: false,
+            specifiedPosition: start,
+            sectionRange: selectedRange,
+            playImmediately: true
+        )
+    }
 
-        let target = results.values.map(\.integratedLUFS).min()
-        let gain: Float
-        if gainMatch, let current = results[source.url.path], let target {
-            gain = Float(min(0, target - current.integratedLUFS))
-        } else {
-            gain = 0
-        }
-        let end = selectedRange.map { duration * $0.upperBound }
-        let track = Track(url: source.url, modificationDate: nil, creationDate: nil, relativeFolder: source.kind)
-        player.play(track, startAt: start, gainDB: gain, loopEnd: end)
-        activePath = source.url.path
+    private func switchAtPlayhead(to source: CompareSource, marker: ComparisonMarker? = nil) {
+        guard let project = currentProject else { return }
+        let loopMarker: ComparisonMarker? = marker ?? selectedMarker(for: project)
+        let selectedRange = comparisonPlayer.sectionMode
+            ? loopMarker?.range(for: source.url.path, legacySourcePath: project.sortedTracks.first?.url.path)
+            : nil
+        let all = sources(project)
+        comparisonPlayer.switchTo(
+            source,
+            allSources: all,
+            loudnessResults: results,
+            keepPosition: true,
+            sectionRange: selectedRange,
+            playImmediately: true
+        )
     }
 
     private func addItem(_ kind: ComparisonItemKind, to project: Project) {
-        let sourcePath = activePath.isEmpty ? sources(project).first?.url.path : activePath
-        let position = activePath.isEmpty ? 0.5 : player.timeline.progress
+        let all = sources(project)
+        let sourcePath = comparisonPlayer.activeSource?.url.path ?? all.first?.url.path
+        let position = comparisonPlayer.activeSource == nil ? 0.5 : comparisonPlayer.timeline.progress
         let marker = comparisonMarkers.add(
             to: project,
             at: position,
@@ -513,8 +615,8 @@ struct ABComparisonView: View {
         Task {
             let result = await LoudnessAnalyzer.analyze(
                 source.url,
-                startFraction: sectionMode ? sectionStart : 0,
-                endFraction: sectionMode ? sectionEnd : 1
+                startFraction: comparisonPlayer.sectionMode ? sectionStart : 0,
+                endFraction: comparisonPlayer.sectionMode ? sectionEnd : 1
             )
             guard generation == analysisGeneration else { return }
             analyzing.remove(source.url.path)
@@ -593,16 +695,9 @@ struct ABComparisonView: View {
     }
 }
 
-private struct CompareSource {
-    let url: URL
-    let name: String
-    let kind: String
-    let exportedAt: Date?
-    let isReference: Bool
-}
-
 private struct CompareWaveformRow: View {
     let source: CompareSource
+    let letter: String
     let samples: [SpectralWaveformSample]
     let loudness: LoudnessResult?
     let isActive: Bool
@@ -615,6 +710,7 @@ private struct CompareWaveformRow: View {
     let legacySourcePath: String?
     let selectedMarkerID: UUID?
     let onAudition: (Double) -> Void
+    let onSwitchAtPlayhead: () -> Void
     let onSelectMarker: (ComparisonMarker) -> Void
     let onPlaceSelectedMarker: (Double) -> Void
     let onMoveMarker: (ComparisonMarker, Double) -> Void
@@ -628,26 +724,55 @@ private struct CompareWaveformRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Image(systemName: source.kind == "Reference" ? "scope" : "waveform")
-                        .foregroundColor(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.38))
-                    Text(source.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
+            HStack(alignment: .center, spacing: 8) {
+                // A/B switch button at current playhead
+                Button(action: onSwitchAtPlayhead) {
+                    HStack(spacing: 3.5) {
+                        Text(letter)
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .foregroundColor(isActive ? .black : Color(hex: "FF9F0A"))
+
+                        if isActive {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundColor(.black)
+                        }
+                    }
+                    .frame(width: isActive ? 34 : 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4.5)
+                            .fill(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4.5)
+                            .stroke(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.18), lineWidth: 1)
+                    )
                 }
-                Text(metadata)
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.tertiaryText)
-                    .lineLimit(1)
-                Text(timestamp)
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondaryText)
-                    .lineLimit(1)
-                    .help(source.exportedAt?.fullDateTime ?? "File date unavailable")
+                .buttonStyle(.plain)
+                .help(isActive ? "Currently active version" : "Switch to \(letter): \(source.name) at the exact current drop / timestamp")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: source.kind == "Reference" ? "scope" : "waveform")
+                            .foregroundColor(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.38))
+                            .font(.system(size: 10))
+                        Text(source.name)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundColor(isActive ? .white : Color.white.opacity(0.85))
+                            .lineLimit(1)
+                    }
+                    Text(metadata)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.tertiaryText)
+                        .lineLimit(1)
+                    Text(timestamp)
+                        .font(.system(size: 8.5))
+                        .foregroundColor(.secondaryText)
+                        .lineLimit(1)
+                        .help(source.exportedAt?.fullDateTime ?? "File date unavailable")
+                }
             }
-            .frame(width: 220, alignment: .leading)
+            .frame(width: 230, alignment: .leading)
 
             GeometryReader { geometry in
                 ZStack {

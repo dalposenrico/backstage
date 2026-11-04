@@ -418,6 +418,10 @@ struct TrackListView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+
+                case .versions:
+                    ABComparisonView(embeddedProject: project)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .transaction { $0.disablesAnimations = true }
@@ -437,15 +441,21 @@ struct TrackListView: View {
             loadArrangement(for: alsURL)
         }
         .onAppear {
+            store.isVersionsTabActive = (section == .versions)
             if let target = store.initialProjectInspectorSection, target == "mixer" {
                 section = .arrangement
                 store.initialProjectInspectorSection = nil
+                store.isVersionsTabActive = false
             }
+        }
+        .onDisappear {
+            store.isVersionsTabActive = false
         }
         .onChange(of: store.initialProjectInspectorSection) { _, target in
             if target == "mixer" {
                 section = .arrangement
                 store.initialProjectInspectorSection = nil
+                store.isVersionsTabActive = false
             }
         }
     }
@@ -457,6 +467,7 @@ struct TrackListView: View {
         withTransaction(transaction) {
             section = item
         }
+        store.isVersionsTabActive = (item == .versions)
     }
 
     private func switchVersion(to version: AbletonVersion) {
@@ -558,6 +569,10 @@ struct TrackListView: View {
     }
 
     private func openVersionsWindow() {
+        selectSection(.versions)
+    }
+
+    private func popoutVersionsWindow() {
         store.selectedProject = project
         openWindow(id: "ab-compare")
         WindowPresenter.showABCompare()
@@ -591,6 +606,9 @@ struct TrackListView: View {
             .foregroundColor(.primaryText)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Open in Separate Window") { popoutVersionsWindow() }
+        }
         .help(project.versions.count > 1
               ? "Check project versions & A/B comparison (\(project.versions.count) versions)"
               : "Check project versions & A/B comparison")
@@ -614,6 +632,9 @@ struct TrackListView: View {
             Divider()
             Button { openVersionsWindow() } label: {
                 Label("Check Versions", systemImage: "rectangle.split.2x1")
+            }
+            Button { popoutVersionsWindow() } label: {
+                Label("Open Versions in Window", systemImage: "macwindow.on.rectangle")
             }
             Button { openWindow(id: "project-artwork") } label: {
                 Label("Choose Artwork", systemImage: "photo")
@@ -693,6 +714,12 @@ struct TrackListView: View {
                 return "MIDI (\(count))"
             }
             return "MIDI"
+        case .versions:
+            let count = max(project.tracks.count, project.versions.count)
+            if count > 1 {
+                return "Versions (\(count))"
+            }
+            return "Versions"
         default:
             return item.title
         }
@@ -700,7 +727,7 @@ struct TrackListView: View {
 }
 
 private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
-    case arrangement, midi, samples, overview, workflow, files
+    case arrangement, midi, samples, versions, overview, workflow, files
 
     var id: String { rawValue }
     var title: String {
@@ -708,6 +735,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
         case .arrangement: return "Arrangement"
         case .midi: return "MIDI"
         case .samples: return "Samples"
+        case .versions: return "Versions"
         case .overview: return "Overview"
         case .workflow: return "Workflow"
         case .files: return "Files"
@@ -718,6 +746,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
         case .arrangement: return "rectangle.split.3x1"
         case .midi: return "pianokeys"
         case .samples: return "waveform"
+        case .versions: return "rectangle.split.2x1"
         case .overview: return "scope"
         case .workflow: return "checklist"
         case .files: return "folder"

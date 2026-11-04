@@ -105,6 +105,7 @@ class AppStore: ObservableObject {
     let audioPlayer = AudioPlayer()
 
     @Published var initialProjectInspectorSection: String? = nil
+    @Published var isVersionsTabActive = false
 
     // MARK: - Tab Navigation Helpers
 
