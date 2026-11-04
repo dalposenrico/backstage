@@ -617,6 +617,11 @@ private struct ProjectGalleryView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { toggleProjectInspector(for: project) }
                         .contextMenu {
+                            Button("Check Versions (A/B)…") {
+                                store.selectedProject = project
+                                openWindow(id: "ab-compare")
+                                WindowPresenter.showABCompare()
+                            }
                             Button("Choose Artwork…") {
                                 store.selectedProject = project
                                 openWindow(id: "project-artwork")
@@ -632,6 +637,11 @@ private struct ProjectGalleryView: View {
                             }
                             Spacer()
                             Menu {
+                                Button("Check Versions (A/B)…") {
+                                    store.selectedProject = project
+                                    openWindow(id: "ab-compare")
+                                    WindowPresenter.showABCompare()
+                                }
                                 Button("Choose Artwork…") {
                                     store.selectedProject = project
                                     openWindow(id: "project-artwork")
@@ -902,6 +912,11 @@ private struct BrowserProjectRow: View {
         .contextMenu {
             if let version = project.newestAbletonVersion {
                 Button("Open in Ableton Live") { store.openInAbleton(project, version: version) }
+            }
+            Button("Check Versions (A/B)…") {
+                store.selectedProject = project
+                openWindow(id: "ab-compare")
+                WindowPresenter.showABCompare()
             }
             Button(notes.note(for: project).isEmpty ? "Add Project Note" : "View Project Notes") {
                 store.selectedProject = project

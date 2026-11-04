@@ -60,7 +60,13 @@ struct TrackListView: View {
                         .foregroundColor(.primaryText)
                         .lineLimit(1)
 
-                    ProjectBadgeView(project: project)
+                    Button {
+                        openVersionsWindow()
+                    } label: {
+                        ProjectBadgeView(project: project)
+                    }
+                    .buttonStyle(.plain)
+                    .help(project.versions.count > 1 ? "Check project versions (\(project.versions.count) available)" : "Check project versions")
 
                     if store.isCurrentOpenProject(project) {
                         Text("LIVE")
@@ -82,6 +88,8 @@ struct TrackListView: View {
 
                     // Compact Actions
                     HStack(spacing: 8) {
+                        checkVersionsButton
+
                         if let version = activeVersion ?? project.newestAbletonVersion {
                             Button { store.openInAbleton(project, version: version) } label: {
                                 HStack(spacing: 4) {
@@ -511,6 +519,12 @@ struct TrackListView: View {
                         }
                     }
                 }
+                Divider()
+                Button {
+                    openVersionsWindow()
+                } label: {
+                    Label("Check Versions (A/B Compare)…", systemImage: "rectangle.split.2x1")
+                }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "doc.badge.gearshape")
@@ -543,6 +557,45 @@ struct TrackListView: View {
         }
     }
 
+    private func openVersionsWindow() {
+        store.selectedProject = project
+        openWindow(id: "ab-compare")
+        WindowPresenter.showABCompare()
+    }
+
+    private var checkVersionsButton: some View {
+        Button {
+            openVersionsWindow()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text("Check Versions")
+                    .font(.system(size: 11, weight: .semibold))
+                if project.versions.count > 1 {
+                    Text("\(project.versions.count)")
+                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.accent)
+                        .padding(.horizontal, 4.5)
+                        .padding(.vertical, 1)
+                        .background(Color.accent.opacity(0.18), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.elevatedBg, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.subtleBorder, lineWidth: 0.8)
+            )
+            .foregroundColor(.primaryText)
+        }
+        .buttonStyle(.plain)
+        .help(project.versions.count > 1
+              ? "Check project versions & A/B comparison (\(project.versions.count) versions)"
+              : "Check project versions & A/B comparison")
+    }
+
     private var arrangementLoadingView: some View {
         ArrangementParsingLoadingView(progress: parseProgress, status: parseStatus)
     }
@@ -559,8 +612,8 @@ struct TrackListView: View {
                 )
             }
             Divider()
-            Button { openWindow(id: "ab-compare") } label: {
-                Label("Open Versions", systemImage: "rectangle.split.2x1")
+            Button { openVersionsWindow() } label: {
+                Label("Check Versions", systemImage: "rectangle.split.2x1")
             }
             Button { openWindow(id: "project-artwork") } label: {
                 Label("Choose Artwork", systemImage: "photo")
