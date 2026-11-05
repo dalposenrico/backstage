@@ -279,11 +279,11 @@ struct ABComparisonView: View {
                 ForEach(Array(allSources.enumerated()), id: \.element.url) { index, source in
                     let letter = ComparisonAudioPlayer.versionLetter(for: index)
                     CompareWaveformRow(
+                        controller: comparisonPlayer,
                         source: source,
                         letter: letter,
                         samples: waveforms[source.url.path] ?? [],
                         loudness: results[source.url.path],
-                        isActive: comparisonPlayer.activeSource?.url.path == source.url.path,
                         isLoading: waveformLoading.contains(source.url.path),
                         timeline: comparisonPlayer.timeline,
                         duration: audioDurations[source.url.path] ?? 0,
@@ -912,11 +912,11 @@ struct ABComparisonView: View {
 }
 
 private struct CompareWaveformRow: View {
+    @ObservedObject var controller: ComparisonAudioPlayer
     let source: CompareSource
     let letter: String
     let samples: [SpectralWaveformSample]
     let loudness: LoudnessResult?
-    let isActive: Bool
     let isLoading: Bool
     @ObservedObject var timeline: PlaybackTimeline
     let duration: Double
@@ -936,6 +936,10 @@ private struct CompareWaveformRow: View {
     let onChangeRange: (ComparisonMarker, Double, Double) -> Void
     let onAddToAssembly: (ComparisonMarker) -> Void
     @State private var hoverFraction: Double?
+
+    private var isActive: Bool {
+        controller.activeSource?.url.path == source.url.path
+    }
 
     private var playhead: Double? {
         isActive && timeline.duration > 0 ? timeline.progress : nil
@@ -991,7 +995,9 @@ private struct CompareWaveformRow: View {
                             .lineLimit(1)
                             .help(source.exportedAt?.fullDateTime ?? "File date unavailable")
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     onSwitchAtPlayhead()

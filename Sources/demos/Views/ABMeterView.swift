@@ -203,53 +203,62 @@ struct ABMeterView: View {
         onSelect: @escaping () -> Void,
         onAssign: @escaping (CompareSource) -> Void
     ) -> some View {
-        Menu {
-            ForEach(allSources, id: \.url) { s in
-                Button {
-                    onAssign(s)
-                } label: {
-                    HStack {
-                        if s.url == source?.url {
-                            Image(systemName: "checkmark")
+        HStack(spacing: 3) {
+            Button(action: onSelect) {
+                HStack(spacing: 4) {
+                    Text(slotLetter)
+                        .font(.system(size: 11, weight: .black, design: .monospaced))
+                        .foregroundColor(tint)
+
+                    if isActive {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(tint)
+                    }
+
+                    Text(source?.name ?? "None")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundColor(isActive ? .white : Color.white.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                ForEach(allSources, id: \.url) { s in
+                    Button {
+                        onAssign(s)
+                    } label: {
+                        HStack {
+                            if s.url == source?.url {
+                                Image(systemName: "checkmark")
+                            }
+                            Text(s.name)
                         }
-                        Text(s.name)
                     }
                 }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundColor(Color.white.opacity(0.55))
+                    .padding(.horizontal, 2)
             }
-        } label: {
-            HStack(spacing: 4) {
-                Text(slotLetter)
-                    .font(.system(size: 10, weight: .black, design: .monospaced))
-                    .foregroundColor(isActive ? .black : tint)
-
-                if isActive {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 7.5, weight: .bold))
-                        .foregroundColor(.black)
-                }
-
-                Text(source?.name ?? "None")
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundColor(isActive ? .black : Color.white.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4.5)
-            .background(
-                RoundedRectangle(cornerRadius: 4.5)
-                    .fill(isActive ? tint : Color.white.opacity(0.07))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4.5)
-                    .stroke(isActive ? tint : tint.opacity(0.4), lineWidth: 1)
-            )
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .simultaneousGesture(TapGesture().onEnded {
-            onSelect()
-        })
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4.5)
+        .background(
+            RoundedRectangle(cornerRadius: 4.5)
+                .fill(isActive ? tint.opacity(0.20) : Color.white.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4.5)
+                .stroke(isActive ? tint : Color.white.opacity(0.12), lineWidth: isActive ? 1.5 : 1)
+        )
         .help("Click to audition \(slotLetter). Click arrow to assign a different version.")
     }
 
