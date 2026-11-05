@@ -105,6 +105,52 @@ enum WindowPresenter {
         if pinned { window.orderFrontRegardless() }
     }
 
+    static func expandPillToMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        let hudWindow = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" })
+
+        guard let mainWindow = NSApp.windows.first(where: { $0.title.contains("goodvibrations HQ") && $0.canBecomeMain }) else {
+            showMainWindow()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                hudWindow?.orderOut(nil)
+            }
+            return
+        }
+
+        mainWindow.deminiaturize(nil)
+        mainWindow.makeKeyAndOrderFront(nil)
+        mainWindow.orderFrontRegardless()
+
+        let wasVisible = hudWindow?.isVisible ?? false
+        if wasVisible {
+            mainWindow.alphaValue = 0.25
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.26
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                mainWindow.animator().alphaValue = 1.0
+            } completionHandler: {
+                hudWindow?.orderOut(nil)
+            }
+        }
+    }
+
+    static func collapseMainWindowToPill() {
+        showFloatingWidget(pinned: true, collapsed: true)
+        let hudWindow = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" })
+        hudWindow?.orderFrontRegardless()
+
+        if let mainWindow = NSApp.windows.first(where: { $0.title.contains("goodvibrations HQ") && $0.canBecomeMain }), mainWindow.isVisible {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                mainWindow.animator().alphaValue = 0.0
+            } completionHandler: {
+                mainWindow.orderOut(nil)
+                mainWindow.alphaValue = 1.0
+            }
+        }
+    }
+
     static func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
         if let mainWindow = NSApp.windows.first(where: { $0.title.contains("goodvibrations HQ") && $0.canBecomeMain }) {
@@ -192,6 +238,8 @@ enum WindowPresenter {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
         guard !window.styleMask.contains(.titled) else { return }
 
+        applyFloatingWindowTransparency(window)
+
         window.minSize = NSSize(width: min(targetWidth, 120), height: min(height, 30))
         window.maxSize = NSSize(width: 600, height: max(height, 128))
 
@@ -216,6 +264,7 @@ enum WindowPresenter {
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = false
+        window.invalidateShadow()
 
         if let contentView = window.contentView {
             contentView.wantsLayer = true
@@ -227,22 +276,11 @@ enum WindowPresenter {
                 superview.layer?.backgroundColor = NSColor.clear.cgColor
                 superview.layer?.isOpaque = false
             }
-
-            for subview in contentView.subviews {
-                subview.wantsLayer = true
-                subview.layer?.backgroundColor = NSColor.clear.cgColor
-                subview.layer?.isOpaque = false
-                if let effect = subview as? NSVisualEffectView {
-                    effect.isHidden = true
-                }
-            }
         }
     }
 
     static func setFloatingWidgetCollapsed(_ collapsed: Bool, pinned: Bool = true, puckSize: CGFloat? = nil, targetWidth: CGFloat? = nil, targetHeight: CGFloat? = nil) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
-
-        applyFloatingWindowTransparency(window)
 
         let puckDim = puckSize ?? currentPuckDimension
         let finalWidth = targetWidth ?? puckDim
@@ -253,7 +291,7 @@ enum WindowPresenter {
                 savedExpandedSize = window.frame.size
             }
             window.styleMask.remove(.titled)
-            window.hasShadow = false
+            applyFloatingWindowTransparency(window)
             window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
             window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
 
@@ -315,11 +353,9 @@ enum WindowPresenter {
         let finalWidth = targetWidth ?? puckDim
         let finalHeight = targetHeight ?? puckDim
 
-        applyFloatingWindowTransparency(window)
-
         if collapsed {
             window.styleMask.remove(.titled)
-            window.hasShadow = false
+            applyFloatingWindowTransparency(window)
             window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
             window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
             var f = window.frame

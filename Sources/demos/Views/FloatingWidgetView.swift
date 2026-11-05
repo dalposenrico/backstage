@@ -56,6 +56,7 @@ struct FloatingWidgetView: View {
                 expandedHudView
             }
         }
+        .preferredColorScheme(.dark)
         .background(Color.clear)
         .ignoresSafeArea()
         .onAppear {
@@ -124,10 +125,9 @@ struct FloatingWidgetView: View {
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
             Button("Open goodvibrations HQ") {
-                openWindow(id: "main-window")
-                WindowPresenter.showMainWindow()
+                WindowPresenter.expandPillToMainWindow()
             }
-            Button("Expand goodvibrations HUD") {
+            Button("Expand quick HUD panel") {
                 expandWidget()
             }
 
@@ -288,19 +288,19 @@ struct FloatingWidgetView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(projectName)
                         .font(.system(size: size.capsuleTitleFontSize, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color(hex: "F3F4F6"))
                         .lineLimit(1)
 
                     Text(subtitle)
                         .font(.system(size: size.capsuleSubtitleFontSize))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color(hex: "9CA3AF"))
                         .lineLimit(1)
                 }
             }
             .contentShape(Rectangle())
             .overlay(
                 PetPuckDragArea {
-                    expandWidget()
+                    WindowPresenter.expandPillToMainWindow()
                 }
             )
 
@@ -314,9 +314,9 @@ struct FloatingWidgetView: View {
             } label: {
                 Image(systemName: "arrow.up.right")
                     .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color(hex: "E5E7EB"))
                     .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                    .background(Color.primary.opacity(0.1), in: Circle())
+                    .background(Color.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.plain)
             .help("Open in Ableton Live")
@@ -338,9 +338,9 @@ struct FloatingWidgetView: View {
                 } else {
                     Text("E")
                         .font(.system(size: size.capsuleSubtitleFontSize + 1.5, weight: .black, design: .rounded))
-                        .foregroundStyle(isLiveActive ? Color.accentColor : .primary)
+                        .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
                         .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                        .background(isLiveActive ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.1), in: Circle())
+                        .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
                 }
             }
             .buttonStyle(.plain)
@@ -350,13 +350,12 @@ struct FloatingWidgetView: View {
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
         .background(
             Capsule()
-                .fill(Color(hex: "181B20").opacity(0.92))
-                .background(.ultraThinMaterial, in: Capsule())
+                .fill(Color(hex: "16191E"))
         )
         .clipShape(Capsule())
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
         )
     }
 
@@ -508,8 +507,7 @@ struct FloatingWidgetView: View {
 
             // Open in goodvibrations HQ Main Window
             Button {
-                openWindow(id: "main-window")
-                WindowPresenter.showMainWindow()
+                WindowPresenter.expandPillToMainWindow()
                 if let p = activeProject {
                     store.openInMainWindow(p)
                 }
@@ -906,8 +904,7 @@ struct FloatingWidgetView: View {
 
             // 1-Click Open in goodvibrations HQ Button
             Button {
-                openWindow(id: "main-window")
-                WindowPresenter.showMainWindow()
+                WindowPresenter.expandPillToMainWindow()
                 store.openInMainWindow(project)
             } label: {
                 Image(systemName: "macwindow")
@@ -1046,40 +1043,29 @@ struct PetPuckDragArea: NSViewRepresentable {
 class PetPuckDragNSView: NSView {
     var onClick: (() -> Void)?
     private var initialMouseScreenLocation: NSPoint = .zero
-    private var initialWindowOrigin: NSPoint = .zero
     private var hasMoved = false
-    private let dragThreshold: CGFloat = 4.0
+    private let dragThreshold: CGFloat = 2.0
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window = self.window else { return }
         initialMouseScreenLocation = NSEvent.mouseLocation
-        initialWindowOrigin = window.frame.origin
         hasMoved = false
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let window = self.window else { return }
-        let currentMouseScreenLocation = NSEvent.mouseLocation
-        let dx = currentMouseScreenLocation.x - initialMouseScreenLocation.x
-        let dy = currentMouseScreenLocation.y - initialMouseScreenLocation.y
+        guard let window = self.window, !hasMoved else { return }
+        let currentMouse = NSEvent.mouseLocation
+        let distance = hypot(currentMouse.x - initialMouseScreenLocation.x,
+                             currentMouse.y - initialMouseScreenLocation.y)
 
-        if !hasMoved {
-            let distance = hypot(dx, dy)
-            if distance >= dragThreshold {
-                hasMoved = true
-            }
-        }
-
-        if hasMoved {
+        if distance >= dragThreshold {
+            hasMoved = true
             NSCursor.closedHand.set()
-            window.setFrameOrigin(NSPoint(
-                x: initialWindowOrigin.x + dx,
-                y: initialWindowOrigin.y + dy
-            ))
+            window.performDrag(with: event)
+            NSCursor.openHand.set()
         }
     }
 

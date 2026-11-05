@@ -71,8 +71,14 @@ class AppStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("favorites.json")
     }()
+    @Published var openProjects: [Project] = []
     @Published var selectedProject: Project? {
         didSet {
+            if let project = selectedProject {
+                if !openProjects.contains(where: { $0.id == project.id }) {
+                    openProjects.append(project)
+                }
+            }
             saveSelectedProject()
             updateWidgetSnapshot()
         }
@@ -111,6 +117,9 @@ class AppStore: ObservableObject {
     // MARK: - Tab Navigation Helpers
 
     func openProjectTab(_ project: Project) {
+        if !openProjects.contains(where: { $0.id == project.id }) {
+            openProjects.append(project)
+        }
         selectedProject = project
         activeWorkspaceSection = .project
     }
@@ -119,9 +128,31 @@ class AppStore: ObservableObject {
         openProjectTab(project)
     }
 
-    func closeProjectTab() {
-        activeWorkspaceSection = .library
-        selectedProject = nil
+    func closeProjectTab(_ project: Project? = nil) {
+        let toClose = project ?? selectedProject
+        guard let toClose else {
+            activeWorkspaceSection = .library
+            selectedProject = nil
+            return
+        }
+        if let idx = openProjects.firstIndex(where: { $0.id == toClose.id }) {
+            openProjects.remove(at: idx)
+        }
+        if selectedProject?.id == toClose.id {
+            if let next = openProjects.last {
+                selectedProject = next
+                activeWorkspaceSection = .project
+            } else {
+                selectedProject = nil
+                activeWorkspaceSection = .library
+            }
+        }
+    }
+
+    func closeOtherProjectTabs(keeping project: Project) {
+        openProjects = [project]
+        selectedProject = project
+        activeWorkspaceSection = .project
     }
 
     // Flat list of all projects, derived from tree
@@ -318,6 +349,9 @@ class AppStore: ObservableObject {
 
         // Restore selected project by saved path, fall back to first project
         let all = tree.flatMap { $0.allProjects() }
+        openProjects = openProjects.compactMap { op in
+            all.first { $0.folderURL == op.folderURL }
+        }
         if let pending = pendingProjectURLToOpen, let match = all.first(where: { $0.folderURL == pending }) {
             openInMainWindow(match)
             pendingProjectURLToOpen = nil
@@ -665,6 +699,9 @@ class AppStore: ObservableObject {
         folderTree = folderTree.map { $0.replacingProject(refreshed) }
         if selectedProject?.folderURL == refreshed.folderURL {
             selectedProject = refreshed
+        }
+        if let idx = openProjects.firstIndex(where: { $0.folderURL == refreshed.folderURL }) {
+            openProjects[idx] = refreshed
         }
 
         let cache = inspectionCache

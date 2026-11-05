@@ -47,7 +47,7 @@ struct demosApp: App {
     var body: some Scene {
 
         // MARK: - Main window
-        WindowGroup(id: "main-window") {
+        Window("goodvibrations HQ", id: "main-window") {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(store.audioPlayer)

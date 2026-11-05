@@ -63,6 +63,7 @@ struct DawTopNavBar: View {
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @Environment(\.openSettings) private var openSettings
     @State private var hoveredSection: WorkspaceSection?
+    @State private var hoveredProjectID: Project.ID?
 
     private var activeTabBackground: Color {
         switch selection {
@@ -81,7 +82,7 @@ struct DawTopNavBar: View {
                 .frame(height: 2)
                 .frame(maxWidth: .infinity)
 
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 // App Branding (vertically centered)
                 Button { openSettings() } label: {
                     HStack(spacing: 8) {
@@ -111,7 +112,7 @@ struct DawTopNavBar: View {
                 .help("goodvibrations HQ Settings (⌘,)")
                 .frame(maxHeight: .infinity, alignment: .center)
 
-                // Studio Tabs (DAWbro style, connected directly to page below)
+                // Studio & Project Tabs (Chrome-style tabs connected directly to page below)
                 HStack(alignment: .bottom, spacing: 4) {
                     tabButton(
                         title: "Project library",
@@ -119,7 +120,7 @@ struct DawTopNavBar: View {
                         section: .library
                     )
 
-                    if let project = store.selectedProject {
+                    ForEach(store.openProjects) { project in
                         projectTabButton(project: project)
                     }
 
@@ -145,65 +146,9 @@ struct DawTopNavBar: View {
 
                 Spacer()
 
-                // Quick Hotkey HUD Button + Settings (vertically centered)
+                // Top Bar Live Capsule Pill & Settings
                 HStack(spacing: 8) {
-                    Button {
-                        globalHotkey.triggerExport()
-                    } label: {
-                        HStack(spacing: 6) {
-                            if globalHotkey.isRunningExport {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                    .scaleEffect(0.7)
-                                Text("Exporting…")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(.accent)
-                            } else if let result = globalHotkey.lastResult, result.contains("Untitled") {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.orange)
-                                Text("Save Track First")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(.orange)
-                            } else {
-                                Text("F1")
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                    .foregroundColor(.accent)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
-                                Text("Auto-Export")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(.secondaryText)
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(
-                                    globalHotkey.isRunningExport
-                                        ? Color.accent.opacity(0.15)
-                                        : (globalHotkey.lastResult?.contains("Untitled") == true
-                                            ? Color.orange.opacity(0.12)
-                                            : Color.sidebarBg.opacity(0.7))
-                                )
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(
-                                    globalHotkey.isRunningExport
-                                        ? Color.accent
-                                        : (globalHotkey.lastResult?.contains("Untitled") == true
-                                            ? Color.orange.opacity(0.5)
-                                            : Color.white.opacity(0.14)),
-                                    lineWidth: 1
-                                )
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 5))
-                    }
-                    .buttonStyle(.plain)
-                    .help(globalHotkey.lastResult ?? "Click or press F1 / ⇧⌘E anywhere to trigger Ableton auto-export")
+                    topBarLivePill
 
                     // Settings button
                     Button { openSettings() } label: {
@@ -222,6 +167,150 @@ struct DawTopNavBar: View {
         }
         .frame(height: 44)
         .background(Color(red: 0.08, green: 0.085, blue: 0.095))
+    }
+
+    // MARK: - Top Bar Live Capsule Pill (Morph target for floating mini HUD)
+
+    private var topBarLivePill: some View {
+        let isOpening = store.openingAbletonProject?.phase == .opening
+        let isLiveActive = store.currentOpenProject != nil
+
+        let activeProj = store.currentOpenProject ?? store.selectedProject ?? store.recentProjects.first
+
+        let projectName: String = {
+            if isOpening {
+                return store.openingAbletonProject?.projectName ?? "Ableton Live"
+            }
+            if let active = store.currentOpenProject {
+                return active.name
+            }
+            return activeProj?.name ?? "goodvibrations HQ"
+        }()
+
+        let subtitle: String = {
+            if isOpening {
+                return "Opening in Live…"
+            }
+            if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
+                return "\(ver) • Ableton Live"
+            }
+            if isLiveActive {
+                return "Active in Live"
+            }
+            if let sel = store.selectedProject {
+                return "\(sel.name) • Ready"
+            }
+            return "goodvibrations HQ"
+        }()
+
+        return HStack(spacing: 7) {
+            // Clickable info area: collapses back to mini floating HUD
+            Button {
+                WindowPresenter.collapseMainWindowToPill()
+            } label: {
+                HStack(spacing: 7) {
+                    // Status indicator dot
+                    if isOpening {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.7)
+                    } else if isLiveActive {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                            .shadow(color: Color.green.opacity(0.6), radius: 3)
+                    } else {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.85))
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                    }
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(projectName)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(Color(hex: "F3F4F6"))
+                            .lineLimit(1)
+
+                        Text(subtitle)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(Color(hex: "9CA3AF"))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: 160, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Click to collapse back into floating mini HUD")
+
+            // Open in Ableton Live Button
+            Button {
+                if let project = store.currentOpenProject ?? activeProj {
+                    store.openInAbleton(project)
+                } else {
+                    _ = AbletonSessionDetector.activateAbleton()
+                }
+            } label: {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(Color(hex: "E5E7EB"))
+                    .frame(width: 20, height: 20)
+                    .background(Color.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Open in Ableton Live")
+
+            // Auto-Export Button ("E")
+            Button {
+                if globalHotkey.isRunningExport {
+                    globalHotkey.cancelExport()
+                } else if let project = activeProj {
+                    store.openAndExport(project)
+                } else {
+                    globalHotkey.triggerExport()
+                }
+            } label: {
+                if globalHotkey.isRunningExport {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                        .frame(width: 20, height: 20)
+                } else {
+                    Text("E")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
+                        .frame(width: 20, height: 20)
+                        .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+            .help(globalHotkey.isRunningExport ? "Export running — click to cancel" : "Auto-Export project (F1 / ⇧⌘E)")
+
+            // Collapse Icon Button
+            Button {
+                WindowPresenter.collapseMainWindowToPill()
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(Color(hex: "9CA3AF"))
+                    .frame(width: 18, height: 18)
+                    .background(Color.white.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Collapse to floating mini HUD")
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color(hex: "16191E"))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     private func tabButton(title: String, icon: String, section: WorkspaceSection) -> some View {
@@ -272,11 +361,12 @@ struct DawTopNavBar: View {
     }
 
     private func projectTabButton(project: Project) -> some View {
-        let isSelected = selection == .project
-        let isHovered = hoveredSection == .project
+        let isSelected = selection == .project && store.selectedProject?.id == project.id
+        let isHovered = hoveredProjectID == project.id
 
         return HStack(spacing: 0) {
             Button {
+                store.selectedProject = project
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
@@ -300,7 +390,7 @@ struct DawTopNavBar: View {
             .buttonStyle(.plain)
 
             Button {
-                store.closeProjectTab()
+                store.closeProjectTab(project)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
@@ -310,7 +400,7 @@ struct DawTopNavBar: View {
             }
             .buttonStyle(.plain)
             .padding(.trailing, 8)
-            .help("Close project tab")
+            .help("Close tab (\(project.name))")
         }
         .frame(height: 35)
         .background {
@@ -333,10 +423,21 @@ struct DawTopNavBar: View {
         }
         .contentShape(Rectangle())
         .onHover { isOver in
-            if isOver {
-                hoveredSection = .project
-            } else if hoveredSection == .project {
-                hoveredSection = nil
+            hoveredProjectID = isOver ? project.id : nil
+        }
+        .contextMenu {
+            Button("Close Tab") {
+                store.closeProjectTab(project)
+            }
+            Button("Close Other Tabs") {
+                store.closeOtherProjectTabs(keeping: project)
+            }
+            Divider()
+            Button("Open in Ableton Live") {
+                store.openInAbleton(project)
+            }
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([project.folderURL])
             }
         }
     }
