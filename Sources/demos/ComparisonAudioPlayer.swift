@@ -25,11 +25,26 @@ struct CompareSource: Identifiable, Equatable, Hashable {
     }
 }
 
+struct ChannelLevels: Equatable {
+    var livePeakL: Float = -60.0
+    var livePeakR: Float = -60.0
+    var rmsL: Float = -60.0
+    var rmsR: Float = -60.0
+    var maxPeakL: Float = -60.0
+    var maxPeakR: Float = -60.0
+    var maxRMSL: Float = -60.0
+    var maxRMSR: Float = -60.0
+}
+
 @MainActor
 final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published private(set) var isPlaying: Bool = false
     @Published private(set) var activeSource: CompareSource?
     @Published private(set) var previousSource: CompareSource?
+    @Published var meterSourceA: CompareSource?
+    @Published var meterSourceB: CompareSource?
+    @Published var trackLevels: [String: ChannelLevels] = [:]
+    @Published var isMonoMonitoring: Bool = false
     @Published var volume: Float = 1.0 {
         didSet {
             updatePlayerVolume()
@@ -72,11 +87,18 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
 
     func prewarm(sources: [CompareSource]) {
         self.sources = sources
+        if meterSourceA == nil, let first = sources.first {
+            meterSourceA = first
+        }
+        if meterSourceB == nil, let second = sources.dropFirst().first {
+            meterSourceB = second
+        }
         let urls = sources.map(\.url)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             var loaded: [URL: AVAudioPlayer] = [:]
             for url in urls {
                 if let p = try? AVAudioPlayer(contentsOf: url) {
+                    p.isMeteringEnabled = true
                     p.prepareToPlay()
                     loaded[url] = p
                 }
@@ -135,6 +157,20 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         if let currentActive = activeSource, currentActive != source {
             previousSource = currentActive
         }
+
+        // Maintain the last two selected tracks in Slot A and Slot B
+        if meterSourceA == nil {
+            meterSourceA = source
+        } else if meterSourceB == nil && source != meterSourceA {
+            meterSourceB = source
+        } else if source != meterSourceA && source != meterSourceB {
+            if let currentActive = activeSource, currentActive == meterSourceA {
+                meterSourceB = source
+            } else {
+                meterSourceA = source
+            }
+        }
+
         activeSource = source
         appliedGainDB = gain
 
@@ -151,9 +187,11 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
                 prepared = cached
             } else {
                 prepared = try AVAudioPlayer(contentsOf: source.url)
+                prepared.isMeteringEnabled = true
                 prepared.prepareToPlay()
             }
 
+            prepared.isMeteringEnabled = true
             prepared.delegate = self
             self.appliedGainDB = gain
             let linearMultiplier = pow(10.0, gain / 20.0)
@@ -181,6 +219,7 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
             let urlToPrewarm = source.url
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 if let refill = try? AVAudioPlayer(contentsOf: urlToPrewarm) {
+                    refill.isMeteringEnabled = true
                     refill.prepareToPlay()
                     DispatchQueue.main.async {
                         self?.prewarmedPlayers[urlToPrewarm] = refill
@@ -439,8 +478,106 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
                     p.currentTime = self.loopStart ?? 0
                 }
                 self.timeline.update(currentTime: p.currentTime, duration: p.duration)
+                self.updateMeters()
             }
         }
+    }
+
+    func levels(for source: CompareSource?) -> ChannelLevels {
+        guard let source else { return ChannelLevels() }
+        if let existing = trackLevels[source.url.path] {
+            return existing
+        }
+        if let loudness = loudnessResults[source.url.path] {
+            let gain = gainDB(for: source.url.path)
+            let peak = Float(loudness.samplePeakDBFS) + gain
+            let rms = Float(loudness.integratedLUFS) + gain
+            return ChannelLevels(
+                livePeakL: peak,
+                livePeakR: peak,
+                rmsL: rms,
+                rmsR: rms,
+                maxPeakL: peak,
+                maxPeakR: peak,
+                maxRMSL: rms,
+                maxRMSR: rms
+            )
+        }
+        return ChannelLevels()
+    }
+
+    func resetMeterPeaks() {
+        for key in trackLevels.keys {
+            var lvl = trackLevels[key] ?? ChannelLevels()
+            lvl.maxPeakL = -60.0
+            lvl.maxPeakR = -60.0
+            lvl.maxRMSL = -60.0
+            lvl.maxRMSR = -60.0
+            trackLevels[key] = lvl
+        }
+    }
+
+    private func updateMeters() {
+        guard let p = player, let active = activeSource else { return }
+        p.updateMeters()
+
+        let numChannels = p.numberOfChannels
+        let rawAvg0 = p.averagePower(forChannel: 0)
+        let rawPeak0 = p.peakPower(forChannel: 0)
+        let rawAvg1 = numChannels > 1 ? p.averagePower(forChannel: 1) : rawAvg0
+        let rawPeak1 = numChannels > 1 ? p.peakPower(forChannel: 1) : rawPeak0
+
+        let gain = trackGainDB[active.url.path] ?? appliedGainDB
+
+        let currentAvgL = isMonoMonitoring ? max(-60.0, ((rawAvg0 + rawAvg1) / 2) + gain) : max(-60.0, rawAvg0 + gain)
+        let currentAvgR = isMonoMonitoring ? currentAvgL : max(-60.0, rawAvg1 + gain)
+        let currentPeakL = isMonoMonitoring ? max(-60.0, max(rawPeak0, rawPeak1) + gain) : max(-60.0, rawPeak0 + gain)
+        let currentPeakR = isMonoMonitoring ? currentPeakL : max(-60.0, rawPeak1 + gain)
+
+        var existing = trackLevels[active.url.path] ?? ChannelLevels()
+
+        // Ballistics:
+        // Smooth RMS
+        if currentAvgL > existing.rmsL {
+            existing.rmsL = existing.rmsL * 0.35 + currentAvgL * 0.65
+        } else {
+            existing.rmsL = max(-60.0, existing.rmsL - 1.2)
+        }
+
+        if currentAvgR > existing.rmsR {
+            existing.rmsR = existing.rmsR * 0.35 + currentAvgR * 0.65
+        } else {
+            existing.rmsR = max(-60.0, existing.rmsR - 1.2)
+        }
+
+        // Live Peak
+        if currentPeakL > existing.livePeakL {
+            existing.livePeakL = currentPeakL
+        } else {
+            existing.livePeakL = max(-60.0, existing.livePeakL - 0.7)
+        }
+
+        if currentPeakR > existing.livePeakR {
+            existing.livePeakR = currentPeakR
+        } else {
+            existing.livePeakR = max(-60.0, existing.livePeakR - 0.7)
+        }
+
+        // Peak Hold
+        if currentPeakL > existing.maxPeakL {
+            existing.maxPeakL = currentPeakL
+        }
+        if currentPeakR > existing.maxPeakR {
+            existing.maxPeakR = currentPeakR
+        }
+        if currentAvgL > existing.maxRMSL {
+            existing.maxRMSL = currentAvgL
+        }
+        if currentAvgR > existing.maxRMSR {
+            existing.maxRMSR = currentAvgR
+        }
+
+        trackLevels[active.url.path] = existing
     }
 
     private func stopTimer() {

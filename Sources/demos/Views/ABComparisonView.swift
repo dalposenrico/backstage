@@ -22,6 +22,7 @@ struct ABComparisonView: View {
     @State private var markerStatus = ""
     @State private var isGainMatching = false
     @AppStorage("abComparisonBeatGrid") private var beatGridEnabled = true
+    @AppStorage("abComparisonShowMeter") private var showABMeter = true
 
     private var currentProject: Project? {
         embeddedProject ?? store.selectedProject ?? store.currentOpenProject ?? store.recentProjects.first
@@ -40,6 +41,18 @@ struct ABComparisonView: View {
                         matchingControls(project)
                         Divider().overlay(Color.white.opacity(0.10))
                         HStack(spacing: 0) {
+                            if showABMeter {
+                                ABMeterView(
+                                    controller: comparisonPlayer,
+                                    allSources: sources(project),
+                                    loudnessResults: results,
+                                    onSwitch: { source in
+                                        switchAtPlayhead(to: source)
+                                    }
+                                )
+                                Divider().overlay(Color.white.opacity(0.10))
+                            }
+
                             sourceWaveforms(project)
                             Divider().overlay(Color.white.opacity(0.10))
                             sectionInspector(project)
@@ -175,6 +188,16 @@ struct ABComparisonView: View {
                     .foregroundColor(Color(hex: "FF9F0A"))
                     .transition(.opacity)
             }
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showABMeter.toggle()
+                }
+            } label: {
+                Label("A/B METERS", systemImage: showABMeter ? "chart.bar.xaxis" : "chart.bar.fill")
+            }
+            .buttonStyle(IndustrialButtonStyle(accent: showABMeter))
+            .help("Toggle the Metric AB dual stereo loudness meters on the left side")
+
             if embeddedProject != nil {
                 Button {
                     openWindow(id: "ab-compare")
