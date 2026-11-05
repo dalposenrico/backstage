@@ -93,6 +93,14 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         if meterSourceB == nil, let second = sources.dropFirst().first {
             meterSourceB = second
         }
+
+        // Prune players that no longer belong to current sources to free memory
+        let currentURLs = Set(sources.map(\.url))
+        for (url, p) in prewarmedPlayers where !currentURLs.contains(url) {
+            p.stop()
+            prewarmedPlayers.removeValue(forKey: url)
+        }
+
         let urls = sources.map(\.url)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             var loaded: [URL: AVAudioPlayer] = [:]
@@ -431,6 +439,10 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         stopTimer()
         player?.stop()
         player = nil
+        for (_, p) in prewarmedPlayers {
+            p.stop()
+        }
+        prewarmedPlayers.removeAll()
         isPlaying = false
         timeline.reset()
         activeSource = nil

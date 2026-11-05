@@ -44,12 +44,11 @@ enum LoudnessAnalyzer {
             }
         }
 
-        var filtered = channelSamples
         for channel in 0..<channels {
-            applyBiquad(&filtered[channel], coefficients: highShelf(sampleRate: sampleRate))
-            applyBiquad(&filtered[channel], coefficients: highPass(sampleRate: sampleRate))
+            applyBiquad(&channelSamples[channel], coefficients: highShelf(sampleRate: sampleRate))
+            applyBiquad(&channelSamples[channel], coefficients: highPass(sampleRate: sampleRate))
         }
-        guard let sampleCount = filtered.first?.count, sampleCount > 0 else { return nil }
+        guard let sampleCount = channelSamples.first?.count, sampleCount > 0 else { return nil }
 
         var blocks: [Double] = []
         var start = 0
@@ -60,7 +59,7 @@ enum LoudnessAnalyzer {
             for channel in 0..<channels {
                 var sum = 0.0
                 for index in start..<end {
-                    let value = Double(filtered[channel][index])
+                    let value = Double(channelSamples[channel][index])
                     sum += value * value
                 }
                 energy += sum / Double(end - start)

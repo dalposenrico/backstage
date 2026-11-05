@@ -844,6 +844,9 @@ struct ABComparisonView: View {
         analysisGeneration = generation
         results = [:]
         analyzing = []
+        let currentPaths = Set(sources(project).map(\.url.path))
+        waveforms = waveforms.filter { currentPaths.contains($0.key) }
+        audioDurations = audioDurations.filter { currentPaths.contains($0.key) }
         for source in sources(project) {
             analyze(source, generation: generation)
         }
