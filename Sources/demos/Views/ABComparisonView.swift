@@ -20,6 +20,7 @@ struct ABComparisonView: View {
     @State private var selectedMarkerID: UUID?
     @State private var isImportingMarkers = false
     @State private var markerStatus = ""
+    @State private var cachedSources: [CompareSource] = []
     @State private var isGainMatching = false
     @AppStorage("abComparisonBeatGrid") private var beatGridEnabled = true
     @AppStorage("abComparisonShowMeter") private var showABMeter = true
@@ -44,7 +45,7 @@ struct ABComparisonView: View {
                             if showABMeter {
                                 ABMeterView(
                                     controller: comparisonPlayer,
-                                    allSources: sources(project),
+                                    allSources: activeSources(project),
                                     loudnessResults: results,
                                     onSwitch: { source in
                                         switchAtPlayhead(to: source)
@@ -66,7 +67,7 @@ struct ABComparisonView: View {
                     Divider().overlay(Color.white.opacity(0.15))
                     ComparisonPlayerBarView(
                         controller: comparisonPlayer,
-                        sourcesOverride: sources(project),
+                        sourcesOverride: activeSources(project),
                         loudnessResultsOverride: results,
                         markersOverride: comparisonMarkers.markers(for: project)
                     )
@@ -80,6 +81,7 @@ struct ABComparisonView: View {
                         s.audioPlayer.pause()
                     }
                     let all = sources(project)
+                    cachedSources = all
                     comparisonPlayer.sources = all
                     comparisonPlayer.markers = comparisonMarkers.markers(for: project)
                     comparisonPlayer.loudnessResults = results
@@ -93,9 +95,13 @@ struct ABComparisonView: View {
                             playImmediately: false
                         )
                     }
-                    resetAnalysis(project)
-                    Task {
-                        await importAbletonMarkers(into: project, userInitiated: false)
+                    if results.isEmpty {
+                        resetAnalysis(project)
+                    }
+                    if comparisonMarkers.markers(for: project).isEmpty {
+                        Task {
+                            await importAbletonMarkers(into: project, userInitiated: false)
+                        }
                     }
                 }
                 .onDisappear {
@@ -107,6 +113,7 @@ struct ABComparisonView: View {
                     selectedMarkerID = nil
                     markerStatus = ""
                     let all = sources(project)
+                    cachedSources = all
                     comparisonPlayer.sources = all
                     comparisonPlayer.markers = comparisonMarkers.markers(for: project)
                     comparisonPlayer.loudnessResults = results
@@ -260,6 +267,10 @@ struct ABComparisonView: View {
         .background(Color(hex: "181A1D"))
     }
 
+    private func activeSources(_ project: Project) -> [CompareSource] {
+        cachedSources.isEmpty ? sources(project) : cachedSources
+    }
+
     private func isExportingThisProject(_ project: Project) -> Bool {
         if let opening = store.openingAbletonProject,
            opening.matchesLoadedProject(folderURL: project.folderURL),
@@ -273,7 +284,7 @@ struct ABComparisonView: View {
     }
 
     private func sourceWaveforms(_ project: Project) -> some View {
-        let allSources = sources(project)
+        let allSources = activeSources(project)
         return ScrollView {
             LazyVStack(spacing: 1) {
                 ForEach(Array(allSources.enumerated()), id: \.element.url) { index, source in

@@ -86,6 +86,7 @@ struct Project: Identifiable, Hashable {
     let sortedTracks: [Track]
     let newestAbletonVersion: AbletonVersion?
     let extractedVersionNumber: String?
+    let exportGroups: [ExportGroup]
 
     init(
         name: String,
@@ -122,9 +123,16 @@ struct Project: Identifiable, Hashable {
 
         let newest = versions.max { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
         self.newestAbletonVersion = newest
-        self.sortedTracks = tracks.sorted {
+        let sorted = tracks.sorted {
             ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast)
         }
+        self.sortedTracks = sorted
+        let grouped = Dictionary(grouping: sorted) { $0.relativeFolder }
+        self.exportGroups = grouped.map { ExportGroup(folder: $0.key, tracks: $0.value) }
+            .sorted {
+                if $0.folder.isEmpty != $1.folder.isEmpty { return $0.folder.isEmpty }
+                return $0.folder.localizedCompare($1.folder) == .orderedAscending
+            }
         self.extractedVersionNumber = Project.extractVersionNumber(from: name)
             ?? newest.flatMap { Project.extractVersionNumber(from: $0.displayName) }
     }
@@ -191,18 +199,9 @@ struct Project: Identifiable, Hashable {
         }
         return nil
     }
-
-    var exportGroups: [ExportGroup] {
-        let grouped = Dictionary(grouping: sortedTracks) { $0.relativeFolder }
-        return grouped.map { ExportGroup(folder: $0.key, tracks: $0.value) }
-            .sorted {
-                if $0.folder.isEmpty != $1.folder.isEmpty { return $0.folder.isEmpty }
-                return $0.folder.localizedCompare($1.folder) == .orderedAscending
-            }
-    }
 }
 
-struct ExportGroup: Identifiable {
+struct ExportGroup: Identifiable, Hashable {
     var id: String { folder }
     let folder: String
     let tracks: [Track]

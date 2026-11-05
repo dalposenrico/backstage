@@ -289,9 +289,6 @@ struct TrackListView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .overlay(InstantMouseDownOverlay {
-                            selectSection(item)
-                        })
                     }
                     Spacer(minLength: 0)
 
@@ -304,143 +301,55 @@ struct TrackListView: View {
             .background(Color.sidebarBg.opacity(0.45))
 
             // ── Content ──────────────────────────────────────────────────────
-            Group {
-                switch section {
-                case .overview, .workflow, .files:
-                    HStack(spacing: 0) {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 0) {
-                                switch section {
-                                case .overview:
-                                    ProjectProgressSection(project: project)
-                                    ProjectTodoSection(project: project)
-                                    ProjectNotesSection(project: project)
-                                    StreamingReferencesSection(project: project)
-                                        .padding(.vertical, 8)
-
-                                case .workflow:
-                                    ProductionChecklistView(project: project)
-
-                                case .files:
-                                    PluginsUsedSection(plugins: project.plugins)
-                                    if !project.tracks.isEmpty {
-                                        ListSectionHeader(title: "Exports", count: project.tracks.count)
-
-                                        ForEach(project.exportGroups) { group in
-                                            if !group.folder.isEmpty {
-                                                ExportFolderHeader(path: group.folder, count: group.tracks.count)
-                                            }
-                                            ForEach(group.tracks) { track in
-                                                TrackRow(track: track, project: project)
-                                                    .padding(.leading, group.folder.isEmpty ? 0 : 14)
-                                                    .onTapGesture {
-                                                        player.currentTrack?.id == track.id
-                                                            ? player.togglePlayPause()
-                                                            : store.playTrack(track)
-                                                    }
-                                            }
-                                        }
-                                    } else {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: "square.dashed")
-                                                .font(.system(size: 13))
-                                                .foregroundColor(.tertiaryText)
-                                            Text("No audio exports found in this project folder")
-                                                .font(.system(size: 13))
-                                                .foregroundColor(.tertiaryText)
-                                        }
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 20)
-                                    }
-
-                                    if !project.versions.isEmpty {
-                                        ListSectionHeader(title: "Project Files", count: project.versions.count)
-                                            .padding(.top, project.tracks.isEmpty ? 4 : 0)
-
-                                        ForEach(project.versions) { version in
-                                            AbletonVersionRow(version: version)
-                                        }
-                                    }
-
-                                default:
-                                    EmptyView()
-                                }
-                            }
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 16)
-                        }
-
-                        if allowsExpandedWorkspace && workspaceExpanded {
-                            Divider().background(Color.divider)
-                            ProjectDetailsPanel(project: project)
-                                .frame(width: 320)
-                        }
-                    }
-
-                case .arrangement:
-                    if let arrangement {
-                        ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if isLoadingArrangement {
-                        arrangementLoadingView
-                    } else {
-                        VStack(spacing: 12) {
-                            Image(systemName: "rectangle.split.3x1")
-                                .font(.system(size: 28))
-                                .foregroundColor(.tertiaryText)
-                            Text(project.versions.isEmpty ? "No Ableton Live set (.als) found in this project" : "Unable to load arrangement from \(activeVersion?.displayName ?? "this set")")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.secondaryText)
-
-                            if project.versions.count > 1 {
-                                Text("Try choosing another .als version:")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.tertiaryText)
-                                alsVersionPicker
+            ZStack {
+                // Overview, Workflow, Files
+                HStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            if section == .overview {
+                                ProjectProgressSection(project: project)
+                                ProjectTodoSection(project: project)
+                                ProjectNotesSection(project: project)
+                                StreamingReferencesSection(project: project)
+                                    .padding(.vertical, 8)
+                            } else if section == .workflow {
+                                ProductionChecklistView(project: project)
+                            } else if section == .files {
+                                filesContent(project)
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 16)
                     }
 
-                case .midi:
-                    if let arrangement {
-                        MidiClipVaultView(arrangement: arrangement, projectName: project.name)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if isLoadingArrangement {
-                        arrangementLoadingView
-                    } else {
-                        VStack(spacing: 10) {
-                            Image(systemName: "pianokeys")
-                                .font(.system(size: 26))
-                                .foregroundColor(.tertiaryText)
-                            Text("No MIDI clips found")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondaryText)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if allowsExpandedWorkspace && workspaceExpanded {
+                        Divider().background(Color.divider)
+                        ProjectDetailsPanel(project: project)
+                            .frame(width: 320)
                     }
+                }
+                .opacity((section == .overview || section == .workflow || section == .files) ? 1 : 0)
+                .allowsHitTesting(section == .overview || section == .workflow || section == .files)
 
-                case .samples:
-                    if let arrangement {
-                        SampleHealthAuditorView(arrangement: arrangement, project: project)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if isLoadingArrangement {
-                        arrangementLoadingView
-                    } else {
-                        VStack(spacing: 10) {
-                            Image(systemName: "waveform.badge.magnifyingglass")
-                                .font(.system(size: 26))
-                                .foregroundColor(.tertiaryText)
-                            Text("No samples found")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondaryText)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                // Versions View (Preserved hot in memory for 0ms instant tab switching)
+                ABComparisonView(embeddedProject: project)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(section == .versions ? 1 : 0)
+                    .allowsHitTesting(section == .versions)
 
-                case .versions:
-                    ABComparisonView(embeddedProject: project)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Arrangement View
+                if section == .arrangement {
+                    arrangementView(project)
+                }
+
+                // MIDI View
+                if section == .midi {
+                    midiView(project)
+                }
+
+                // Samples View
+                if section == .samples {
+                    samplesView(project)
                 }
             }
             .transaction { $0.disablesAnimations = true }
@@ -476,6 +385,116 @@ struct TrackListView: View {
                 store.initialProjectInspectorSection = nil
                 store.isVersionsTabActive = false
             }
+        }
+    }
+
+    @ViewBuilder
+    private func filesContent(_ project: Project) -> some View {
+        PluginsUsedSection(plugins: project.plugins)
+        if !project.tracks.isEmpty {
+            ListSectionHeader(title: "Exports", count: project.tracks.count)
+
+            ForEach(project.exportGroups) { group in
+                if !group.folder.isEmpty {
+                    ExportFolderHeader(path: group.folder, count: group.tracks.count)
+                }
+                ForEach(group.tracks) { track in
+                    TrackRow(track: track, project: project)
+                        .padding(.leading, group.folder.isEmpty ? 0 : 14)
+                        .onTapGesture {
+                            player.currentTrack?.id == track.id
+                                ? player.togglePlayPause()
+                                : store.playTrack(track)
+                        }
+                }
+            }
+        } else {
+            HStack(spacing: 10) {
+                Image(systemName: "square.dashed")
+                    .font(.system(size: 13))
+                    .foregroundColor(.tertiaryText)
+                Text("No audio exports found in this project folder")
+                    .font(.system(size: 13))
+                    .foregroundColor(.tertiaryText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 20)
+        }
+
+        if !project.versions.isEmpty {
+            ListSectionHeader(title: "Project Files", count: project.versions.count)
+                .padding(.top, project.tracks.isEmpty ? 4 : 0)
+
+            ForEach(project.versions) { version in
+                AbletonVersionRow(version: version)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func arrangementView(_ project: Project) -> some View {
+        if let arrangement {
+            ArrangementTimelineView(arrangement: arrangement, projectName: project.name)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if isLoadingArrangement {
+            arrangementLoadingView
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "rectangle.split.3x1")
+                    .font(.system(size: 28))
+                    .foregroundColor(.tertiaryText)
+                Text(project.versions.isEmpty ? "No Ableton Live set (.als) found in this project" : "Unable to load arrangement from \(activeVersion?.displayName ?? "this set")")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondaryText)
+
+                if project.versions.count > 1 {
+                    Text("Try choosing another .als version:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.tertiaryText)
+                    alsVersionPicker
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func midiView(_ project: Project) -> some View {
+        if let arrangement {
+            MidiClipVaultView(arrangement: arrangement, projectName: project.name)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if isLoadingArrangement {
+            arrangementLoadingView
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "pianokeys")
+                    .font(.system(size: 26))
+                    .foregroundColor(.tertiaryText)
+                Text("No MIDI clips found")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondaryText)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func samplesView(_ project: Project) -> some View {
+        if let arrangement {
+            SampleHealthAuditorView(arrangement: arrangement, project: project)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if isLoadingArrangement {
+            arrangementLoadingView
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "waveform.badge.magnifyingglass")
+                    .font(.system(size: 26))
+                    .foregroundColor(.tertiaryText)
+                Text("No samples found")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondaryText)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -896,7 +915,6 @@ struct TrackRow: View {
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.1), value: isHovered)
     }
 }
 
@@ -1024,7 +1042,6 @@ struct AbletonVersionRow: View {
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.1), value: isHovered)
     }
 }
 
