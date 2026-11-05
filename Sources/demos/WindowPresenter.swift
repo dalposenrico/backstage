@@ -257,6 +257,16 @@ enum WindowPresenter {
     }
 
     static func applyFloatingWindowTransparency(_ window: NSWindow) {
+        window.styleMask.remove(.titled)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.standardWindowButton(.closeButton)?.alphaValue = 0
+        window.standardWindowButton(.miniaturizeButton)?.alphaValue = 0
+        window.standardWindowButton(.zoomButton)?.alphaValue = 0
+
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isMovable = true
