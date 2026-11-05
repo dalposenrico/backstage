@@ -266,7 +266,7 @@ struct FloatingWidgetView: View {
         }()
 
         return HStack(spacing: 8) {
-            // Drag and click area covers indicator and text labels
+            // Indicator and text labels
             HStack(spacing: 8) {
                 // Mini status indicator
                 if isOpening {
@@ -297,12 +297,8 @@ struct FloatingWidgetView: View {
                         .lineLimit(1)
                 }
             }
-            .contentShape(Rectangle())
-            .overlay(
-                PetPuckDragArea {
-                    expandWidget()
-                }
-            )
+
+            Spacer(minLength: 0)
 
             // Open in Ableton Live Button
             Button {
@@ -349,13 +345,19 @@ struct FloatingWidgetView: View {
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
         .background(
-            Capsule()
-                .fill(Color(hex: "16191E"))
+            ZStack {
+                Capsule()
+                    .fill(Color(hex: "16191E"))
+                PetPuckDragArea {
+                    expandWidget()
+                }
+            }
         )
         .clipShape(Capsule())
         .overlay(
             Capsule()
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                .allowsHitTesting(false)
         )
     }
 
@@ -1130,10 +1132,6 @@ class PetPuckDragNSView: NSView {
     private var hasMoved = false
     private let dragThreshold: CGFloat = 4.0
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .openHand)
-    }
-
     override func mouseDown(with event: NSEvent) {
         guard let window = self.window else { return }
         initialMouseScreenLocation = NSEvent.mouseLocation
@@ -1155,7 +1153,6 @@ class PetPuckDragNSView: NSView {
         }
 
         if hasMoved {
-            NSCursor.closedHand.set()
             window.setFrameOrigin(NSPoint(
                 x: initialWindowOrigin.x + dx,
                 y: initialWindowOrigin.y + dy
@@ -1164,7 +1161,6 @@ class PetPuckDragNSView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        NSCursor.openHand.set()
         if !hasMoved {
             onClick?()
         }
