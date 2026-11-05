@@ -958,7 +958,7 @@ private struct CompareWaveformRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 8) {
                     // A/B switch button at current playhead
                     Button(action: onSwitchAtPlayhead) {
@@ -1009,10 +1009,8 @@ private struct CompareWaveformRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onSwitchAtPlayhead()
-                }
+
+                Spacer(minLength: 0)
 
                 // Per-track volume fader
                 HStack(spacing: 6) {
@@ -1043,7 +1041,14 @@ private struct CompareWaveformRow: View {
                         .help("Double-click to reset volume to 0.0 dB")
                 }
             }
-            .frame(width: 245, alignment: .leading)
+            .padding(.vertical, 8)
+            .padding(.leading, 12)
+            .frame(width: 257, alignment: .topLeading)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onSwitchAtPlayhead()
+            }
 
             GeometryReader { geometry in
                 ZStack {
@@ -1132,9 +1137,9 @@ private struct CompareWaveformRow: View {
                         .stroke(isActive ? Color(hex: "FF9F0A").opacity(0.9) : Color.white.opacity(0.10), lineWidth: isActive ? 1.5 : 1)
                 }
             }
+            .padding(.vertical, 7)
+            .padding(.trailing, 12)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
         .frame(height: 92)
         .background(
             Rectangle().fill(isActive ? Color(hex: "1B1E21") : Color(hex: "151719"))
