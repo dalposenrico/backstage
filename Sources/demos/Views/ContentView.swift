@@ -16,6 +16,14 @@ struct ContentView: View {
     @State private var showProjectInspector = false
     @State private var projectWorkspaceExpanded = false
 
+    private var displayedWorkspaceProjects: [Project] {
+        var list = store.openProjects
+        if let sel = store.selectedProject, !list.contains(where: { $0.id == sel.id }) {
+            list.append(sel)
+        }
+        return list
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Top studio navigation bar (DAWbro style)
@@ -29,34 +37,33 @@ struct ContentView: View {
                 .opacity(store.activeWorkspaceSection == .library ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .library)
 
-                if store.activeWorkspaceSection == .project, let project = store.selectedProject {
+                ForEach(displayedWorkspaceProjects) { project in
                     ProjectFullWorkspaceView(project: project) {
-                        store.closeProjectTab()
+                        store.closeProjectTab(project)
                     }
-                    .background(Color.appBg)
+                    .opacity((store.activeWorkspaceSection == .project && store.selectedProject?.id == project.id) ? 1 : 0)
+                    .allowsHitTesting(store.activeWorkspaceSection == .project && store.selectedProject?.id == project.id)
                 }
 
-                if store.activeWorkspaceSection == .home {
-                    HomeDashboardView { project in
-                        store.openProjectTab(project)
-                    }
-                    .background(Color.appBg)
+                HomeDashboardView { project in
+                    store.openProjectTab(project)
                 }
+                .opacity(store.activeWorkspaceSection == .home ? 1 : 0)
+                .allowsHitTesting(store.activeWorkspaceSection == .home)
 
-                if store.activeWorkspaceSection == .releases {
-                    ReleasesHubView {
-                        store.activeWorkspaceSection = .library
-                        showProjectInspector = true
-                    }
-                    .background(Color.appBg)
+                ReleasesHubView {
+                    store.activeWorkspaceSection = .library
+                    showProjectInspector = true
                 }
+                .opacity(store.activeWorkspaceSection == .releases ? 1 : 0)
+                .allowsHitTesting(store.activeWorkspaceSection == .releases)
 
-                if store.activeWorkspaceSection == .tools {
-                    ToolsHubView()
-                        .background(Color.appBg)
-                }
+                ToolsHubView()
+                    .opacity(store.activeWorkspaceSection == .tools ? 1 : 0)
+                    .allowsHitTesting(store.activeWorkspaceSection == .tools)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transaction { $0.disablesAnimations = true }
 
             if !store.isVersionsTabActive {
                 Divider().background(Color.divider)

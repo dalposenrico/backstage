@@ -318,6 +318,7 @@ struct DawTopNavBar: View {
         let isHovered = hoveredSection == section
 
         return Button {
+            guard selection != section else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -366,11 +367,10 @@ struct DawTopNavBar: View {
 
         return HStack(spacing: 0) {
             Button {
-                store.selectedProject = project
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    selection = .project
+                    store.selectProjectTab(project)
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -384,7 +384,7 @@ struct DawTopNavBar: View {
                 }
                 .padding(.leading, 12)
                 .padding(.trailing, 4)
-                .frame(height: 35)
+                .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -365,8 +365,10 @@ struct TrackListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: project.id) {
             selectedVersionURL = nil
-            let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url
-            loadArrangement(for: alsURL)
+            if section == .arrangement || section == .midi || section == .samples {
+                let alsURL = project.newestAbletonVersion?.url ?? project.versions.first?.url
+                loadArrangement(for: alsURL)
+            }
         }
         .onAppear {
             store.isVersionsTabActive = (section == .versions)

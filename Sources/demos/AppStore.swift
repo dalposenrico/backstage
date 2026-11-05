@@ -116,6 +116,16 @@ class AppStore: ObservableObject {
 
     // MARK: - Tab Navigation Helpers
 
+    func selectProjectTab(_ project: Project) {
+        if !openProjects.contains(where: { $0.id == project.id }) {
+            openProjects.append(project)
+        }
+        if selectedProject?.id != project.id || activeWorkspaceSection != .project {
+            selectedProject = project
+            activeWorkspaceSection = .project
+        }
+    }
+
     func openProjectTab(_ project: Project) {
         if !openProjects.contains(where: { $0.id == project.id }) {
             openProjects.append(project)
