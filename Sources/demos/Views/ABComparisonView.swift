@@ -20,6 +20,7 @@ struct ABComparisonView: View {
     @State private var selectedMarkerID: UUID?
     @State private var isImportingMarkers = false
     @State private var markerStatus = ""
+    @State private var isGainMatching = false
     @AppStorage("abComparisonBeatGrid") private var beatGridEnabled = true
 
     private var currentProject: Project? {
@@ -268,6 +269,13 @@ struct ABComparisonView: View {
                         markers: comparisonMarkers.markers(for: project),
                         legacySourcePath: project.sortedTracks.first?.url.path,
                         selectedMarkerID: selectedMarkerID,
+                        gainDB: comparisonPlayer.gainDB(for: source.url.path),
+                        onGainChanged: { newGain in
+                            comparisonPlayer.setGainDB(newGain, for: source.url.path)
+                        },
+                        onResetGain: {
+                            comparisonPlayer.resetGain(for: source.url.path)
+                        },
                         onAudition: { fraction in audition(source, at: fraction) },
                         onSwitchAtPlayhead: { switchAtPlayhead(to: source) },
                         onSelectMarker: { marker in
@@ -305,13 +313,64 @@ struct ABComparisonView: View {
     }
 
     private func matchingControls(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Toggle("GAIN MATCH", isOn: Binding(
-                    get: { comparisonPlayer.gainMatch },
-                    set: { comparisonPlayer.setGainMatch($0, loudnessResults: results) }
-                )).toggleStyle(.checkbox)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+        let all = sources(project)
+        let hasGains = all.contains { comparisonPlayer.gainDB(for: $0.url.path) != 0 }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                // GAIN MATCH action button with loading state
+                Button {
+                    Task {
+                        await triggerGainMatch(for: project)
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if isGainMatching {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .scaleEffect(0.65)
+                            Text("MATCHING…")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(Color(hex: "FF9F0A"))
+                        } else {
+                            Image(systemName: hasGains ? "equal.circle.fill" : "equal.circle")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(hasGains ? Color(hex: "FF9F0A") : Color.white.opacity(0.85))
+                            Text("GAIN MATCH")
+                                .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                                .foregroundColor(hasGains ? Color(hex: "FF9F0A") : Color.white)
+                        }
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4.5)
+                            .fill(hasGains ? Color(hex: "FF9F0A").opacity(0.18) : Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4.5)
+                            .stroke(hasGains ? Color(hex: "FF9F0A") : Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(isGainMatching)
+                .help("Analyze LUFS and set each track's volume fader so loudness matches evenly")
+
+                if hasGains {
+                    Button {
+                        comparisonPlayer.resetAllGains(for: all)
+                    } label: {
+                        Text("RESET")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.secondaryText)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3.5)
+                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 3.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reset all volume faders to 0.0 dB")
+                }
+
                 Toggle("BEAT GRID", isOn: $beatGridEnabled)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -319,7 +378,9 @@ struct ABComparisonView: View {
                     .help(project.bpm == nil
                         ? "Set the project BPM to use the beat grid"
                         : "Snap section markers to beats; grid bars assume 4/4")
+
                 Spacer()
+
                 Picker("Range", selection: Binding(
                     get: { comparisonPlayer.sectionMode },
                     set: { comparisonPlayer.sectionMode = $0 }
@@ -339,6 +400,25 @@ struct ABComparisonView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .background(Color(hex: "141619"))
+    }
+
+    private func triggerGainMatch(for project: Project) async {
+        isGainMatching = true
+        defer { isGainMatching = false }
+
+        let all = sources(project)
+        for src in all {
+            if results[src.url.path] == nil {
+                if let res = await LoudnessAnalyzer.analyze(src.url) {
+                    results[src.url.path] = res
+                    comparisonPlayer.loudnessResults[src.url.path] = res
+                }
+            }
+        }
+
+        try? await Task.sleep(nanoseconds: 180_000_000)
+
+        comparisonPlayer.applyGainMatch(with: results, sources: all)
     }
 
     private func audition(_ source: CompareSource, at clickedFraction: Double, marker: ComparisonMarker? = nil) {
@@ -819,6 +899,9 @@ private struct CompareWaveformRow: View {
     let markers: [ComparisonMarker]
     let legacySourcePath: String?
     let selectedMarkerID: UUID?
+    let gainDB: Float
+    let onGainChanged: (Float) -> Void
+    let onResetGain: () -> Void
     let onAudition: (Double) -> Void
     let onSwitchAtPlayhead: () -> Void
     let onSelectMarker: (ComparisonMarker) -> Void
@@ -834,55 +917,90 @@ private struct CompareWaveformRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                // A/B switch button at current playhead
-                Button(action: onSwitchAtPlayhead) {
-                    HStack(spacing: 3.5) {
-                        Text(letter)
-                            .font(.system(size: 11, weight: .black, design: .monospaced))
-                            .foregroundColor(isActive ? .black : Color(hex: "FF9F0A"))
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .center, spacing: 8) {
+                    // A/B switch button at current playhead
+                    Button(action: onSwitchAtPlayhead) {
+                        HStack(spacing: 3.5) {
+                            Text(letter)
+                                .font(.system(size: 11, weight: .black, design: .monospaced))
+                                .foregroundColor(isActive ? .black : Color(hex: "FF9F0A"))
 
-                        if isActive {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 8.5, weight: .bold))
-                                .foregroundColor(.black)
+                            if isActive {
+                                Image(systemName: "speaker.wave.2.fill")
+                                    .font(.system(size: 8.5, weight: .bold))
+                                    .foregroundColor(.black)
+                            }
                         }
+                        .frame(width: isActive ? 34 : 22, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4.5)
+                                .fill(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4.5)
+                                .stroke(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.18), lineWidth: 1)
+                        )
                     }
-                    .frame(width: isActive ? 34 : 22, height: 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4.5)
-                            .fill(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4.5)
-                            .stroke(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.18), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .help(isActive ? "Currently active version" : "Switch to \(letter): \(source.name) at the exact current drop / timestamp")
+                    .buttonStyle(.plain)
+                    .help(isActive ? "Currently active version" : "Switch to \(letter): \(source.name) at current playhead")
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        Image(systemName: source.kind == "Reference" ? "scope" : "waveform")
-                            .foregroundColor(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.38))
-                            .font(.system(size: 10))
-                        Text(source.name)
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(isActive ? .white : Color.white.opacity(0.85))
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Image(systemName: source.kind == "Reference" ? "scope" : "waveform")
+                                .foregroundColor(isActive ? Color(hex: "FF9F0A") : Color.white.opacity(0.38))
+                                .font(.system(size: 10))
+                            Text(source.name)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(isActive ? .white : Color.white.opacity(0.85))
+                                .lineLimit(1)
+                        }
+                        Text(metadata)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.tertiaryText)
                             .lineLimit(1)
+                        Text(timestamp)
+                            .font(.system(size: 8.5))
+                            .foregroundColor(.secondaryText)
+                            .lineLimit(1)
+                            .help(source.exportedAt?.fullDateTime ?? "File date unavailable")
                     }
-                    Text(metadata)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.tertiaryText)
-                        .lineLimit(1)
-                    Text(timestamp)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onSwitchAtPlayhead()
+                }
+
+                // Per-track volume fader
+                HStack(spacing: 6) {
+                    Image(systemName: abs(gainDB) < 0.05 ? "speaker.wave.2" : (gainDB < -12 ? "speaker.wave.1.fill" : "speaker.wave.2.fill"))
                         .font(.system(size: 8.5))
-                        .foregroundColor(.secondaryText)
-                        .lineLimit(1)
-                        .help(source.exportedAt?.fullDateTime ?? "File date unavailable")
+                        .foregroundColor(abs(gainDB) >= 0.05 ? Color(hex: "FF9F0A") : Color.white.opacity(0.35))
+                        .frame(width: 10)
+
+                    Slider(
+                        value: Binding(
+                            get: { Double(gainDB) },
+                            set: { onGainChanged(Float($0)) }
+                        ),
+                        in: -24.0...6.0,
+                        step: 0.1
+                    )
+                    .controlSize(.mini)
+                    .tint(Color(hex: "FF9F0A"))
+
+                    Text(gainText)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(abs(gainDB) >= 0.05 ? Color(hex: "FF9F0A") : Color.white.opacity(0.55))
+                        .frame(width: 48, alignment: .trailing)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) {
+                            onResetGain()
+                        }
+                        .help("Double-click to reset volume to 0.0 dB")
                 }
             }
-            .frame(width: 230, alignment: .leading)
+            .frame(width: 245, alignment: .leading)
 
             GeometryReader { geometry in
                 ZStack {
@@ -974,7 +1092,7 @@ private struct CompareWaveformRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .frame(height: 86)
+        .frame(height: 92)
         .background(
             Rectangle().fill(isActive ? Color(hex: "1B1E21") : Color(hex: "151719"))
         )
@@ -982,6 +1100,16 @@ private struct CompareWaveformRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(source.name), \(metadata)")
         .accessibilityHint("Click the waveform to play from that position")
+    }
+
+    private var gainText: String {
+        if abs(gainDB) < 0.05 {
+            return "0.0 dB"
+        } else if gainDB > 0 {
+            return String(format: "+%.1f dB", gainDB)
+        } else {
+            return String(format: "%.1f dB", gainDB)
+        }
     }
 
     private var metadata: String {

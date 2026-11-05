@@ -216,13 +216,13 @@ struct ComparisonPlayerBarView: View {
                                 .foregroundColor(.secondaryText)
                         }
 
-                        if controller.gainMatch && controller.appliedGainDB != 0 {
-                            Text(String(format: "%+.1f dB match", controller.appliedGainDB))
+                        if abs(controller.appliedGainDB) >= 0.05 {
+                            Text(String(format: "%+.1f dB", controller.appliedGainDB))
                                 .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                                .foregroundColor(Color(hex: "30D158"))
+                                .foregroundColor(Color(hex: "FF9F0A"))
                                 .padding(.horizontal, 3.5)
                                 .padding(.vertical, 0.5)
-                                .background(Color(hex: "30D158").opacity(0.14), in: RoundedRectangle(cornerRadius: 2.5))
+                                .background(Color(hex: "FF9F0A").opacity(0.14), in: RoundedRectangle(cornerRadius: 2.5))
                         }
                     }
                     .lineLimit(1)

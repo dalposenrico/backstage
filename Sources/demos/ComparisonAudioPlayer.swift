@@ -35,6 +35,11 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
             updatePlayerVolume()
         }
     }
+    @Published var trackGainDB: [String: Float] = [:] {
+        didSet {
+            updatePlayerVolume()
+        }
+    }
     @Published private(set) var appliedGainDB: Float = 0
     @Published private(set) var isLoading: Bool = false
     @Published var playbackError: String?
@@ -115,11 +120,14 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
 
         let clampedTargetTime = min(max(0, targetTime), sourceDuration > 0 ? sourceDuration : 0)
 
-        // Compute gain matching
-        let targetLUFS = loudnessResults.values.map(\.integratedLUFS).min()
+        // Compute gain matching or individual track gain
         let gain: Float
-        if gainMatch, let current = loudnessResults[source.url.path], let targetLUFS {
+        if let customGain = trackGainDB[source.url.path] {
+            gain = customGain
+        } else if gainMatch, let current = loudnessResults[source.url.path],
+                  let targetLUFS = loudnessResults.values.map(\.integratedLUFS).min() {
             gain = Float(min(0, targetLUFS - current.integratedLUFS))
+            trackGainDB[source.url.path] = gain
         } else {
             gain = 0
         }
@@ -147,8 +155,9 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
             }
 
             prepared.delegate = self
-            self.appliedGainDB = min(0, gain)
-            prepared.volume = self.volume * pow(10, self.appliedGainDB / 20)
+            self.appliedGainDB = gain
+            let linearMultiplier = pow(10.0, gain / 20.0)
+            prepared.volume = min(max(0.0, self.volume * linearMultiplier), 2.0)
             prepared.currentTime = min(clampedTargetTime, prepared.duration)
             self.loopStart = loopEndSeconds == nil ? nil : prepared.currentTime
             self.loopEnd = loopEndSeconds.map { min($0, prepared.duration) }
@@ -317,6 +326,54 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         togglePlayPause(allSources: self.sources, loudnessResults: self.loudnessResults, sectionRange: sectionRange)
     }
 
+    func gainDB(for sourcePath: String) -> Float {
+        trackGainDB[sourcePath] ?? 0.0
+    }
+
+    func setGainDB(_ gain: Float, for sourcePath: String) {
+        trackGainDB[sourcePath] = gain
+        if activeSource?.url.path == sourcePath {
+            appliedGainDB = gain
+            updatePlayerVolume()
+        }
+    }
+
+    func resetGain(for sourcePath: String) {
+        setGainDB(0.0, for: sourcePath)
+    }
+
+    func resetAllGains(for sources: [CompareSource] = []) {
+        if sources.isEmpty {
+            trackGainDB.removeAll()
+        } else {
+            for s in sources {
+                trackGainDB[s.url.path] = 0.0
+            }
+        }
+        if let active = activeSource {
+            appliedGainDB = trackGainDB[active.url.path] ?? 0.0
+        }
+        updatePlayerVolume()
+    }
+
+    func applyGainMatch(with loudnessResults: [String: LoudnessResult], sources: [CompareSource]) {
+        self.loudnessResults = loudnessResults
+        let allLUFS = sources.compactMap { loudnessResults[$0.url.path]?.integratedLUFS }
+        guard let targetLUFS = allLUFS.min() else { return }
+
+        for source in sources {
+            if let current = loudnessResults[source.url.path]?.integratedLUFS {
+                let diff = Float(targetLUFS - current)
+                trackGainDB[source.url.path] = diff
+            }
+        }
+        gainMatch = true
+        if let active = activeSource {
+            appliedGainDB = trackGainDB[active.url.path] ?? 0.0
+        }
+        updatePlayerVolume()
+    }
+
     func setGainMatch(_ enabled: Bool) {
         setGainMatch(enabled, loudnessResults: self.loudnessResults)
     }
@@ -324,16 +381,10 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
     func setGainMatch(_ enabled: Bool, loudnessResults: [String: LoudnessResult]) {
         self.loudnessResults = loudnessResults
         gainMatch = enabled
-        if let active = activeSource {
-            let targetLUFS = loudnessResults.values.map(\.integratedLUFS).min()
-            let gain: Float
-            if gainMatch, let current = loudnessResults[active.url.path], let targetLUFS {
-                gain = Float(min(0, targetLUFS - current.integratedLUFS))
-            } else {
-                gain = 0
-            }
-            appliedGainDB = gain
-            updatePlayerVolume()
+        if enabled {
+            applyGainMatch(with: loudnessResults, sources: self.sources)
+        } else {
+            resetAllGains(for: self.sources)
         }
     }
 
@@ -374,7 +425,9 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
 
     private func updatePlayerVolume() {
         guard let p = player else { return }
-        p.volume = volume * pow(10, min(0, appliedGainDB) / 20)
+        let currentTrackGain = activeSource.flatMap { trackGainDB[$0.url.path] } ?? appliedGainDB
+        let linearMultiplier = pow(10.0, currentTrackGain / 20.0)
+        p.volume = min(max(0.0, volume * linearMultiplier), 2.0)
     }
 
     private func startTimer() {
