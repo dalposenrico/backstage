@@ -300,7 +300,7 @@ struct FloatingWidgetView: View {
             .contentShape(Rectangle())
             .overlay(
                 PetPuckDragArea {
-                    WindowPresenter.expandPillToMainWindow()
+                    expandWidget()
                 }
             )
 
@@ -370,12 +370,18 @@ struct FloatingWidgetView: View {
     }
 
     private func expandWidget() {
-        settings.isFloatingWidgetCollapsed = false
+        guard settings.isFloatingWidgetCollapsed else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            settings.isFloatingWidgetCollapsed = false
+        }
         WindowPresenter.setFloatingWidgetCollapsed(false, pinned: true, puckSize: settings.petPuckSize.dimension)
     }
 
     private func collapseWidget() {
-        settings.isFloatingWidgetCollapsed = true
+        guard !settings.isFloatingWidgetCollapsed else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            settings.isFloatingWidgetCollapsed = true
+        }
         WindowPresenter.setFloatingWidgetCollapsed(
             true,
             pinned: true,
@@ -478,36 +484,16 @@ struct FloatingWidgetView: View {
     // MARK: - Header Bar
 
     private var headerBar: some View {
-        HStack(spacing: 6) {
-            if let icon = appIconImage {
-                Image(nsImage: icon)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 15, height: 15)
-            } else {
-                Image(systemName: "waveform")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
-            }
+        HStack(spacing: 8) {
+            // Live Pill stays as the top bar of the expanded HUD!
+            expandedTopBarPill
 
-            Text("goodvibrations HUD")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.primary)
-
-            if store.projects.count > 0 {
-                Text("· \(store.projects.count)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            // Draggable Spacer across the entire header
-            WindowDragArea()
-                .frame(minWidth: 10, maxWidth: .infinity)
-                .frame(height: 24)
+            Spacer(minLength: 4)
 
             // Open in goodvibrations HQ Main Window
             Button {
-                WindowPresenter.expandPillToMainWindow()
+                openWindow(id: "main-window")
+                WindowPresenter.showMainWindow()
                 if let p = activeProject {
                     store.openInMainWindow(p)
                 }
@@ -515,7 +501,7 @@ struct FloatingWidgetView: View {
                 Image(systemName: "macwindow.on.rectangle")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
             .help("Open in goodvibrations HQ")
@@ -531,48 +517,145 @@ struct FloatingWidgetView: View {
                 Image(systemName: settings.isFloatingWidgetPinned ? "pin.fill" : "pin")
                     .font(.system(size: 11))
                     .foregroundStyle(settings.isFloatingWidgetPinned ? Color.accentColor : .secondary)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
             .help(settings.isFloatingWidgetPinned ? "Unpin from top" : "Keep on top")
 
-            // Collapse to Floating Pet Icon
+            // Collapse to Mini Pill Button
             Button {
                 collapseWidget()
             } label: {
                 Image(systemName: "arrow.down.right.and.arrow.up.left")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
-            .help("Collapse to floating pet icon")
-
-            // Close Button (collapses by default, option-click hides completely)
-            Button {
-                if NSEvent.modifierFlags.contains(.option) {
-                    settings.isFloatingWidgetActive = false
-                    WindowPresenter.hideFloatingWidget()
-                } else {
-                    collapseWidget()
-                }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.primary.opacity(0.45))
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.plain)
-            .help("Close to floating icon (Option-click to hide completely)")
+            .help("Collapse to floating mini pill")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(
-            ZStack {
-                Color(nsColor: .controlBackgroundColor).opacity(0.6)
-                WindowDragArea()
+    }
+
+    private var expandedTopBarPill: some View {
+        let isOpening = store.openingAbletonProject?.phase == .opening
+        let isLiveActive = store.currentOpenProject != nil
+
+        let projectName: String = {
+            if isOpening {
+                return store.openingAbletonProject?.projectName ?? "Ableton Live"
             }
-        )
+            if let active = store.currentOpenProject {
+                return active.name
+            }
+            return activeProject?.name ?? "goodvibrations HQ"
+        }()
+
+        let subtitle: String = {
+            if isOpening {
+                return "Opening in Live…"
+            }
+            if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
+                return "\(ver) • Ableton Live"
+            }
+            if isLiveActive {
+                return "Active in Live"
+            }
+            return "goodvibrations HUD"
+        }()
+
+        return Button {
+            collapseWidget()
+        } label: {
+            HStack(spacing: 7) {
+                // Mini status indicator
+                if isOpening {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                } else if isLiveActive {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                        .shadow(color: Color.green.opacity(0.6), radius: 3)
+                } else {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.85))
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(projectName)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color(hex: "F3F4F6"))
+                        .lineLimit(1)
+
+                    Text(subtitle)
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color(hex: "9CA3AF"))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Open in Ableton Live Button
+                Button {
+                    if let project = store.currentOpenProject ?? activeProject {
+                        store.openInAbleton(project)
+                    } else {
+                        _ = AbletonSessionDetector.activateAbleton()
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(hex: "E5E7EB"))
+                        .frame(width: 19, height: 19)
+                        .background(Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Open in Ableton Live")
+
+                // Auto-Export Button ("E")
+                Button {
+                    if globalHotkey.isRunningExport {
+                        globalHotkey.cancelExport()
+                    } else if let project = activeProject {
+                        store.openAndExport(project)
+                    } else {
+                        globalHotkey.triggerExport()
+                    }
+                } label: {
+                    if globalHotkey.isRunningExport {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.7)
+                            .frame(width: 19, height: 19)
+                    } else {
+                        Text("E")
+                            .font(.system(size: 10.5, weight: .black, design: .rounded))
+                            .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
+                            .frame(width: 19, height: 19)
+                            .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color(hex: "16191E"))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Click to collapse back to mini floating pill")
     }
 
     // MARK: - Hero Card (High Contrast)
@@ -1043,29 +1126,40 @@ struct PetPuckDragArea: NSViewRepresentable {
 class PetPuckDragNSView: NSView {
     var onClick: (() -> Void)?
     private var initialMouseScreenLocation: NSPoint = .zero
+    private var initialWindowOrigin: NSPoint = .zero
     private var hasMoved = false
-    private let dragThreshold: CGFloat = 2.0
+    private let dragThreshold: CGFloat = 4.0
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard let window = self.window else { return }
         initialMouseScreenLocation = NSEvent.mouseLocation
+        initialWindowOrigin = window.frame.origin
         hasMoved = false
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let window = self.window, !hasMoved else { return }
-        let currentMouse = NSEvent.mouseLocation
-        let distance = hypot(currentMouse.x - initialMouseScreenLocation.x,
-                             currentMouse.y - initialMouseScreenLocation.y)
+        guard let window = self.window else { return }
+        let currentMouseScreenLocation = NSEvent.mouseLocation
+        let dx = currentMouseScreenLocation.x - initialMouseScreenLocation.x
+        let dy = currentMouseScreenLocation.y - initialMouseScreenLocation.y
 
-        if distance >= dragThreshold {
-            hasMoved = true
+        if !hasMoved {
+            let distance = hypot(dx, dy)
+            if distance >= dragThreshold {
+                hasMoved = true
+            }
+        }
+
+        if hasMoved {
             NSCursor.closedHand.set()
-            window.performDrag(with: event)
-            NSCursor.openHand.set()
+            window.setFrameOrigin(NSPoint(
+                x: initialWindowOrigin.x + dx,
+                y: initialWindowOrigin.y + dy
+            ))
         }
     }
 

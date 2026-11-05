@@ -286,12 +286,12 @@ enum WindowPresenter {
         let finalWidth = targetWidth ?? puckDim
         let finalHeight = targetHeight ?? puckDim
 
+        applyFloatingWindowTransparency(window)
+
         if collapsed {
-            if window.styleMask.contains(.titled) {
+            if window.frame.width > 200 && window.frame.height > 200 {
                 savedExpandedSize = window.frame.size
             }
-            window.styleMask.remove(.titled)
-            applyFloatingWindowTransparency(window)
             window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
             window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
 
@@ -301,17 +301,14 @@ enum WindowPresenter {
             newFrame.origin.y += (oldHeight - finalHeight)
 
             clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
-            window.setFrame(newFrame, display: true, animate: false)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().setFrame(newFrame, display: true)
+            }
             window.orderFrontRegardless()
         } else {
-            window.styleMask.insert(.titled)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.standardWindowButton(.closeButton)?.isHidden = true
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            window.standardWindowButton(.zoomButton)?.isHidden = true
-            window.hasShadow = true
-            let targetSize = savedExpandedSize
+            let targetSize = savedExpandedSize.width > 200 ? savedExpandedSize : NSSize(width: 330, height: 580)
             window.minSize = NSSize(width: 280, height: 420)
             window.maxSize = NSSize(width: 600, height: 1100)
 
@@ -321,7 +318,11 @@ enum WindowPresenter {
             newFrame.origin.y -= (targetSize.height - oldHeight)
 
             clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
-            window.setFrame(newFrame, display: true, animate: false)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                window.animator().setFrame(newFrame, display: true)
+            }
             window.orderFrontRegardless()
         }
     }
@@ -353,9 +354,9 @@ enum WindowPresenter {
         let finalWidth = targetWidth ?? puckDim
         let finalHeight = targetHeight ?? puckDim
 
+        applyFloatingWindowTransparency(window)
+
         if collapsed {
-            window.styleMask.remove(.titled)
-            applyFloatingWindowTransparency(window)
             window.minSize = NSSize(width: min(finalWidth, 120), height: min(finalHeight, 30))
             window.maxSize = NSSize(width: 600, height: max(finalHeight, 128))
             var f = window.frame
@@ -366,14 +367,7 @@ enum WindowPresenter {
             clampFrameToScreen(&f, screen: window.screen ?? NSScreen.main)
             window.setFrame(f, display: true, animate: false)
         } else {
-            window.styleMask.insert(.titled)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.standardWindowButton(.closeButton)?.isHidden = true
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            window.standardWindowButton(.zoomButton)?.isHidden = true
-            window.hasShadow = true
-            let targetSize = savedExpandedSize
+            let targetSize = savedExpandedSize.width > 200 ? savedExpandedSize : NSSize(width: 330, height: 580)
             window.minSize = NSSize(width: 280, height: 420)
             window.maxSize = NSSize(width: 600, height: 1100)
 
@@ -386,6 +380,8 @@ enum WindowPresenter {
             window.setFrame(newFrame, display: true, animate: false)
         }
 
+        window.level = pinned ? .floating : .normal
+        window.collectionBehavior = pinned ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.moveToActiveSpace]
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
