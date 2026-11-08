@@ -312,7 +312,7 @@ enum WindowPresenter {
 
             clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.28
+                context.duration = 0.20
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 window.animator().setFrame(newFrame, display: true)
             }
@@ -329,7 +329,7 @@ enum WindowPresenter {
 
             clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.28
+                context.duration = 0.20
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 window.animator().setFrame(newFrame, display: true)
             }

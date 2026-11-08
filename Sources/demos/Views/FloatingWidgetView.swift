@@ -17,6 +17,7 @@ struct FloatingWidgetView: View {
     @State private var filter: FloatingWidgetFilter = .recents
     @State private var searchText = ""
     @State private var isHoveringPuck = false
+    @State private var isContentReady = false
 
     private var activeProject: Project? {
         store.currentOpenProject ?? store.selectedProject ?? store.recentProjects.first
@@ -69,6 +70,8 @@ struct FloatingWidgetView: View {
             )
             if settings.isFloatingWidgetCollapsed {
                 updateCollapsedWindowSize(animated: false)
+            } else {
+                isContentReady = true
             }
         }
         .onChange(of: settings.showAppIconOnPuck) {
@@ -382,15 +385,25 @@ struct FloatingWidgetView: View {
 
     private func expandWidget() {
         guard settings.isFloatingWidgetCollapsed else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        isContentReady = false
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             settings.isFloatingWidgetCollapsed = false
         }
         WindowPresenter.setFloatingWidgetCollapsed(false, pinned: true, puckSize: settings.petPuckSize.dimension)
+
+        // Show the skeleton shimmer placeholder instantly on frame 1,
+        // then reveal the live content as the window frame animation completes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.easeInOut(duration: 0.20)) {
+                isContentReady = true
+            }
+        }
     }
 
     private func collapseWidget() {
         guard !settings.isFloatingWidgetCollapsed else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        isContentReady = false
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             settings.isFloatingWidgetCollapsed = true
         }
         WindowPresenter.setFloatingWidgetCollapsed(
@@ -413,16 +426,22 @@ struct FloatingWidgetView: View {
             Divider()
 
             ScrollView {
-                VStack(spacing: 10) {
-                    if let hero = activeProject {
-                        heroCard(project: hero)
+                if !isContentReady || (store.projects.isEmpty && store.isScanning) {
+                    skeletonLoadingContent
+                        .transition(.opacity)
+                } else {
+                    VStack(spacing: 10) {
+                        if let hero = activeProject {
+                            heroCard(project: hero)
+                        }
+
+                        controlsBar
+
+                        projectList
                     }
-
-                    controlsBar
-
-                    projectList
+                    .padding(10)
+                    .transition(.opacity)
                 }
-                .padding(10)
             }
 
             if audioPlayer.currentTrack != nil {
@@ -884,7 +903,7 @@ struct FloatingWidgetView: View {
     // MARK: - Projects List
 
     private var projectList: some View {
-        VStack(spacing: 3) {
+        LazyVStack(spacing: 3) {
             if displayedProjects.isEmpty {
                 VStack(spacing: 4) {
                     Image(systemName: filter == .favourites ? "star.slash" : "music.note")
@@ -1073,6 +1092,83 @@ struct FloatingWidgetView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
+    // MARK: - Skeleton Shimmer Loading Placeholder
+
+    private var skeletonLoadingContent: some View {
+        VStack(spacing: 10) {
+            skeletonHeroCard
+
+            controlsBar
+                .disabled(true)
+                .opacity(0.55)
+
+            VStack(spacing: 3) {
+                ForEach(0..<6, id: \.self) { _ in
+                    skeletonRow
+                }
+            }
+        }
+        .padding(10)
+    }
+
+    private var skeletonHeroCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SkeletonBox(width: 85, height: 16, cornerRadius: 8)
+                Spacer()
+                SkeletonBox(width: 50, height: 12, cornerRadius: 3)
+            }
+
+            SkeletonBox(width: 170, height: 18, cornerRadius: 4)
+
+            HStack(spacing: 5) {
+                SkeletonBox(width: 55, height: 15, cornerRadius: 3)
+                SkeletonBox(width: 45, height: 15, cornerRadius: 3)
+                SkeletonBox(width: 75, height: 15, cornerRadius: 3)
+            }
+
+            HStack(spacing: 6) {
+                SkeletonBox(height: 26, cornerRadius: 5)
+                SkeletonBox(width: 28, height: 26, cornerRadius: 5)
+                SkeletonBox(width: 28, height: 26, cornerRadius: 5)
+                SkeletonBox(width: 28, height: 26, cornerRadius: 5)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(hex: "171A20"))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var skeletonRow: some View {
+        HStack(spacing: 7) {
+            SkeletonBox(width: 18, height: 18, cornerRadius: 3)
+            VStack(alignment: .leading, spacing: 3) {
+                SkeletonBox(width: 130, height: 13, cornerRadius: 3)
+                SkeletonBox(width: 65, height: 10, cornerRadius: 2.5)
+            }
+            Spacer()
+            SkeletonBox(width: 22, height: 20, cornerRadius: 3.5)
+            SkeletonBox(width: 42, height: 20, cornerRadius: 4)
+            SkeletonBox(width: 20, height: 20, cornerRadius: 3.5)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color(hex: "171A20"))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.white.opacity(0.05), lineWidth: 0.8)
+        )
+    }
+
     // MARK: - Formatting Helpers
 
     private func formatRelative(_ date: Date) -> String {
@@ -1179,6 +1275,42 @@ class PetPuckDragNSView: NSView {
 
     override var mouseDownCanMoveWindow: Bool {
         return false
+    }
+}
+
+// MARK: - Skeleton Shimmer Box
+
+struct SkeletonBox: View {
+    var width: CGFloat? = nil
+    var height: CGFloat = 14
+    var cornerRadius: CGFloat = 4
+
+    @State private var phase: CGFloat = -1
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(Color(hex: "23272F"))
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            Color.white.opacity(0.12),
+                            Color.clear
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .offset(x: phase * geo.size.width)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .frame(width: width, height: height)
+            .onAppear {
+                withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+                    phase = 1.6
+                }
+            }
     }
 }
 
