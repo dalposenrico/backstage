@@ -12,6 +12,7 @@ struct FloatingWidgetView: View {
     @EnvironmentObject private var audioPlayer: AudioPlayer
     @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
+    @EnvironmentObject private var launcherStore: QuickLauncherStore
     @Environment(\.openWindow) private var openWindow
 
     @State private var filter: FloatingWidgetFilter = .recents
@@ -42,11 +43,19 @@ struct FloatingWidgetView: View {
     }
 
     private var currentPuckWidth: CGFloat {
-        settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
+        let base = settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
+        if launcherStore.isTrayOpen {
+            return max(base, 330)
+        }
+        return base
     }
 
     private var currentPuckHeight: CGFloat {
-        settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
+        let base = settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
+        if launcherStore.isTrayOpen {
+            return base + 8 + launcherStore.trayHeight
+        }
+        return base
     }
 
     var body: some View {
@@ -86,6 +95,12 @@ struct FloatingWidgetView: View {
         .onChange(of: store.openingAbletonProject) {
             updateCollapsedWindowSize(animated: true)
         }
+        .onChange(of: launcherStore.isTrayOpen) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: launcherStore.items) {
+            updateCollapsedWindowSize(animated: true)
+        }
     }
 
     private func updateCollapsedWindowSize(animated: Bool) {
@@ -115,15 +130,25 @@ struct FloatingWidgetView: View {
 
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
-        return HStack(spacing: 8) {
-            if settings.showAppIconOnPuck {
-                puckIconView(size: size)
+        return VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                if settings.showAppIconOnPuck {
+                    puckIconView(size: size)
+                }
+                puckCapsuleView(size: size)
             }
-            puckCapsuleView(size: size)
+
+            if launcherStore.isTrayOpen {
+                QuickLauncherTrayView()
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
+            }
         }
         .frame(width: currentPuckWidth, height: currentPuckHeight)
         .background(Color.clear)
-        .contentShape(Capsule())
+        .contentShape(Rectangle())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
@@ -132,6 +157,11 @@ struct FloatingWidgetView: View {
             }
             Button("Expand quick HUD panel") {
                 expandWidget()
+            }
+            Button(launcherStore.isTrayOpen ? "Close Quick Launcher" : "Open Quick Launcher (1–9)") {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    launcherStore.isTrayOpen.toggle()
+                }
             }
 
             Divider()
@@ -353,6 +383,21 @@ struct FloatingWidgetView: View {
             }
             .buttonStyle(.plain)
             .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
+
+            // Quick Launcher Tray Toggle Button ("⚡️")
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    launcherStore.isTrayOpen.toggle()
+                }
+            } label: {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                    .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
+                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                    .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher tray" : "Show quick plugin launcher tray (1–9)")
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
@@ -431,6 +476,11 @@ struct FloatingWidgetView: View {
                         .transition(.opacity)
                 } else {
                     VStack(spacing: 10) {
+                        if launcherStore.isTrayOpen {
+                            QuickLauncherTrayView()
+                                .transition(.opacity)
+                        }
+
                         if let hero = activeProject {
                             heroCard(project: hero)
                         }
@@ -672,6 +722,21 @@ struct FloatingWidgetView: View {
                 }
                 .buttonStyle(.plain)
                 .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
+
+                // Quick Launcher Tray Toggle Button ("⚡️")
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                        launcherStore.isTrayOpen.toggle()
+                    }
+                } label: {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
+                        .frame(width: 19, height: 19)
+                        .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher" : "Show quick plugin launcher (1–9)")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

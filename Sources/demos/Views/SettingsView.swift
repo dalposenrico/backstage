@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject var dragScroll: AbletonDragScrollManager
+    @EnvironmentObject var launcherStore: QuickLauncherStore
     @StateObject private var launchAtLogin = LaunchAtLoginManager()
 
     var body: some View {
@@ -119,6 +120,85 @@ struct SettingsView: View {
             }
 
             Divider()
+
+            // MARK: Quick Plugin Launcher (1–9)
+            Section {
+                Text("Tap buttons in the floating dock's pop-out tray to trigger your plugin macros or keystrokes directly in Ableton Live.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach($launcherStore.items) { $item in
+                    HStack(spacing: 8) {
+                        // Key field
+                        TextField("Key", text: $item.key)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .frame(width: 34)
+                            .multilineTextAlignment(.center)
+                            .textFieldStyle(.roundedBorder)
+
+                        // Title field
+                        TextField("Plugin / Action name", text: $item.title)
+                            .font(.system(size: 12))
+                            .textFieldStyle(.roundedBorder)
+
+                        // Category field (optional, e.g. EQ, SAT)
+                        TextField("Tag", text: Binding(
+                            get: { item.category ?? "" },
+                            set: { item.category = $0.isEmpty ? nil : $0 }
+                        ))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .frame(width: 44)
+                        .multilineTextAlignment(.center)
+                        .textFieldStyle(.roundedBorder)
+
+                        // Test trigger button
+                        Button {
+                            launcherStore.trigger(item)
+                        } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Test trigger in Ableton")
+
+                        // Delete button
+                        Button {
+                            launcherStore.removeItem(id: item.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(Color.red.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove item")
+                    }
+                }
+
+                HStack {
+                    Button("+ Add Action") {
+                        let nextNum = String(launcherStore.items.count + 1)
+                        launcherStore.addItem(title: "New Action", key: nextNum)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Spacer()
+
+                    Button("Reset to Defaults (1–9)") {
+                        launcherStore.resetToDefaults()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+            } header: {
+                Label("Quick Plugin Launcher", systemImage: "bolt.fill")
+                    .font(.headline)
+            }
+
+            Divider()
             Section {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -170,7 +250,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        .frame(width: 450)
         .padding(.vertical, 8)
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
         .onAppear {

@@ -41,6 +41,7 @@ struct demosApp: App {
     @StateObject private var focusCalendar = FocusCalendarStore()
     @StateObject private var globalHotkey = GlobalHotkeyManager()
     @StateObject private var dragScroll = AbletonDragScrollManager()
+    @StateObject private var launcherStore = QuickLauncherStore()
     @Environment(\.openWindow) private var openWindow
     @AppStorage(ProjectDockSizing.storageKey) private var projectDockHeight = ProjectDockSizing.defaultHeight
 
@@ -68,6 +69,7 @@ struct demosApp: App {
                 .environmentObject(focusCalendar)
                 .environmentObject(globalHotkey)
                 .environmentObject(dragScroll)
+                .environmentObject(launcherStore)
         }
         .defaultSize(width: 1100, height: 680)
         .commands {
@@ -217,6 +219,7 @@ struct demosApp: App {
                 .environmentObject(projectProgress)
                 .environmentObject(comparisonMarkers)
                 .environmentObject(globalHotkey)
+                .environmentObject(launcherStore)
         }
         .defaultSize(width: 1120, height: 720)
 
@@ -269,6 +272,7 @@ struct demosApp: App {
                 .environmentObject(store.audioPlayer)
                 .environmentObject(settings)
                 .environmentObject(globalHotkey)
+                .environmentObject(launcherStore)
         }
         .defaultSize(width: 330, height: 580)
         .windowStyle(.hiddenTitleBar)
@@ -280,6 +284,7 @@ struct demosApp: App {
                 .environmentObject(settings)
                 .environmentObject(globalHotkey)
                 .environmentObject(dragScroll)
+                .environmentObject(launcherStore)
         }
 
         // MARK: - Menu bar extra

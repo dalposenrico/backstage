@@ -241,7 +241,7 @@ enum WindowPresenter {
         applyFloatingWindowTransparency(window)
 
         window.minSize = NSSize(width: min(targetWidth, 120), height: min(height, 30))
-        window.maxSize = NSSize(width: 600, height: max(height, 128))
+        window.maxSize = NSSize(width: max(targetWidth, 600), height: max(height, 600))
 
         var newFrame = window.frame
         let oldHeight = newFrame.height
