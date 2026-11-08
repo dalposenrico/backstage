@@ -189,6 +189,7 @@ struct FloatingWidgetView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size.iconDimension, height: size.iconDimension)
                     .shadow(color: Color.black.opacity(0.35), radius: 5, x: 0, y: 3)
+                    .allowsHitTesting(false)
             } else {
                 Circle()
                     .fill(Color(hex: "16191D"))
@@ -197,10 +198,12 @@ struct FloatingWidgetView: View {
                             .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
                     )
                     .shadow(color: Color.black.opacity(0.25), radius: 6, x: 0, y: 3)
+                    .allowsHitTesting(false)
 
                 Image(systemName: "waveform")
                     .font(.system(size: size.iconDimension * 0.42, weight: .bold))
                     .foregroundStyle(Color.accentColor)
+                    .allowsHitTesting(false)
             }
 
             // Notification Indicator Dot (top right)
@@ -211,6 +214,7 @@ struct FloatingWidgetView: View {
                     .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
                     .shadow(color: Color.orange.opacity(0.5), radius: 3)
                     .offset(x: size.dotOffset.x, y: size.dotOffset.y)
+                    .allowsHitTesting(false)
             } else if store.currentOpenProject != nil {
                 Circle()
                     .fill(Color.green)
@@ -218,6 +222,7 @@ struct FloatingWidgetView: View {
                     .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
                     .shadow(color: Color.green.opacity(0.4), radius: 3)
                     .offset(x: size.dotOffset.x, y: size.dotOffset.y)
+                    .allowsHitTesting(false)
             }
 
             // Hover Cue
@@ -225,9 +230,11 @@ struct FloatingWidgetView: View {
                 RoundedRectangle(cornerRadius: size.cornerRadius)
                     .fill(Color.black.opacity(0.25))
                     .frame(width: size.iconDimension, height: size.iconDimension)
+                    .allowsHitTesting(false)
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.system(size: size.cueIconSize, weight: .bold))
                     .foregroundStyle(.white)
+                    .allowsHitTesting(false)
             }
 
             // Drag & Click Handler Area
@@ -266,7 +273,7 @@ struct FloatingWidgetView: View {
         }()
 
         return HStack(spacing: 8) {
-            // Indicator and text labels
+            // Indicator and text labels — allow dragging through them
             HStack(spacing: 8) {
                 // Mini status indicator
                 if isOpening {
@@ -297,8 +304,10 @@ struct FloatingWidgetView: View {
                         .lineLimit(1)
                 }
             }
+            .allowsHitTesting(false)
 
             Spacer(minLength: 0)
+                .allowsHitTesting(false)
 
             // Open in Ableton Live Button
             Button {
@@ -1127,44 +1136,45 @@ struct PetPuckDragArea: NSViewRepresentable {
 
 class PetPuckDragNSView: NSView {
     var onClick: (() -> Void)?
-    private var initialMouseScreenLocation: NSPoint = .zero
-    private var initialWindowOrigin: NSPoint = .zero
-    private var hasMoved = false
-    private let dragThreshold: CGFloat = 4.0
 
     override func mouseDown(with event: NSEvent) {
         guard let window = self.window else { return }
-        initialMouseScreenLocation = NSEvent.mouseLocation
-        initialWindowOrigin = window.frame.origin
-        hasMoved = false
-    }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard let window = self.window else { return }
-        let currentMouseScreenLocation = NSEvent.mouseLocation
-        let dx = currentMouseScreenLocation.x - initialMouseScreenLocation.x
-        let dy = currentMouseScreenLocation.y - initialMouseScreenLocation.y
+        let initialMouseScreenLocation = NSEvent.mouseLocation
+        let initialWindowOrigin = window.frame.origin
+        var hasMoved = false
+        let dragThreshold: CGFloat = 3.0
 
-        if !hasMoved {
-            let distance = hypot(dx, dy)
-            if distance >= dragThreshold {
-                hasMoved = true
+        // Continuous modal event tracking loop:
+        // Catches every drag event directly without losing tracking during
+        // window movement, hit testing changes, or SwiftUI re-renders.
+        while true {
+            guard let nextEvent = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else {
+                break
+            }
+
+            if nextEvent.type == .leftMouseDragged {
+                let currentMouseScreenLocation = NSEvent.mouseLocation
+                let dx = currentMouseScreenLocation.x - initialMouseScreenLocation.x
+                let dy = currentMouseScreenLocation.y - initialMouseScreenLocation.y
+
+                if !hasMoved && hypot(dx, dy) >= dragThreshold {
+                    hasMoved = true
+                }
+
+                if hasMoved {
+                    window.setFrameOrigin(NSPoint(
+                        x: initialWindowOrigin.x + dx,
+                        y: initialWindowOrigin.y + dy
+                    ))
+                }
+            } else if nextEvent.type == .leftMouseUp {
+                if !hasMoved {
+                    onClick?()
+                }
+                break
             }
         }
-
-        if hasMoved {
-            window.setFrameOrigin(NSPoint(
-                x: initialWindowOrigin.x + dx,
-                y: initialWindowOrigin.y + dy
-            ))
-        }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        if !hasMoved {
-            onClick?()
-        }
-        hasMoved = false
     }
 
     override var mouseDownCanMoveWindow: Bool {
