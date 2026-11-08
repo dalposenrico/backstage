@@ -106,6 +106,11 @@ public final class QuickLauncherStore: ObservableObject {
     @Published public var isTrayOpen: Bool {
         didSet {
             UserDefaults.standard.set(isTrayOpen, forKey: Self.trayOpenKey)
+            if isTrayOpen {
+                QuickLauncherPanelPresenter.shared.show(launcherStore: self)
+            } else {
+                QuickLauncherPanelPresenter.shared.hide()
+            }
         }
     }
 

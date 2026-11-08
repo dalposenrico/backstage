@@ -47,11 +47,7 @@ struct FloatingWidgetView: View {
     }
 
     private var currentPuckHeight: CGFloat {
-        let base = settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
-        if launcherStore.isTrayOpen {
-            return base + 8 + launcherStore.trayHeight
-        }
-        return base
+        settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
     }
 
     var body: some View {
@@ -91,12 +87,6 @@ struct FloatingWidgetView: View {
         .onChange(of: store.openingAbletonProject) {
             updateCollapsedWindowSize(animated: true)
         }
-        .onChange(of: launcherStore.isTrayOpen) {
-            updateCollapsedWindowSize(animated: true)
-        }
-        .onChange(of: launcherStore.items) {
-            updateCollapsedWindowSize(animated: true)
-        }
     }
 
     private func updateCollapsedWindowSize(animated: Bool) {
@@ -126,26 +116,15 @@ struct FloatingWidgetView: View {
 
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                if settings.showAppIconOnPuck {
-                    puckIconView(size: size)
-                }
-                puckCapsuleView(size: size)
+        return HStack(spacing: 8) {
+            if settings.showAppIconOnPuck {
+                puckIconView(size: size)
             }
-
-            if launcherStore.isTrayOpen {
-                QuickLauncherTrayView()
-                    .frame(width: currentPuckWidth)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity.combined(with: .move(edge: .top))
-                    ))
-            }
+            puckCapsuleView(size: size)
         }
-        .frame(width: currentPuckWidth, height: currentPuckHeight, alignment: .topLeading)
+        .frame(width: currentPuckWidth, height: currentPuckHeight)
         .background(Color.clear)
-        .contentShape(Rectangle())
+        .contentShape(Capsule())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
@@ -156,9 +135,7 @@ struct FloatingWidgetView: View {
                 expandWidget()
             }
             Button(launcherStore.isTrayOpen ? "Close Quick Launcher" : "Open Quick Launcher (1–9)") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                    launcherStore.isTrayOpen.toggle()
-                }
+                launcherStore.isTrayOpen.toggle()
             }
 
             Divider()
@@ -268,7 +245,9 @@ struct FloatingWidgetView: View {
             }
 
             // Drag & Click Handler Area
-            PetPuckDragArea {
+            PetPuckDragArea(onDrag: { win in
+                QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
+            }) {
                 expandWidget()
             }
         }
@@ -383,9 +362,7 @@ struct FloatingWidgetView: View {
 
             // Quick Launcher Tray Toggle Button ("⚡️")
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                    launcherStore.isTrayOpen.toggle()
-                }
+                launcherStore.isTrayOpen.toggle()
             } label: {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
@@ -394,7 +371,7 @@ struct FloatingWidgetView: View {
                     .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.plain)
-            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher tray" : "Show quick plugin launcher tray (1–9)")
+            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel (1–9)")
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
@@ -402,7 +379,9 @@ struct FloatingWidgetView: View {
             ZStack {
                 Capsule()
                     .fill(Color(hex: "16191E"))
-                PetPuckDragArea {
+                PetPuckDragArea(onDrag: { win in
+                    QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
+                }) {
                     expandWidget()
                 }
             }
@@ -427,6 +406,7 @@ struct FloatingWidgetView: View {
 
     private func expandWidget() {
         guard settings.isFloatingWidgetCollapsed else { return }
+        launcherStore.isTrayOpen = false
         WindowPresenter.recordCollapsedPillTopAnchor(nil)
         isContentReady = false
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
@@ -1280,20 +1260,24 @@ class DragNSView: NSView {
 }
 
 struct PetPuckDragArea: NSViewRepresentable {
+    var onDrag: ((NSWindow) -> Void)? = nil
     var onClick: () -> Void
 
     func makeNSView(context: Context) -> PetPuckDragNSView {
         let view = PetPuckDragNSView()
+        view.onDrag = onDrag
         view.onClick = onClick
         return view
     }
 
     func updateNSView(_ nsView: PetPuckDragNSView, context: Context) {
+        nsView.onDrag = onDrag
         nsView.onClick = onClick
     }
 }
 
 class PetPuckDragNSView: NSView {
+    var onDrag: ((NSWindow) -> Void)?
     var onClick: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) {
@@ -1326,6 +1310,7 @@ class PetPuckDragNSView: NSView {
                         x: initialWindowOrigin.x + dx,
                         y: initialWindowOrigin.y + dy
                     ))
+                    onDrag?(window)
                 }
             } else if nextEvent.type == .leftMouseUp {
                 if hasMoved {
