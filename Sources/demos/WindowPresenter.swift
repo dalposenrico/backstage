@@ -234,6 +234,12 @@ enum WindowPresenter {
         window.orderFrontRegardless()
     }
 
+    private static var collapsedPillTopAnchor: CGFloat?
+
+    static func recordCollapsedPillTopAnchor(_ maxY: CGFloat?) {
+        collapsedPillTopAnchor = maxY
+    }
+
     static func updateFloatingWidgetCollapsedWidth(_ targetWidth: CGFloat, height: CGFloat, animated: Bool = true) {
         guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
         guard !window.styleMask.contains(.titled) else { return }
@@ -246,13 +252,37 @@ enum WindowPresenter {
         var newFrame = window.frame
         let oldHeight = newFrame.height
         newFrame.size = NSSize(width: targetWidth, height: height)
-        newFrame.origin.y += (oldHeight - height)
+
+        let isExpanding = height > oldHeight
+        let topAnchor = collapsedPillTopAnchor ?? window.frame.maxY
+
+        if !isExpanding {
+            // When collapsing back to pill, strictly restore from the saved top anchor
+            newFrame.origin.y = topAnchor - height
+            collapsedPillTopAnchor = newFrame.maxY
+        } else {
+            // When expanding, record current top anchor if not yet set
+            if collapsedPillTopAnchor == nil {
+                collapsedPillTopAnchor = window.frame.maxY
+            }
+            newFrame.origin.y = topAnchor - height
+        }
 
         clampFrameToScreen(&newFrame, screen: window.screen ?? NSScreen.main)
 
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.setFrame(newFrame, display: true, animate: animated)
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.allowsImplicitAnimation = true
+                window.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            window.setFrame(newFrame, display: true, animate: false)
+        }
         window.orderFrontRegardless()
     }
 

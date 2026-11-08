@@ -43,11 +43,7 @@ struct FloatingWidgetView: View {
     }
 
     private var currentPuckWidth: CGFloat {
-        let base = settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
-        if launcherStore.isTrayOpen {
-            return max(base, 330)
-        }
-        return base
+        settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
     }
 
     private var currentPuckHeight: CGFloat {
@@ -130,7 +126,7 @@ struct FloatingWidgetView: View {
 
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
-        return VStack(spacing: 8) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 if settings.showAppIconOnPuck {
                     puckIconView(size: size)
@@ -140,13 +136,14 @@ struct FloatingWidgetView: View {
 
             if launcherStore.isTrayOpen {
                 QuickLauncherTrayView()
+                    .frame(width: currentPuckWidth)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .move(edge: .top)),
                         removal: .opacity.combined(with: .move(edge: .top))
                     ))
             }
         }
-        .frame(width: currentPuckWidth, height: currentPuckHeight)
+        .frame(width: currentPuckWidth, height: currentPuckHeight, alignment: .topLeading)
         .background(Color.clear)
         .contentShape(Rectangle())
         .ignoresSafeArea()
@@ -430,6 +427,7 @@ struct FloatingWidgetView: View {
 
     private func expandWidget() {
         guard settings.isFloatingWidgetCollapsed else { return }
+        WindowPresenter.recordCollapsedPillTopAnchor(nil)
         isContentReady = false
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             settings.isFloatingWidgetCollapsed = false
@@ -1330,7 +1328,9 @@ class PetPuckDragNSView: NSView {
                     ))
                 }
             } else if nextEvent.type == .leftMouseUp {
-                if !hasMoved {
+                if hasMoved {
+                    WindowPresenter.recordCollapsedPillTopAnchor(window.frame.maxY)
+                } else {
                     onClick?()
                 }
                 break
