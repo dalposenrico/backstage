@@ -297,122 +297,97 @@ public final class PluginCloserManager: ObservableObject {
         }
     }
 
-    /// Finds and actually closes every open plugin window in Ableton Live by triggering the
-    /// native macOS close button 'x' on each floating plugin window.
+    /// Finds and actually closes every open plugin window in Ableton Live (or Bitwig) by triggering
+    /// the native accessibility close button ('AXPress' on 'kAXCloseButtonAttribute') on each floating window.
     ///
-    /// CRITICAL: The main Ableton Live set/document window is ALWAYS at Layer 0 and is strictly
-    /// excluded from matching, ensuring your session is never closed or interrupted.
+    /// This matches the exact mechanism used by dedicated tools like StudiOS Plugin Closer:
+    /// - Operating via macOS Accessibility (AXUIElement) directly on the DAW's window tree.
+    /// - Completely independent of screen coordinates, display resolution, or multi-monitor arrangements.
+    /// - Does not move or hijack the user's mouse cursor.
+    /// - Strictly filters for 'AXFloatingWindow' subrole, making it mathematically impossible to close
+    ///   the main Ableton Live set/document window (which is always 'AXStandardWindow').
     private static func performCloseOffMainActor() async -> PluginCloseResult {
         return await Task.detached(priority: .userInitiated) {
             let runningApps = NSWorkspace.shared.runningApplications
-            guard let liveApp = runningApps.first(where: { app in
-                app.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
-                    || app.localizedName?.localizedCaseInsensitiveContains("Live") == true
+            guard let dawApp = runningApps.first(where: { app in
+                let bundle = app.bundleIdentifier?.lowercased() ?? ""
+                let name = app.localizedName?.lowercased() ?? ""
+                return bundle.hasPrefix("com.ableton.live") || name.contains("live")
+                    || bundle.hasPrefix("com.bitwig.studio") || name.contains("bitwig")
             }) else {
                 return .notRunning
             }
 
-            // Step 1: Ensure Ableton Live is frontmost so that all floating plugin windows
-            // (which macOS hides when Ableton is deactivated) are restored and on-screen.
-            _ = AbletonSessionDetector.activateAbleton()
-            usleep(140_000) // 140ms for window restoration
+            // Step 1: Ensure the DAW is frontmost so that floating plugin windows
+            // (which macOS Cocoa panels automatically hide when deactivated) are visible and in the AX hierarchy.
+            if !dawApp.isActive {
+                _ = AbletonSessionDetector.activateAbleton()
+                for _ in 0..<15 {
+                    if dawApp.isActive { break }
+                    usleep(20_000) // 20ms
+                }
+                // Allow the macOS window server to surface and attach the floating panels
+                usleep(100_000) // 100ms
+            }
 
-            let livePID = liveApp.processIdentifier
+            let dawPID = dawApp.processIdentifier
+            let dawElement = AXUIElementCreateApplication(dawPID)
 
-            guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            // Step 2: Query the DAW's window list via Accessibility API
+            var windowsRef: CFTypeRef?
+            let err = AXUIElementCopyAttributeValue(dawElement, kAXWindowsAttribute as CFString, &windowsRef)
+            guard err == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
                 return .alreadyClosed
             }
-
-            struct PluginTarget {
-                let name: String
-                let originX: Double
-                let originY: Double
-            }
-
-            var targets: [PluginTarget] = []
-
-            for win in windowList {
-                let pid = win[kCGWindowOwnerPID as String] as? Int ?? 0
-                let layer = win[kCGWindowLayer as String] as? Int ?? 0
-                let name = win[kCGWindowName as String] as? String ?? ""
-
-                // CRITICAL SAFETY FILTER:
-                // Only target floating windows (layer == 3) owned by Live.
-                // The main Ableton project window is ALWAYS layer 0, so it is strictly excluded.
-                guard pid == livePID, layer == 3, !name.isEmpty else { continue }
-
-                let bounds = win[kCGWindowBounds as String] as? [String: Any] ?? [:]
-                let x = bounds["X"] as? Double ?? 0
-                let y = bounds["Y"] as? Double ?? 0
-                let w = bounds["Width"] as? Double ?? 0
-                let h = bounds["Height"] as? Double ?? 0
-
-                // Exclude tiny UI utility frames / tooltips
-                guard w > 60 && h > 60 else { continue }
-
-                targets.append(PluginTarget(name: name, originX: x, originY: y))
-            }
-
-            guard !targets.isEmpty else {
-                return .alreadyClosed
-            }
-
-            // Save original cursor position so the producer's mouse does not wander
-            let originalPos = CGEvent(source: nil)?.location ?? CGPoint.zero
-            let source = CGEventSource(stateID: .hidSystemState)
-            let systemWide = AXUIElementCreateSystemWide()
 
             var closedCount = 0
 
-            for target in targets {
-                let x = target.originX
-                let y = target.originY
+            for window in windows {
+                // Check window role and subrole
+                var subroleRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subroleRef)
+                let subrole = subroleRef as? String ?? ""
+
+                // CRITICAL SAFETY FILTER:
+                // Only target floating plugin windows ('AXFloatingWindow').
+                // Standard windows ('AXStandardWindow') represent your actual Ableton project set and are strictly preserved!
+                guard subrole == "AXFloatingWindow" else { continue }
 
                 var didClose = false
 
-                // 1. First attempt: Direct AXCloseButton action via Accessibility
-                for (dx, dy) in [(8.0, 9.0), (10.0, 10.0), (6.0, 9.0), (12.0, 12.0), (14.0, 14.0)] {
-                    var elem: AXUIElement?
-                    if AXUIElementCopyElementAtPosition(systemWide, Float(x + dx), Float(y + dy), &elem) == .success,
-                       let el = elem {
-                        var subrole: CFTypeRef?
-                        AXUIElementCopyAttributeValue(el, kAXSubroleAttribute as CFString, &subrole)
-                        if (subrole as? String) == "AXCloseButton" {
-                            let actionErr = AXUIElementPerformAction(el, kAXPressAction as CFString)
-                            if actionErr == .success {
-                                didClose = true
-                                closedCount += 1
-                                break
+                // 1. Direct kAXCloseButtonAttribute action
+                var closeBtnRef: CFTypeRef?
+                let closeErr = AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &closeBtnRef)
+                if closeErr == .success, let closeBtn = closeBtnRef {
+                    let pressErr = AXUIElementPerformAction(closeBtn as! AXUIElement, kAXPressAction as CFString)
+                    if pressErr == .success {
+                        didClose = true
+                        closedCount += 1
+                    }
+                }
+
+                // 2. Fallback: Search window children for the AXCloseButton element
+                if !didClose {
+                    var childrenRef: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                       let children = childrenRef as? [AXUIElement] {
+                        for child in children {
+                            var childSubroleRef: CFTypeRef?
+                            AXUIElementCopyAttributeValue(child, kAXSubroleAttribute as CFString, &childSubroleRef)
+                            if (childSubroleRef as? String) == "AXCloseButton" {
+                                if AXUIElementPerformAction(child, kAXPressAction as CFString) == .success {
+                                    didClose = true
+                                    closedCount += 1
+                                    break
+                                }
                             }
                         }
                     }
                 }
 
-                // 2. Second attempt: Direct HID mouse click on the traffic light close button
-                if !didClose {
-                    let pt = CGPoint(x: x + 8.0, y: y + 9.0)
-
-                    let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
-                    move?.post(tap: .cghidEventTap)
-                    usleep(25000) // 25ms
-
-                    let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
-                    down?.post(tap: .cghidEventTap)
-                    usleep(30000) // 30ms
-
-                    let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
-                    up?.post(tap: .cghidEventTap)
-
-                    closedCount += 1
+                if didClose {
+                    usleep(15_000) // 15ms breath between windows
                 }
-
-                usleep(40000) // 40ms between windows
-            }
-
-            // Restore original cursor position immediately
-            if originalPos != .zero {
-                let restore = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: originalPos, mouseButton: .left)
-                restore?.post(tap: .cghidEventTap)
             }
 
             return closedCount > 0 ? .closed(count: closedCount) : .alreadyClosed
