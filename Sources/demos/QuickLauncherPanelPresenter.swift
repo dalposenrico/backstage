@@ -56,8 +56,10 @@ final class QuickLauncherPanelPresenter {
         newPanel.isMovable = true
         newPanel.isMovableByWindowBackground = true
 
+        let closer = PluginCloserManager.shared ?? PluginCloserManager()
         let rootView = QuickLauncherTrayView()
             .environmentObject(launcherStore)
+            .environmentObject(closer)
 
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)

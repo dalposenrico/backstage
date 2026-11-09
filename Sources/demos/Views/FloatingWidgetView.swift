@@ -13,6 +13,7 @@ struct FloatingWidgetView: View {
     @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject private var launcherStore: QuickLauncherStore
+    @EnvironmentObject private var pluginCloser: PluginCloserManager
     @Environment(\.openWindow) private var openWindow
 
     @State private var filter: FloatingWidgetFilter = .recents

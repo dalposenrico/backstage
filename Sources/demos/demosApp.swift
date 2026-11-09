@@ -227,6 +227,7 @@ struct demosApp: App {
                 .environmentObject(comparisonMarkers)
                 .environmentObject(globalHotkey)
                 .environmentObject(launcherStore)
+                .environmentObject(pluginCloser)
         }
         .defaultSize(width: 1120, height: 720)
 
@@ -280,6 +281,7 @@ struct demosApp: App {
                 .environmentObject(settings)
                 .environmentObject(globalHotkey)
                 .environmentObject(launcherStore)
+                .environmentObject(pluginCloser)
         }
         .defaultSize(width: 330, height: 580)
         .windowStyle(.hiddenTitleBar)

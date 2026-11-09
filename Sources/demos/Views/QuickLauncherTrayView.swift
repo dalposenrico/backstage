@@ -3,6 +3,7 @@ import SwiftUI
 
 struct QuickLauncherTrayView: View {
     @EnvironmentObject private var launcherStore: QuickLauncherStore
+    @EnvironmentObject private var pluginCloser: PluginCloserManager
     @Environment(\.openSettings) private var openSettings
 
     private let columns = [
@@ -62,6 +63,9 @@ struct QuickLauncherTrayView: View {
                     launcherButton(for: item)
                 }
             }
+
+            // Quick Tool: Close All Plugin Windows
+            closePluginsButton
         }
         .padding(10)
         .background {
@@ -124,5 +128,54 @@ struct QuickLauncherTrayView: View {
         }
         .buttonStyle(.plain)
         .help("Press \(item.key) in Ableton Live to trigger \(item.title)")
+    }
+
+    private var closePluginsButton: some View {
+        Button {
+            Task {
+                let res = await pluginCloser.closePluginWindows().value
+                launcherStore.lastTriggeredMessage = res == .closed ? "Closed Plugins" : res.userMessage
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "xmark.rectangle.stack")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(hex: "C084FC"))
+                    .frame(width: 18, height: 18)
+                    .background(Color(hex: "C084FC").opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Close Plugin Windows")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(Color(hex: "F3F4F6"))
+                    Text(pluginCloser.lastStatus ?? "Close open VST/AU windows in Live")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color(hex: "9CA3AF"))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
+                Text(pluginCloser.shortcutDisplayString)
+                    .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(Color(hex: "D1D5DB"))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(hex: "C084FC").opacity(0.35), lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Close all open plugin windows in Ableton Live (\(pluginCloser.shortcutDisplayString))")
     }
 }

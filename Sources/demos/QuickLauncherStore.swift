@@ -169,13 +169,24 @@ public final class QuickLauncherStore: ObservableObject {
     public var trayHeight: CGFloat {
         // Calculate based on 3-column rows
         let rowCount = max(1, (items.count + 2) / 3)
-        // Header ~28pt, rows: rowCount * 38pt + spacing, bottom padding ~10pt
-        return CGFloat(28 + (rowCount * 38) + ((rowCount - 1) * 6) + 12)
+        // Header ~28pt, rows: rowCount * 38pt + spacing, close plugin button: ~48pt, bottom padding ~12pt
+        return CGFloat(28 + (rowCount * 38) + ((rowCount - 1) * 6) + 48 + 12)
     }
 
     public func trigger(_ item: QuickLauncherItem) {
         lastTriggeredId = item.id
         lastTriggeredMessage = "\(item.title) (\(item.key))"
+
+        if item.key.localizedCaseInsensitiveContains("close")
+            || item.title.localizedCaseInsensitiveContains("Close Plugin") {
+            PluginCloserManager.shared?.closePluginWindows()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                if self?.lastTriggeredId == item.id {
+                    self?.lastTriggeredId = nil
+                }
+            }
+            return
+        }
 
         // Activate Ableton Live first
         _ = AbletonSessionDetector.activateAbleton()
