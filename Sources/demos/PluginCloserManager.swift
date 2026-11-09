@@ -312,13 +312,24 @@ public final class PluginCloserManager: ObservableObject {
                 return .notRunning
             }
 
+            // Step 1: Ensure Ableton Live is frontmost so that all floating plugin windows
+            // (which macOS hides when Ableton is deactivated) are restored and on-screen.
+            _ = AbletonSessionDetector.activateAbleton()
+            usleep(140_000) // 140ms for window restoration
+
             let livePID = liveApp.processIdentifier
 
             guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
                 return .alreadyClosed
             }
 
-            var targets: [(name: String, clickPoint: CGPoint)] = []
+            struct PluginTarget {
+                let name: String
+                let originX: Double
+                let originY: Double
+            }
+
+            var targets: [PluginTarget] = []
 
             for win in windowList {
                 let pid = win[kCGWindowOwnerPID as String] as? Int ?? 0
@@ -327,7 +338,7 @@ public final class PluginCloserManager: ObservableObject {
 
                 // CRITICAL SAFETY FILTER:
                 // Only target floating windows (layer == 3) owned by Live.
-                // The main Ableton project window is ALWAYS layer 0, so it is mathematically impossible to match.
+                // The main Ableton project window is ALWAYS layer 0, so it is strictly excluded.
                 guard pid == livePID, layer == 3, !name.isEmpty else { continue }
 
                 let bounds = win[kCGWindowBounds as String] as? [String: Any] ?? [:]
@@ -339,9 +350,7 @@ public final class PluginCloserManager: ObservableObject {
                 // Exclude tiny UI utility frames / tooltips
                 guard w > 60 && h > 60 else { continue }
 
-                // The standard macOS traffic light close button is at (x + 14, y + 14)
-                let clickPoint = CGPoint(x: x + 14.0, y: y + 14.0)
-                targets.append((name: name, clickPoint: clickPoint))
+                targets.append(PluginTarget(name: name, originX: x, originY: y))
             }
 
             guard !targets.isEmpty else {
@@ -351,23 +360,53 @@ public final class PluginCloserManager: ObservableObject {
             // Save original cursor position so the producer's mouse does not wander
             let originalPos = CGEvent(source: nil)?.location ?? CGPoint.zero
             let source = CGEventSource(stateID: .hidSystemState)
+            let systemWide = AXUIElementCreateSystemWide()
+
+            var closedCount = 0
 
             for target in targets {
-                let pt = target.clickPoint
+                let x = target.originX
+                let y = target.originY
 
-                // Move cursor to close button to activate hover/traffic light
-                let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
-                move?.post(tap: .cghidEventTap)
-                usleep(25000) // 25ms
+                var didClose = false
 
-                // Left click down and up on the close button
-                let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
-                down?.post(tap: .cghidEventTap)
-                usleep(30000) // 30ms
+                // 1. First attempt: Direct AXCloseButton action via Accessibility
+                for (dx, dy) in [(8.0, 9.0), (10.0, 10.0), (6.0, 9.0), (12.0, 12.0), (14.0, 14.0)] {
+                    var elem: AXUIElement?
+                    if AXUIElementCopyElementAtPosition(systemWide, Float(x + dx), Float(y + dy), &elem) == .success,
+                       let el = elem {
+                        var subrole: CFTypeRef?
+                        AXUIElementCopyAttributeValue(el, kAXSubroleAttribute as CFString, &subrole)
+                        if (subrole as? String) == "AXCloseButton" {
+                            let actionErr = AXUIElementPerformAction(el, kAXPressAction as CFString)
+                            if actionErr == .success {
+                                didClose = true
+                                closedCount += 1
+                                break
+                            }
+                        }
+                    }
+                }
 
-                let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
-                up?.post(tap: .cghidEventTap)
-                usleep(35000) // 35ms between windows
+                // 2. Second attempt: Direct HID mouse click on the traffic light close button
+                if !didClose {
+                    let pt = CGPoint(x: x + 8.0, y: y + 9.0)
+
+                    let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
+                    move?.post(tap: .cghidEventTap)
+                    usleep(25000) // 25ms
+
+                    let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
+                    down?.post(tap: .cghidEventTap)
+                    usleep(30000) // 30ms
+
+                    let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
+                    up?.post(tap: .cghidEventTap)
+
+                    closedCount += 1
+                }
+
+                usleep(40000) // 40ms between windows
             }
 
             // Restore original cursor position immediately
@@ -376,7 +415,7 @@ public final class PluginCloserManager: ObservableObject {
                 restore?.post(tap: .cghidEventTap)
             }
 
-            return .closed(count: targets.count)
+            return closedCount > 0 ? .closed(count: closedCount) : .alreadyClosed
         }.value
     }
 }
