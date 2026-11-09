@@ -4,23 +4,20 @@ import Combine
 import CoreGraphics
 import Foundation
 
-public enum PluginCloseResult: String, Equatable {
-    case closed = "closed"
-    case alreadyClosed = "already_closed"
-    case notRunning = "not_running"
-    case menuNotFound = "item_not_found"
-    case failed = "failed"
+public enum PluginCloseResult: Equatable {
+    case closed(count: Int)
+    case alreadyClosed
+    case notRunning
+    case failed
 
     public var userMessage: String {
         switch self {
-        case .closed:
-            return "Closed all plugin windows"
+        case .closed(let count):
+            return "Closed \(count) plugin window\(count == 1 ? "" : "s")"
         case .alreadyClosed:
             return "Plugin windows are already closed"
         case .notRunning:
             return "Ableton Live is not running"
-        case .menuNotFound:
-            return "Ableton plugin window menu not found"
         case .failed:
             return "Could not close plugin windows"
         }
@@ -30,7 +27,8 @@ public enum PluginCloseResult: String, Equatable {
 /// Manages closing all floating plugin windows (VST / AU) in Ableton Live,
 /// with a customizable global shortcut (default: ⌥⌘W).
 ///
-/// Crucially, this only closes plugin windows and never closes the Ableton Live set or application.
+/// Crucially, this actually closes the plugin windows (as if clicking each window's red 'x' close button),
+/// and never touches or closes the main Ableton Live set window.
 @MainActor
 public final class PluginCloserManager: ObservableObject {
     public static weak var shared: PluginCloserManager?
@@ -299,69 +297,86 @@ public final class PluginCloserManager: ObservableObject {
         }
     }
 
-    /// Safely finds and closes any open plugin windows in Ableton Live without touching the main set window.
+    /// Finds and actually closes every open plugin window in Ableton Live by triggering the
+    /// native macOS close button 'x' on each floating plugin window.
+    ///
+    /// CRITICAL: The main Ableton Live set/document window is ALWAYS at Layer 0 and is strictly
+    /// excluded from matching, ensuring your session is never closed or interrupted.
     private static func performCloseOffMainActor() async -> PluginCloseResult {
         return await Task.detached(priority: .userInitiated) {
-            let script = """
-            tell application "System Events"
-                if not (exists (first process whose name contains "Live" and background only is false)) then
-                    return "not_running"
-                end if
-                tell (first process whose name contains "Live" and background only is false)
-                    tell menu bar 1
-                        tell menu "View"
-                            set targetItem to missing value
-                            repeat with mItem in menu items
-                                try
-                                    set itemName to (name of mItem as string)
-                                    if itemName contains "Plug-In" or itemName contains "Plugin" then
-                                        set targetItem to mItem
-                                        exit repeat
-                                    end if
-                                end try
-                            end repeat
-                            if targetItem is missing value then
-                                repeat with mItem in menu items
-                                    try
-                                        if (value of attribute "AXMenuItemCmdChar" of mItem is "P") then
-                                            set targetItem to mItem
-                                            exit repeat
-                                        end if
-                                    end try
-                                end repeat
-                            end if
-                            if targetItem is missing value then
-                                return "item_not_found"
-                            end if
-
-                            set hasMark to false
-                            try
-                                set markVal to (value of attribute "AXMenuItemMarkChar" of targetItem as string)
-                                if markVal is "✓" then
-                                    set hasMark to true
-                                end if
-                            end try
-
-                            if hasMark then
-                                click targetItem
-                                return "closed"
-                            else
-                                return "already_closed"
-                            end if
-                        end tell
-                    end tell
-                end tell
-            end tell
-            """
-
-            var error: NSDictionary?
-            if let appleScript = NSAppleScript(source: script) {
-                let descriptor = appleScript.executeAndReturnError(&error)
-                if error == nil, let stringValue = descriptor.stringValue {
-                    return PluginCloseResult(rawValue: stringValue) ?? .failed
-                }
+            let runningApps = NSWorkspace.shared.runningApplications
+            guard let liveApp = runningApps.first(where: { app in
+                app.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
+                    || app.localizedName?.localizedCaseInsensitiveContains("Live") == true
+            }) else {
+                return .notRunning
             }
-            return .failed
+
+            let livePID = liveApp.processIdentifier
+
+            guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+                return .alreadyClosed
+            }
+
+            var targets: [(name: String, clickPoint: CGPoint)] = []
+
+            for win in windowList {
+                let pid = win[kCGWindowOwnerPID as String] as? Int ?? 0
+                let layer = win[kCGWindowLayer as String] as? Int ?? 0
+                let name = win[kCGWindowName as String] as? String ?? ""
+
+                // CRITICAL SAFETY FILTER:
+                // Only target floating windows (layer == 3) owned by Live.
+                // The main Ableton project window is ALWAYS layer 0, so it is mathematically impossible to match.
+                guard pid == livePID, layer == 3, !name.isEmpty else { continue }
+
+                let bounds = win[kCGWindowBounds as String] as? [String: Any] ?? [:]
+                let x = bounds["X"] as? Double ?? 0
+                let y = bounds["Y"] as? Double ?? 0
+                let w = bounds["Width"] as? Double ?? 0
+                let h = bounds["Height"] as? Double ?? 0
+
+                // Exclude tiny UI utility frames / tooltips
+                guard w > 60 && h > 60 else { continue }
+
+                // The standard macOS traffic light close button is at (x + 14, y + 14)
+                let clickPoint = CGPoint(x: x + 14.0, y: y + 14.0)
+                targets.append((name: name, clickPoint: clickPoint))
+            }
+
+            guard !targets.isEmpty else {
+                return .alreadyClosed
+            }
+
+            // Save original cursor position so the producer's mouse does not wander
+            let originalPos = CGEvent(source: nil)?.location ?? CGPoint.zero
+            let source = CGEventSource(stateID: .hidSystemState)
+
+            for target in targets {
+                let pt = target.clickPoint
+
+                // Move cursor to close button to activate hover/traffic light
+                let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)
+                move?.post(tap: .cghidEventTap)
+                usleep(25000) // 25ms
+
+                // Left click down and up on the close button
+                let down = CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)
+                down?.post(tap: .cghidEventTap)
+                usleep(30000) // 30ms
+
+                let up = CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)
+                up?.post(tap: .cghidEventTap)
+                usleep(35000) // 35ms between windows
+            }
+
+            // Restore original cursor position immediately
+            if originalPos != .zero {
+                let restore = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: originalPos, mouseButton: .left)
+                restore?.post(tap: .cghidEventTap)
+            }
+
+            return .closed(count: targets.count)
         }.value
     }
 }

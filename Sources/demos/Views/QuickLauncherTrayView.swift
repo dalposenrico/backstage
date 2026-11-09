@@ -134,7 +134,12 @@ struct QuickLauncherTrayView: View {
         Button {
             Task {
                 let res = await pluginCloser.closePluginWindows().value
-                launcherStore.lastTriggeredMessage = res == .closed ? "Closed Plugins" : res.userMessage
+                switch res {
+                case .closed(let count):
+                    launcherStore.lastTriggeredMessage = "Closed \(count) plugin\(count == 1 ? "" : "s")"
+                default:
+                    launcherStore.lastTriggeredMessage = res.userMessage
+                }
             }
         } label: {
             HStack(spacing: 7) {

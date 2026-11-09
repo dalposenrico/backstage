@@ -45,10 +45,10 @@ final class PluginCloserManagerTests: XCTestCase {
     }
 
     func testPluginCloseResultMessages() {
-        XCTAssertEqual(PluginCloseResult.closed.userMessage, "Closed all plugin windows")
+        XCTAssertEqual(PluginCloseResult.closed(count: 1).userMessage, "Closed 1 plugin window")
+        XCTAssertEqual(PluginCloseResult.closed(count: 3).userMessage, "Closed 3 plugin windows")
         XCTAssertEqual(PluginCloseResult.alreadyClosed.userMessage, "Plugin windows are already closed")
         XCTAssertEqual(PluginCloseResult.notRunning.userMessage, "Ableton Live is not running")
-        XCTAssertEqual(PluginCloseResult.menuNotFound.userMessage, "Ableton plugin window menu not found")
         XCTAssertEqual(PluginCloseResult.failed.userMessage, "Could not close plugin windows")
     }
 }
