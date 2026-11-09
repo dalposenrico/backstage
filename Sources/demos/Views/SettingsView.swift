@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject var dragScroll: AbletonDragScrollManager
     @EnvironmentObject var launcherStore: QuickLauncherStore
+    @EnvironmentObject var pluginCloser: PluginCloserManager
     @StateObject private var launchAtLogin = LaunchAtLoginManager()
 
     var body: some View {
@@ -102,6 +103,71 @@ struct SettingsView: View {
                 }
             } header: {
                 Label("Ableton Export Hotkey", systemImage: "keyboard")
+                    .font(.headline)
+            }
+
+            Divider()
+
+            // MARK: Close Plugin Windows
+            Section {
+                Toggle("Enable Close Plugin Windows shortcut", isOn: $pluginCloser.isEnabled)
+
+                HStack(spacing: 8) {
+                    Text("Shortcut")
+                    Spacer()
+
+                    Toggle("⌘ Cmd", isOn: $pluginCloser.useCommand)
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+
+                    Toggle("⌥ Opt", isOn: $pluginCloser.useOption)
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+
+                    Toggle("⇧ Shift", isOn: $pluginCloser.useShift)
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+
+                    Toggle("⌃ Ctrl", isOn: $pluginCloser.useControl)
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+
+                    TextField("Key", text: $pluginCloser.key)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .frame(width: 34)
+                        .multilineTextAlignment(.center)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Toggle("Only trigger when Ableton Live is frontmost", isOn: $pluginCloser.onlyWhenAbletonActive)
+
+                Text("Press **\(pluginCloser.shortcutDisplayString)** to close all open floating VST / AU plugin windows in Ableton Live at once. Never closes your Ableton Live set or triggers save dialogs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Button("Close Plugin Windows Now") {
+                        pluginCloser.closePluginWindows()
+                    }
+                    .controlSize(.small)
+
+                    Button("Reset (⌥⌘W)") {
+                        pluginCloser.resetToDefaults()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if let status = pluginCloser.lastStatus {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Label("Close Plugin Windows", systemImage: "xmark.rectangle.stack")
                     .font(.headline)
             }
 

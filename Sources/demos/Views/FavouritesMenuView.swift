@@ -13,6 +13,7 @@ struct FavouritesMenuView: View {
     @EnvironmentObject private var untitledSync: UntitledSyncStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject private var dailyFocus: DailyFocusStore
+    @EnvironmentObject private var pluginCloser: PluginCloserManager
     @Environment(\.openWindow) private var openWindow
     @State private var selectedTab: QuickAccessTab = .songs
     @State private var searchText = ""
@@ -67,6 +68,15 @@ struct FavouritesMenuView: View {
             || "Macro".localizedCaseInsensitiveContains(searchText)
     }
 
+    private var showsClosePluginWindows: Bool {
+        searchText.isEmpty
+            || "Close Plugin Windows".localizedCaseInsensitiveContains(searchText)
+            || "Plugin".localizedCaseInsensitiveContains(searchText)
+            || "VST".localizedCaseInsensitiveContains(searchText)
+            || "Window".localizedCaseInsensitiveContains(searchText)
+            || "Close".localizedCaseInsensitiveContains(searchText)
+    }
+
     private var showsFocusStudio: Bool {
         searchText.isEmpty
             || "Focus".localizedCaseInsensitiveContains(searchText)
@@ -91,6 +101,7 @@ struct FavouritesMenuView: View {
             + (showsProjectNotes ? 1 : 0)
             + (showsUntitledSync ? 1 : 0)
             + (showsChannelPluginRunner ? 1 : 0)
+            + (showsClosePluginWindows ? 1 : 0)
             + (showsFocusStudio ? 1 : 0)
             + (showsNameWorlds ? 1 : 0)
             + (showsCrashAnalyzer ? 1 : 0)
@@ -194,6 +205,7 @@ struct FavouritesMenuView: View {
                             if showsProjectNotes { projectNotesRow }
                             if showsUntitledSync { untitledAutomationRow }
                             if showsChannelPluginRunner { channelPluginRunnerRow }
+                            if showsClosePluginWindows { closePluginWindowsRow }
                             if showsFocusStudio { focusStudioRow }
                             if showsNameWorlds { nameWorldsRow }
                             if showsCrashAnalyzer { crashAnalyzerRow }
@@ -420,6 +432,42 @@ struct FavouritesMenuView: View {
         .onTapGesture {
             openWindow(id: "channel-plugin-runner")
             WindowPresenter.showChannelPluginRunner(dismissingMenuBarPanel: true)
+        }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
+    }
+
+    private var closePluginWindowsRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "xmark.rectangle.stack")
+                .font(.system(size: 18))
+                .foregroundStyle(.purple)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Close Plugin Windows")
+                    Text(pluginCloser.shortcutDisplayString)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text(pluginCloser.lastStatus ?? "Close all floating VST/AU windows in Live")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(pluginCloser.isExecuting ? "Closing…" : "Close") {
+                pluginCloser.closePluginWindows()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(pluginCloser.isExecuting)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !pluginCloser.isExecuting {
+                pluginCloser.closePluginWindows()
+            }
         }
         .overlay(alignment: .bottom) { Divider().padding(.leading, 48) }
     }

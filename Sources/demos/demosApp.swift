@@ -42,6 +42,7 @@ struct demosApp: App {
     @StateObject private var globalHotkey = GlobalHotkeyManager()
     @StateObject private var dragScroll = AbletonDragScrollManager()
     @StateObject private var launcherStore = QuickLauncherStore()
+    @StateObject private var pluginCloser = PluginCloserManager()
     @Environment(\.openWindow) private var openWindow
     @AppStorage(ProjectDockSizing.storageKey) private var projectDockHeight = ProjectDockSizing.defaultHeight
 
@@ -70,6 +71,7 @@ struct demosApp: App {
                 .environmentObject(globalHotkey)
                 .environmentObject(dragScroll)
                 .environmentObject(launcherStore)
+                .environmentObject(pluginCloser)
         }
         .defaultSize(width: 1100, height: 680)
         .commands {
@@ -126,6 +128,11 @@ struct demosApp: App {
                     WindowPresenter.showChannelPluginRunner()
                 }
                 .keyboardShortcut("p", modifiers: [.command, .option])
+
+                Button("Close All Plugin Windows") {
+                    pluginCloser.closePluginWindows()
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
 
                 Button("Name Generator…") {
                     openWindow(id: "name-generator")
@@ -285,6 +292,7 @@ struct demosApp: App {
                 .environmentObject(globalHotkey)
                 .environmentObject(dragScroll)
                 .environmentObject(launcherStore)
+                .environmentObject(pluginCloser)
         }
 
         // MARK: - Menu bar extra
@@ -299,6 +307,7 @@ struct demosApp: App {
                 .environmentObject(studioWorkflow)
                 .environmentObject(globalHotkey)
                 .environmentObject(dailyFocus)
+                .environmentObject(pluginCloser)
         } label: {
             Image(systemName: "music.note")
         }

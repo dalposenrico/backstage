@@ -126,6 +126,7 @@ struct ToolsHubView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var toolLaunchers: ToolLauncherStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
+    @EnvironmentObject private var pluginCloser: PluginCloserManager
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -148,6 +149,9 @@ struct ToolsHubView: View {
                         ToolHubButton(title: "Channel Plugin Runner", detail: "Batch paste plugins & VSTs across chosen channels in Live", icon: "slider.vertical.3") {
                             openWindow(id: "channel-plugin-runner")
                             WindowPresenter.showChannelPluginRunner()
+                        }
+                        ToolHubButton(title: "Close Plugin Windows", detail: "\(pluginCloser.shortcutDisplayString) — instantly close all floating VST / AU windows in Live", icon: "xmark.rectangle.stack") {
+                            pluginCloser.closePluginWindows()
                         }
                         ToolHubButton(title: "Versions", detail: "Arrange and compare sections", icon: "rectangle.split.2x1") {
                             openWindow(id: "ab-compare")
