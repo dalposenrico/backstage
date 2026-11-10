@@ -114,9 +114,17 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
             DispatchQueue.main.async {
                 guard let self else { return }
                 for (url, p) in loaded {
+                    self.durationCache[url] = p.duration
                     if self.prewarmedPlayers[url] == nil {
                         self.prewarmedPlayers[url] = p
                     }
+                }
+                if let active = self.activeSource, self.player == nil, let p = self.prewarmedPlayers.removeValue(forKey: active.url) {
+                    p.delegate = self
+                    let linearMultiplier = pow(10.0, self.appliedGainDB / 20.0)
+                    p.volume = min(max(0.0, self.volume * linearMultiplier), 2.0)
+                    self.player = p
+                    self.timeline.update(currentTime: p.currentTime, duration: p.duration)
                 }
             }
         }
@@ -193,10 +201,15 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
             let prepared: AVAudioPlayer
             if let cached = prewarmedPlayers.removeValue(forKey: source.url) {
                 prepared = cached
-            } else {
+            } else if shouldPlay {
                 prepared = try AVAudioPlayer(contentsOf: source.url)
                 prepared.isMeteringEnabled = true
                 prepared.prepareToPlay()
+            } else {
+                // Not playing immediately and not yet prewarmed.
+                // Prewarm will deliver the player asynchronously without blocking the UI.
+                self.timeline.update(currentTime: clampedTargetTime, duration: sourceDuration)
+                return
             }
 
             prepared.isMeteringEnabled = true
@@ -597,9 +610,18 @@ final class ComparisonAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDele
         timer = nil
     }
 
+    private var durationCache: [URL: Double] = [:]
+
     private func audioDuration(_ url: URL) -> Double {
+        if let cached = durationCache[url] { return cached }
+        if let p = prewarmedPlayers[url] {
+            durationCache[url] = p.duration
+            return p.duration
+        }
         guard let file = try? AVAudioFile(forReading: url) else { return 0 }
-        return Double(file.length) / file.processingFormat.sampleRate
+        let dur = Double(file.length) / file.processingFormat.sampleRate
+        durationCache[url] = dur
+        return dur
     }
 
     // MARK: - AVAudioPlayerDelegate

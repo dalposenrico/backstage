@@ -18,6 +18,7 @@ struct TrackListView: View {
     @State private var parseProgress: Double = 0.0
     @State private var parseStatus: String = "Reading Ableton set…"
     @State private var selectedVersionURL: URL? = nil
+    @State private var hoveredInspectorSection: ProjectInspectorSection? = nil
     @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
 
     private var sortedVersions: [AbletonVersion] {
@@ -271,16 +272,17 @@ struct TrackListView: View {
                 HStack(alignment: .bottom, spacing: 4) {
                     ForEach(ProjectInspectorSection.allCases) { item in
                         let isSelected = section == item
+                        let isHovered = hoveredInspectorSection == item
                         Button {
                             selectSection(item)
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: item.icon)
                                     .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                                    .foregroundColor(isSelected ? .accent : Color(white: 0.65))
+                                    .foregroundColor(isSelected ? .accent : (isHovered ? .white : Color(white: 0.65)))
                                 Text(tabTitle(for: item))
                                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
-                                    .foregroundColor(isSelected ? .white : Color(white: 0.72))
+                                    .foregroundColor(isSelected ? .white : (isHovered ? .white : Color(white: 0.72)))
                             }
                             .padding(.horizontal, 12)
                             .frame(height: 32)
@@ -288,17 +290,33 @@ struct TrackListView: View {
                                 if isSelected {
                                     DawTabFill(cornerRadius: 5, bottomExtension: 2.0)
                                         .fill(Color.appBg)
+                                } else if isHovered {
+                                    DawTabFill(cornerRadius: 5, bottomExtension: 0)
+                                        .fill(Color.white.opacity(0.06))
                                 }
                             }
                             .overlay {
                                 if isSelected {
                                     DawTabOutline(cornerRadius: 5, strokeWidth: 2.0, bottomExtension: 2.0)
                                         .stroke(Color.accent, lineWidth: 2.0)
+                                } else if isHovered {
+                                    DawTabFill(cornerRadius: 5, bottomExtension: 0)
+                                        .stroke(Color.white.opacity(0.18), lineWidth: 1.0)
                                 }
                             }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .overlay(
+                            InstantTabClickOverlay(action: {
+                                selectSection(item)
+                            }, onHover: { isOver in
+                                hoveredInspectorSection = isOver ? item : nil
+                            })
+                        )
+                        .onHover { isOver in
+                            hoveredInspectorSection = isOver ? item : nil
+                        }
                     }
                     Spacer(minLength: 0)
 
@@ -523,7 +541,14 @@ struct TrackListView: View {
         withTransaction(transaction) {
             section = item
         }
-        store.isVersionsTabActive = (item == .versions)
+        let isVersions = (item == .versions)
+        if store.isVersionsTabActive != isVersions {
+            store.isVersionsTabActive = isVersions
+        }
+        if (item == .arrangement || item == .midi || item == .samples) && arrangement == nil && !isLoadingArrangement {
+            let alsURL = activeVersion?.url ?? project.newestAbletonVersion?.url ?? project.versions.first?.url
+            loadArrangement(for: alsURL)
+        }
     }
 
     private func switchVersion(to version: AbletonVersion) {
@@ -1180,37 +1205,4 @@ private struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Instant Mouse Down Overlay
-private struct InstantMouseDownOverlay: NSViewRepresentable {
-    let action: () -> Void
-
-    func makeNSView(context: Context) -> InstantMouseDownNSView {
-        let view = InstantMouseDownNSView()
-        view.action = action
-        return view
-    }
-
-    func updateNSView(_ nsView: InstantMouseDownNSView, context: Context) {
-        nsView.action = action
-    }
-}
-
-private final class InstantMouseDownNSView: NSView {
-    var action: (() -> Void)?
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        return true
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if bounds.contains(point) {
-            return self
-        }
-        return nil
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        action?()
-    }
-}
 

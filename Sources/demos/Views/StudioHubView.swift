@@ -17,6 +17,7 @@ struct StudioHubView: View {
     @State private var folderCreationStatus: String? = nil
     @State private var showAllRevisions = true
     @State private var showCustomDeliverableField = false
+    @State private var isFolderCreatedOnDisk = false
 
     private var metadata: ProjectMetadata {
         metadataStore.metadata(for: project)
@@ -54,11 +55,6 @@ struct StudioHubView: View {
         )
     }
 
-    private var isFolderCreatedOnDisk: Bool {
-        guard let url = linkedDropboxFolderURL else { return false }
-        return dropbox.folderExists(at: url)
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -81,12 +77,32 @@ struct StudioHubView: View {
             clientNameDraft = metadata.clientName ?? ""
             shareLinkDraft = metadata.dropboxShareLink ?? ""
             dropbox.refreshDropboxStatus()
+            checkFolderStatusAsync()
         }
         .onChange(of: metadata.clientName) { _, newName in
             clientNameDraft = newName ?? ""
+            checkFolderStatusAsync()
         }
         .onChange(of: metadata.dropboxShareLink) { _, newLink in
             shareLinkDraft = newLink ?? ""
+        }
+        .onChange(of: metadata.dropboxFolderPath) { _, _ in
+            checkFolderStatusAsync()
+        }
+    }
+
+    private func checkFolderStatusAsync() {
+        guard let url = linkedDropboxFolderURL else {
+            isFolderCreatedOnDisk = false
+            return
+        }
+        Task.detached(priority: .utility) {
+            let path = url.path
+            var isDir: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+            await MainActor.run {
+                self.isFolderCreatedOnDisk = exists
+            }
         }
     }
 
@@ -491,6 +507,7 @@ struct StudioHubView: View {
         folderCreationStatus = nil
         do {
             try dropbox.createProjectFolder(at: url, createStudioSubfolders: true)
+            isFolderCreatedOnDisk = true
             metadataStore.setDropboxFolderPath(url.path, for: project)
             folderCreationStatus = "Created folder with Stems, Mix Bounces, & Deliverables"
             isCreatingFolder = false

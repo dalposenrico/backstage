@@ -356,6 +356,18 @@ struct DawTopNavBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(
+            InstantTabClickOverlay(action: {
+                guard selection != section else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection = section
+                }
+            }, onHover: { isOver in
+                hoveredSection = isOver ? section : nil
+            })
+        )
         .onHover { isOver in
             hoveredSection = isOver ? section : nil
         }
@@ -388,6 +400,18 @@ struct DawTopNavBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .overlay(
+                InstantTabClickOverlay(action: {
+                    guard !(selection == .project && store.selectedProject?.id == project.id) else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        store.selectProjectTab(project)
+                    }
+                }, onHover: { isOver in
+                    hoveredProjectID = isOver ? project.id : nil
+                })
+            )
 
             Button {
                 store.closeProjectTab(project)

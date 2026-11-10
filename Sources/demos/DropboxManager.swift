@@ -11,13 +11,16 @@ final class DropboxManager: ObservableObject {
     static let defaultClientWorkFolderName = "MIXING - MASTERING WORK"
     static let defaultMusicProjectsFolderName = "MUSIC PROJECTS"
 
+    private static var cachedDropboxRoot: URL?
+    private static var hasSearchedDropboxRoot = false
+
     init() {
         refreshDropboxStatus()
     }
 
     /// Refresh detection of local Dropbox folder
-    func refreshDropboxStatus() {
-        if let detected = Self.findDropboxRoot() {
+    func refreshDropboxStatus(forceRescan: Bool = false) {
+        if let detected = Self.findDropboxRoot(forceRescan: forceRescan) {
             dropboxRootURL = detected
             isDropboxAvailable = FileManager.default.fileExists(atPath: detected.path)
         } else {
@@ -27,7 +30,12 @@ final class DropboxManager: ObservableObject {
     }
 
     /// Detects Dropbox root directory using ~/.dropbox/info.json, CloudStorage, or home fallback.
-    static func findDropboxRoot() -> URL? {
+    static func findDropboxRoot(forceRescan: Bool = false) -> URL? {
+        if !forceRescan && hasSearchedDropboxRoot {
+            return cachedDropboxRoot
+        }
+        hasSearchedDropboxRoot = true
+
         // 1. Try ~/.dropbox/info.json
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let infoJSONURL = homeDir.appendingPathComponent(".dropbox/info.json")
@@ -38,6 +46,7 @@ final class DropboxManager: ObservableObject {
                let pathStr = personal["path"] as? String {
                 let url = URL(fileURLWithPath: pathStr)
                 if FileManager.default.fileExists(atPath: url.path) {
+                    cachedDropboxRoot = url
                     return url
                 }
             }
@@ -45,6 +54,7 @@ final class DropboxManager: ObservableObject {
                let pathStr = business["path"] as? String {
                 let url = URL(fileURLWithPath: pathStr)
                 if FileManager.default.fileExists(atPath: url.path) {
+                    cachedDropboxRoot = url
                     return url
                 }
             }
@@ -53,15 +63,18 @@ final class DropboxManager: ObservableObject {
         // 2. Try macOS CloudStorage path
         let cloudStoragePath = homeDir.appendingPathComponent("Library/CloudStorage/Dropbox")
         if FileManager.default.fileExists(atPath: cloudStoragePath.path) {
+            cachedDropboxRoot = cloudStoragePath
             return cloudStoragePath
         }
 
         // 3. Try standard ~/Dropbox
         let standardPath = homeDir.appendingPathComponent("Dropbox")
         if FileManager.default.fileExists(atPath: standardPath.path) {
+            cachedDropboxRoot = standardPath
             return standardPath
         }
 
+        cachedDropboxRoot = nil
         return nil
     }
 
