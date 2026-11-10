@@ -71,6 +71,7 @@ private struct ReleaseLane: View {
     let subtitle: String
     let projects: [Project]
     let select: (Project) -> Void
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -96,16 +97,42 @@ private struct ReleaseLane: View {
                     .frame(maxWidth: .infinity, minHeight: 74)
             } else {
                 ForEach(projects) { project in
+                    let meta = metadataStore.metadata(for: project)
                     Button { select(project) } label: {
                         VStack(alignment: .leading, spacing: 5) {
+                            if meta.projectKind == .client {
+                                HStack(spacing: 4) {
+                                    Text(meta.clientName?.uppercased() ?? "CLIENT")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.blue)
+                                    if let service = meta.serviceType {
+                                        Text("· \(service.rawValue)")
+                                            .font(.system(size: 8))
+                                            .foregroundColor(.tertiaryText)
+                                    }
+                                }
+                            }
+
                             Text(project.name)
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.primaryText)
                                 .lineLimit(2)
+
                             Text(project.sortedTracks.first?.displayName ?? "No audio export")
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondaryText)
                                 .lineLimit(1)
+
+                            if let delivs = meta.manualDeliverables, !delivs.isEmpty {
+                                let ready = delivs.filter(\.isCompleted).count
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.seal")
+                                        .font(.system(size: 9))
+                                    Text("\(ready)/\(delivs.count) deliverables")
+                                        .font(.system(size: 9, weight: .medium))
+                                }
+                                .foregroundColor(ready == delivs.count ? .green : .secondaryText)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(11)

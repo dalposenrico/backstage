@@ -127,10 +127,60 @@ enum ProjectPriority: Int, Codable, CaseIterable, Identifiable {
     var title: String { "P\(rawValue)" }
 }
 
+enum ProjectKind: String, Codable, CaseIterable, Identifiable {
+    case personal = "Personal"
+    case client = "Client"
+    var id: String { rawValue }
+}
+
+enum AudioServiceType: String, Codable, CaseIterable, Identifiable {
+    case mixing = "Mixing"
+    case mastering = "Mastering"
+    case stemMastering = "Stem Mastering"
+    case production = "Production"
+    case recording = "Recording"
+    var id: String { rawValue }
+}
+
+struct DeliverableItem: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var title: String
+    var isCompleted: Bool = false
+
+    static let standardMixMasterDeliverables: [DeliverableItem] = [
+        DeliverableItem(title: "Main Mix (24/48k WAV)"),
+        DeliverableItem(title: "Streaming Master (-14 LUFS)"),
+        DeliverableItem(title: "Club / Loud Master"),
+        DeliverableItem(title: "Instrumental"),
+        DeliverableItem(title: "Acapella"),
+        DeliverableItem(title: "TV Track (Lead Muted)"),
+        DeliverableItem(title: "Clean / Radio Edit"),
+        DeliverableItem(title: "Stems / Multitracks")
+    ]
+}
+
+struct ProjectRevisionItem: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var timestampSeconds: Double? = nil
+    var timestampLabel: String? = nil
+    var text: String
+    var isResolved: Bool = false
+    var createdDate: Date = Date()
+}
+
 struct ProjectMetadata: Codable {
     var rating: ProjectRating? = nil
     var priority: ProjectPriority? = nil
     var musicalKey: String? = nil
+    var projectKind: ProjectKind? = nil
+    var clientName: String? = nil
+    var serviceType: AudioServiceType? = nil
+    var targetDeadline: Date? = nil
+    var dropboxFolderPath: String? = nil
+    var dropboxShareLink: String? = nil
+    var targetLUFS: Double? = nil
+    var manualDeliverables: [DeliverableItem]? = nil
+    var revisions: [ProjectRevisionItem]? = nil
 }
 
 @MainActor
@@ -164,6 +214,106 @@ final class ProjectMetadataStore: ObservableObject {
     func setMusicalKey(_ key: String?, for project: Project) {
         let trimmed = key?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         update(project) { $0.musicalKey = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setProjectKind(_ kind: ProjectKind?, for project: Project) {
+        update(project) { $0.projectKind = kind }
+    }
+
+    func setClientName(_ name: String?, for project: Project) {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        update(project) { $0.clientName = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setServiceType(_ type: AudioServiceType?, for project: Project) {
+        update(project) { $0.serviceType = type }
+    }
+
+    func setTargetDeadline(_ date: Date?, for project: Project) {
+        update(project) { $0.targetDeadline = date }
+    }
+
+    func setDropboxFolderPath(_ path: String?, for project: Project) {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        update(project) { $0.dropboxFolderPath = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setDropboxShareLink(_ link: String?, for project: Project) {
+        let trimmed = link?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        update(project) { $0.dropboxShareLink = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setTargetLUFS(_ lufs: Double?, for project: Project) {
+        update(project) { $0.targetLUFS = lufs }
+    }
+
+    func setDeliverables(_ items: [DeliverableItem], for project: Project) {
+        update(project) { $0.manualDeliverables = items }
+    }
+
+    func toggleDeliverable(_ id: UUID, for project: Project) {
+        update(project) { meta in
+            var items = meta.manualDeliverables ?? DeliverableItem.standardMixMasterDeliverables
+            if let idx = items.firstIndex(where: { $0.id == id }) {
+                items[idx].isCompleted.toggle()
+                meta.manualDeliverables = items
+            }
+        }
+    }
+
+    func addDeliverable(title: String, for project: Project) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        update(project) { meta in
+            var items = meta.manualDeliverables ?? DeliverableItem.standardMixMasterDeliverables
+            items.append(DeliverableItem(title: trimmed))
+            meta.manualDeliverables = items
+        }
+    }
+
+    func deleteDeliverable(_ id: UUID, for project: Project) {
+        update(project) { meta in
+            var items = meta.manualDeliverables ?? DeliverableItem.standardMixMasterDeliverables
+            items.removeAll { $0.id == id }
+            meta.manualDeliverables = items
+        }
+    }
+
+    func setRevisions(_ items: [ProjectRevisionItem], for project: Project) {
+        update(project) { $0.revisions = items }
+    }
+
+    func addRevision(text: String, timestampSeconds: Double? = nil, timestampLabel: String? = nil, for project: Project) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        update(project) { meta in
+            var list = meta.revisions ?? []
+            list.append(ProjectRevisionItem(
+                timestampSeconds: timestampSeconds,
+                timestampLabel: timestampLabel,
+                text: trimmed,
+                isResolved: false
+            ))
+            meta.revisions = list
+        }
+    }
+
+    func toggleRevision(_ id: UUID, for project: Project) {
+        update(project) { meta in
+            var list = meta.revisions ?? []
+            if let idx = list.firstIndex(where: { $0.id == id }) {
+                list[idx].isResolved.toggle()
+                meta.revisions = list
+            }
+        }
+    }
+
+    func deleteRevision(_ id: UUID, for project: Project) {
+        update(project) { meta in
+            var list = meta.revisions ?? []
+            list.removeAll { $0.id == id }
+            meta.revisions = list
+        }
     }
 
     private func update(_ project: Project, change: (inout ProjectMetadata) -> Void) {

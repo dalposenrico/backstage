@@ -84,6 +84,16 @@ struct TrackListView: View {
                             .help("In Favourites")
                     }
 
+                    if metadataStore.metadata(for: project).projectKind == .client {
+                        let client = metadataStore.metadata(for: project).clientName
+                        Text(client?.isEmpty == false ? client!.uppercased() : "CLIENT")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.14), in: Capsule())
+                    }
+
                     Spacer(minLength: 8)
 
                     // Compact Actions
@@ -336,6 +346,12 @@ struct TrackListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .opacity(section == .versions ? 1 : 0)
                     .allowsHitTesting(section == .versions)
+
+                // Studio Hub View (Planning, Dropbox Sync, Deliverables Matrix, Revisions)
+                StudioHubView(project: project)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(section == .studio ? 1 : 0)
+                    .allowsHitTesting(section == .studio)
 
                 // Arrangement View
                 if section == .arrangement {
@@ -760,6 +776,12 @@ struct TrackListView: View {
                 return "Versions (\(count))"
             }
             return "Versions"
+        case .studio:
+            let meta = metadataStore.metadata(for: project)
+            if let client = meta.clientName, !client.isEmpty {
+                return "Studio (\(client))"
+            }
+            return "Studio Hub"
         default:
             return item.title
         }
@@ -767,7 +789,7 @@ struct TrackListView: View {
 }
 
 private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
-    case arrangement, midi, samples, versions, overview, workflow, files
+    case arrangement, midi, samples, versions, overview, studio, workflow, files
 
     var id: String { rawValue }
     var title: String {
@@ -777,6 +799,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
         case .samples: return "Samples"
         case .versions: return "Versions"
         case .overview: return "Overview"
+        case .studio: return "Studio Hub"
         case .workflow: return "Workflow"
         case .files: return "Files"
         }
@@ -788,6 +811,7 @@ private enum ProjectInspectorSection: String, CaseIterable, Identifiable {
         case .samples: return "waveform"
         case .versions: return "rectangle.split.2x1"
         case .overview: return "scope"
+        case .studio: return "slider.horizontal.2.square.on.square"
         case .workflow: return "checklist"
         case .files: return "folder"
         }

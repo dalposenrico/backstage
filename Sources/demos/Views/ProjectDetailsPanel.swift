@@ -8,6 +8,7 @@ struct ProjectDetailsPanel: View {
     @EnvironmentObject private var notesStore: ProjectNotesStore
     @EnvironmentObject private var references: ReferenceStore
     @State private var metadataExpanded = true
+    @State private var studioExpanded = true
     @State private var tasksExpanded = true
     @State private var versionsExpanded = false
     @State private var exportsExpanded = false
@@ -71,6 +72,69 @@ struct ProjectDetailsPanel: View {
                             .font(.system(size: 11))
                             .foregroundColor(.secondaryText)
                         }
+                    }
+
+                    detailGroup("Studio & Dropbox", icon: "slider.horizontal.2.square.on.square", isExpanded: $studioExpanded) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Project Mode")
+                                    .foregroundColor(.secondaryText)
+                                Spacer()
+                                Text(metadata.projectKind == .client ? "Client Work" : "Personal")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(metadata.projectKind == .client ? .blue : .primaryText)
+                            }
+                            if let client = metadata.clientName, !client.isEmpty {
+                                HStack {
+                                    Text("Client")
+                                        .foregroundColor(.secondaryText)
+                                    Spacer()
+                                    Text(client)
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                            if let service = metadata.serviceType {
+                                HStack {
+                                    Text("Service")
+                                        .foregroundColor(.secondaryText)
+                                    Spacer()
+                                    Text(service.rawValue)
+                                        .fontWeight(.medium)
+                                }
+                            }
+                            if let targetLUFS = metadata.targetLUFS {
+                                HStack {
+                                    Text("Target Loudness")
+                                        .foregroundColor(.secondaryText)
+                                    Spacer()
+                                    Text("\(String(format: "%.1f", targetLUFS)) LUFS")
+                                        .fontWeight(.medium)
+                                }
+                            }
+                            if let delivs = metadata.manualDeliverables {
+                                let ready = delivs.filter(\.isCompleted).count
+                                HStack {
+                                    Text("Deliverables")
+                                        .foregroundColor(.secondaryText)
+                                    Spacer()
+                                    Text("\(ready)/\(delivs.count) completed")
+                                        .fontWeight(.medium)
+                                        .foregroundColor(ready == delivs.count ? .green : .secondaryText)
+                                }
+                            }
+                            if let revs = metadata.revisions, !revs.isEmpty {
+                                let open = revs.filter { !$0.isResolved }.count
+                                HStack {
+                                    Text("Revisions")
+                                        .foregroundColor(.secondaryText)
+                                    Spacer()
+                                    Text("\(open) open (\(revs.count) total)")
+                                        .fontWeight(.medium)
+                                        .foregroundColor(open > 0 ? .orange : .secondaryText)
+                                }
+                            }
+                        }
+                        .font(.system(size: 11))
                     }
 
                     detailGroup("Tasks", count: todoStore.openTodos(for: project).count, icon: "checkmark.square", isExpanded: $tasksExpanded) {
