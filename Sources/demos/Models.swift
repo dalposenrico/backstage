@@ -88,6 +88,10 @@ struct Project: Identifiable, Hashable {
     let extractedVersionNumber: String?
     let exportGroups: [ExportGroup]
 
+    var primaryTrack: Track? {
+        sortedTracks.first
+    }
+
     init(
         name: String,
         folderURL: URL,

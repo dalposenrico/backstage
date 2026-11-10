@@ -362,9 +362,19 @@ class AppStore: ObservableObject {
         openProjects = openProjects.compactMap { op in
             all.first { $0.folderURL == op.folderURL }
         }
+
+        // Detect running Ableton session now that projects are available
+        refreshAbletonSession()
+
         if let pending = pendingProjectURLToOpen, let match = all.first(where: { $0.folderURL == pending }) {
             openInMainWindow(match)
             pendingProjectURLToOpen = nil
+        } else if let activeSession = currentOpenProject {
+            // Live already has a session open! Prioritize the active DAW session
+            selectedProject = activeSession
+            if audioPlayer.currentTrack == nil, let track = activeSession.primaryTrack {
+                audioPlayer.prepare(track, autoPlay: false)
+            }
         } else {
             let savedPath = UserDefaults.standard.string(forKey: "selectedProjectPath")
             if let path = savedPath, let match = all.first(where: { $0.folderURL.path == path }) {
@@ -372,10 +382,12 @@ class AppStore: ObservableObject {
             } else if selectedProject == nil || !all.contains(where: { $0.id == selectedProject?.id }) {
                 selectedProject = all.first
             }
+            if audioPlayer.currentTrack == nil, let track = selectedProject?.primaryTrack {
+                audioPlayer.prepare(track, autoPlay: false)
+            }
         }
 
         resolvePendingExportCheckpoint(reportFailure: true)
-        refreshAbletonSession()
         updateWidgetSnapshot()
 
         let cache = inspectionCache
@@ -652,12 +664,26 @@ class AppStore: ObservableObject {
 
         startAbletonPolling(snappy: openingAbletonProject?.phase == .opening)
 
+        // Don't attempt project resolution if projects have not been scanned yet
+        guard !projects.isEmpty else { return }
+
         if let match = AbletonSessionDetector.activeProject(
             in: projects,
             windowTitles: snapshot.windowTitles,
             loadedDocumentURLs: snapshot.loadedDocumentURLs
         ) {
+            let isNewSession = currentOpenProjectURL != match.folderURL
             setCurrentOpenProject(match.folderURL)
+            if isNewSession {
+                // If a new session became active and the player is not actively playing something else,
+                // keep the app focused on the active DAW project and prepare its latest export
+                if audioPlayer.currentTrack == nil || !audioPlayer.isPlaying {
+                    selectedProject = match
+                    if let track = match.primaryTrack {
+                        audioPlayer.prepare(track, autoPlay: false)
+                    }
+                }
+            }
         } else if !snapshot.windowTitles.isEmpty || !snapshot.loadedDocumentURLs.isEmpty {
             setCurrentOpenProject(nil)
         }

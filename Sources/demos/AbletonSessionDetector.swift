@@ -91,6 +91,29 @@ enum AbletonSessionDetector {
                 windowTitles: [documentURL.deletingPathExtension().lastPathComponent]
             )
         }
+
+        // Match by containing project folder name (handles parent directory renames/moves)
+        let parentFolder = documentURL.deletingLastPathComponent().lastPathComponent
+        if !parentFolder.isEmpty, let matchByFolder = projects.first(where: {
+            $0.folderURL.lastPathComponent.localizedCaseInsensitiveCompare(parentFolder) == .orderedSame
+        }) {
+            return matchByFolder
+        }
+
+        // Match by exact .als version filename
+        let alsFilename = documentURL.lastPathComponent
+        if !alsFilename.isEmpty, let matchByVersion = projects.first(where: { project in
+            project.versions.contains { $0.url.lastPathComponent.localizedCaseInsensitiveCompare(alsFilename) == .orderedSame }
+        }) {
+            return matchByVersion
+        }
+
+        // Title/fuzzy match by document base name
+        let baseName = documentURL.deletingPathExtension().lastPathComponent
+        if !baseName.isEmpty, let matchByName = matchingProject(in: projects, windowTitles: [baseName]) {
+            return matchByName
+        }
+
         return nil
     }
 
@@ -191,9 +214,24 @@ enum AbletonSessionDetector {
         defer { try? handle.close() }
 
         let fileSize = (try? handle.seekToEnd()) ?? 0
-        let bytesToRead: UInt64 = min(fileSize, 1_048_576)
-        try? handle.seek(toOffset: fileSize - bytesToRead)
-        guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return [] }
-        return loadedDocuments(in: text, since: launchDate)
+        let effectiveLaunchDate = launchDate == .distantPast ? .distantPast : launchDate.addingTimeInterval(-60)
+
+        // Live logs can grow large when running for many hours. Inspect progressively larger chunks
+        // from the end of Log.txt (1 MB -> 4 MB -> 16 MB -> full file) until loaded documents are found.
+        let chunkSizes: [UInt64] = [1_048_576, 4_194_304, 16_777_216, fileSize]
+        for chunkSize in chunkSizes {
+            let bytesToRead = min(fileSize, chunkSize)
+            try? handle.seek(toOffset: fileSize - bytesToRead)
+            guard let data = try? handle.readToEnd() else { continue }
+            let text = String(decoding: data, as: UTF8.self)
+            let docs = loadedDocuments(in: text, since: effectiveLaunchDate)
+            if !docs.isEmpty {
+                return docs
+            }
+            if bytesToRead >= fileSize {
+                break
+            }
+        }
+        return []
     }
 }

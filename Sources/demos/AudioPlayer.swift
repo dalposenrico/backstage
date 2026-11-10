@@ -44,14 +44,14 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
         timeline.progress
     }
 
-    func play(_ track: Track, startAt: TimeInterval = 0, gainDB: Float = 0, loopEnd: TimeInterval? = nil) {
+    func prepare(_ track: Track, autoPlay: Bool = false, startAt: TimeInterval = 0, gainDB: Float = 0, loopEnd: TimeInterval? = nil) {
         stop()
         let requestID = UUID()
         preparationID = requestID
         isLoading = true
         playbackError = nil
         currentTrack = track
-        AccountDiagnostics.record("Local playback preparation started; type=\(track.fileExtension)")
+        AccountDiagnostics.record("Local playback preparation started (autoPlay=\(autoPlay)); type=\(track.fileExtension)")
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
@@ -78,12 +78,17 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
                         duration: preparedPlayer.duration
                     )
                     self.isLoading = false
-                    if preparedPlayer.play() {
-                        self.isPlaying = true
-                        self.startTimer()
-                        AccountDiagnostics.record("Local playback started after background preparation")
+                    if autoPlay {
+                        if preparedPlayer.play() {
+                            self.isPlaying = true
+                            self.startTimer()
+                            AccountDiagnostics.record("Local playback started after background preparation")
+                        } else {
+                            self.finishLoadingWithError("macOS could not start this audio file.")
+                        }
                     } else {
-                        self.finishLoadingWithError("macOS could not start this audio file.")
+                        self.isPlaying = false
+                        AccountDiagnostics.record("Local playback track prepared and ready")
                     }
                 }
             } catch {
@@ -93,6 +98,10 @@ class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 }
             }
         }
+    }
+
+    func play(_ track: Track, startAt: TimeInterval = 0, gainDB: Float = 0, loopEnd: TimeInterval? = nil) {
+        prepare(track, autoPlay: true, startAt: startAt, gainDB: gainDB, loopEnd: loopEnd)
     }
 
     func togglePlayPause() {
