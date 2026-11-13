@@ -27,9 +27,7 @@ struct PlayerBarView: View {
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(.primaryText)
                                 .lineLimit(1)
-                            if let project = store.projects.first(where: { p in
-                                p.tracks.contains { $0.id == track.id }
-                            }) {
+                            if let project = currentProject {
                                 Text(project.name)
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondaryText)

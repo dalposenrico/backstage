@@ -31,36 +31,44 @@ struct ContentView: View {
 
             ZStack {
                 LibraryWorkspace(
+                    isActive: store.activeWorkspaceSection == .library,
                     showProjectInspector: $showProjectInspector,
                     projectWorkspaceExpanded: $projectWorkspaceExpanded
                 )
+                .equatable()
                 .opacity(store.activeWorkspaceSection == .library ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .library)
 
-                if store.activeWorkspaceSection == .project {
-                    ForEach(displayedWorkspaceProjects) { project in
-                        ProjectFullWorkspaceView(project: project) {
-                            store.closeProjectTab(project)
-                        }
-                        .opacity(store.selectedProject?.id == project.id ? 1 : 0)
-                        .allowsHitTesting(store.selectedProject?.id == project.id)
+                ForEach(displayedWorkspaceProjects) { project in
+                    let isActive = store.activeWorkspaceSection == .project && store.selectedProject?.id == project.id
+                    ProjectFullWorkspaceView(
+                        project: project,
+                        isActive: isActive
+                    ) {
+                        store.closeProjectTab(project)
                     }
+                    .equatable()
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
                 }
 
-                HomeDashboardView { project in
+                HomeDashboardView(isActive: store.activeWorkspaceSection == .home) { project in
                     store.openProjectTab(project)
                 }
+                .equatable()
                 .opacity(store.activeWorkspaceSection == .home ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .home)
 
-                ReleasesHubView {
+                ReleasesHubView(isActive: store.activeWorkspaceSection == .releases) {
                     store.activeWorkspaceSection = .library
                     showProjectInspector = true
                 }
+                .equatable()
                 .opacity(store.activeWorkspaceSection == .releases ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .releases)
 
-                ToolsHubView()
+                ToolsHubView(isActive: store.activeWorkspaceSection == .tools)
+                    .equatable()
                     .opacity(store.activeWorkspaceSection == .tools ? 1 : 0)
                     .allowsHitTesting(store.activeWorkspaceSection == .tools)
             }
@@ -198,7 +206,8 @@ struct ContentView: View {
     }
 }
 
-private struct LibraryWorkspace: View {
+private struct LibraryWorkspace: View, Equatable {
+    var isActive: Bool = true
     @Binding var showProjectInspector: Bool
     @Binding var projectWorkspaceExpanded: Bool
     @EnvironmentObject private var store: AppStore
@@ -206,7 +215,23 @@ private struct LibraryWorkspace: View {
     @AppStorage(ProjectDockSizing.storageKey) private var projectDockHeight = ProjectDockSizing.defaultHeight
     @AppStorage(ProjectDockSizing.expansionStorageKey) private var isProjectDockExpanded = false
 
+    static func == (lhs: LibraryWorkspace, rhs: LibraryWorkspace) -> Bool {
+        lhs.isActive == rhs.isActive && !lhs.isActive &&
+        lhs.showProjectInspector == rhs.showProjectInspector &&
+        lhs.projectWorkspaceExpanded == rhs.projectWorkspaceExpanded
+    }
+
     var body: some View {
+        Group {
+            if isActive {
+                content
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    private var content: some View {
         GeometryReader { proxy in
             Group {
                 if showProjectInspector,
@@ -411,13 +436,18 @@ private struct ProjectWorkspaceDock: View {
     }
 }
 
-struct ProjectFullWorkspaceView: View {
+struct ProjectFullWorkspaceView: View, Equatable {
     let project: Project
+    var isActive: Bool = true
     let close: () -> Void
+
+    static func == (lhs: ProjectFullWorkspaceView, rhs: ProjectFullWorkspaceView) -> Bool {
+        lhs.project.id == rhs.project.id && lhs.isActive == rhs.isActive
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            TrackListView(project: project, allowsExpandedWorkspace: false)
+            TrackListView(project: project, allowsExpandedWorkspace: false, isActive: isActive)
         }
         .background(Color.appBg)
     }

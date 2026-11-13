@@ -84,6 +84,7 @@ class AppStore: ObservableObject {
     @Published var openProjects: [Project] = []
     @Published var selectedProject: Project? {
         didSet {
+            guard selectedProject?.id != oldValue?.id else { return }
             if let project = selectedProject {
                 if !openProjects.contains(where: { $0.id == project.id }) {
                     openProjects.append(project)
@@ -137,21 +138,25 @@ class AppStore: ObservableObject {
     // MARK: - Tab Navigation Helpers
 
     func selectProjectTab(_ project: Project) {
-        if !openProjects.contains(where: { $0.id == project.id }) {
+        let isNewOpen = !openProjects.contains(where: { $0.id == project.id })
+        let isNewSelected = selectedProject?.id != project.id
+        let isNewSection = activeWorkspaceSection != .project
+
+        guard isNewOpen || isNewSelected || isNewSection else { return }
+
+        if isNewOpen {
             openProjects.append(project)
         }
-        if selectedProject?.id != project.id || activeWorkspaceSection != .project {
+        if isNewSelected {
             selectedProject = project
+        }
+        if isNewSection {
             activeWorkspaceSection = .project
         }
     }
 
     func openProjectTab(_ project: Project) {
-        if !openProjects.contains(where: { $0.id == project.id }) {
-            openProjects.append(project)
-        }
-        selectedProject = project
-        activeWorkspaceSection = .project
+        selectProjectTab(project)
     }
 
     func openProjectMixer(_ project: Project) {
@@ -898,7 +903,11 @@ class AppStore: ObservableObject {
     }
 
     private func saveSelectedProject() {
-        UserDefaults.standard.set(selectedProject?.folderURL.path, forKey: "selectedProjectPath")
+        let newPath = selectedProject?.folderURL.path
+        let currentSaved = UserDefaults.standard.string(forKey: "selectedProjectPath")
+        if currentSaved != newPath {
+            UserDefaults.standard.set(newPath, forKey: "selectedProjectPath")
+        }
     }
 
     func toggleFavourite(_ project: Project) {

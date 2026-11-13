@@ -1,10 +1,15 @@
 import SwiftUI
 import AppKit
 
-struct ReleasesHubView: View {
+struct ReleasesHubView: View, Equatable {
+    var isActive: Bool = true
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var progressStore: ProjectProgressStore
     let openProject: () -> Void
+
+    static func == (lhs: ReleasesHubView, rhs: ReleasesHubView) -> Bool {
+        lhs.isActive == rhs.isActive && !lhs.isActive
+    }
 
     private var candidateProjects: [Project] {
         projects(in: [.fullTrack])
@@ -19,6 +24,16 @@ struct ReleasesHubView: View {
     }
 
     var body: some View {
+        Group {
+            if isActive {
+                content
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Releases")
@@ -149,14 +164,29 @@ private struct ReleaseLane: View {
     }
 }
 
-struct ToolsHubView: View {
+struct ToolsHubView: View, Equatable {
+    var isActive: Bool = true
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var toolLaunchers: ToolLauncherStore
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject private var pluginCloser: PluginCloserManager
     @Environment(\.openWindow) private var openWindow
 
+    static func == (lhs: ToolsHubView, rhs: ToolsHubView) -> Bool {
+        lhs.isActive == rhs.isActive && !lhs.isActive
+    }
+
     var body: some View {
+        Group {
+            if isActive {
+                content
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Tools")

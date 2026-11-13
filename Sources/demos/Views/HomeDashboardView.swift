@@ -1,17 +1,32 @@
 import SwiftUI
 
-struct HomeDashboardView: View {
+struct HomeDashboardView: View, Equatable {
+    var isActive: Bool = true
     let openProject: (Project) -> Void
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var progressStore: ProjectProgressStore
     @EnvironmentObject private var todoStore: ProjectTodoStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
+    static func == (lhs: HomeDashboardView, rhs: HomeDashboardView) -> Bool {
+        lhs.isActive == rhs.isActive && !lhs.isActive
+    }
+
     private var projects: [Project] {
         store.recentDashboardProjects
     }
 
     var body: some View {
+        Group {
+            if isActive {
+                content
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 VStack(alignment: .leading, spacing: 7) {

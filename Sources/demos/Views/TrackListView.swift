@@ -6,6 +6,7 @@ import AppKit
 struct TrackListView: View {
     let project: Project
     var allowsExpandedWorkspace = true
+    var isActive = true
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var artworkStore: ProjectArtworkStore
@@ -424,7 +425,21 @@ struct TrackListView: View {
             }
         }
         .onDisappear {
-            store.isVersionsTabActive = false
+            if store.isVersionsTabActive {
+                store.isVersionsTabActive = false
+            }
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                let isVersions = (section == .versions)
+                if store.isVersionsTabActive != isVersions {
+                    store.isVersionsTabActive = isVersions
+                }
+            } else {
+                if store.isVersionsTabActive {
+                    store.isVersionsTabActive = false
+                }
+            }
         }
         .onChange(of: store.initialProjectInspectorSection) { _, target in
             if target == "mixer" {
