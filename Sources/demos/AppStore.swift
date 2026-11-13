@@ -40,13 +40,23 @@ enum LibraryLoadPresentation: Equatable {
 @MainActor
 class AppStore: ObservableObject {
     @Published var rootFolderURL: URL?
-    @Published var folderTree: [FolderNode] = []
+    @Published var folderTree: [FolderNode] = [] {
+        didSet { invalidateProjectsCache() }
+    }
     @Published var expandedFolders: Set<URL> = []
     @Published var expandedCollections: Set<URL> = []
-    @Published var favourites: Set<URL> = []
-    @Published var hiddenProjects: Set<URL> = []
-    @Published var hiddenFolders: Set<URL> = []
-    @Published var showHidden = false
+    @Published var favourites: Set<URL> = [] {
+        didSet { invalidateFavouritesCache() }
+    }
+    @Published var hiddenProjects: Set<URL> = [] {
+        didSet { invalidateVisibleProjectsCache() }
+    }
+    @Published var hiddenFolders: Set<URL> = [] {
+        didSet { invalidateVisibleProjectsCache() }
+    }
+    @Published var showHidden = false {
+        didSet { invalidateVisibleProjectsCache() }
+    }
     @Published var exportCheckpointProject: Project?
     @Published var checkpointError: String?
     @Published private(set) var currentOpenProjectURL: URL?
@@ -89,7 +99,9 @@ class AppStore: ObservableObject {
     @Published private(set) var unavailableFolderPath: String?
     @Published private(set) var scanProgress: ProjectScanProgress?
     @Published var refreshingProjects: Set<URL> = []
-    @Published var searchQuery = ""
+    @Published var searchQuery = "" {
+        didSet { invalidateFilteredProjectsCache() }
+    }
     @Published var selectedCollectionURL: URL? {
         didSet {
             if let selectedCollectionURL {
@@ -99,13 +111,21 @@ class AppStore: ObservableObject {
             }
         }
     }
-    @Published var selectedSidebarSection: SidebarSection = .all
+    @Published var selectedSidebarSection: SidebarSection = .all {
+        didSet { invalidateFilteredProjectsCache() }
+    }
     @Published var activeWorkspaceSection: WorkspaceSection = .library
     @Published var sortOrder: SortOrder = .recentlyEdited {
-        didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") }
+        didSet {
+            UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder")
+            invalidateFilteredProjectsCache()
+        }
     }
     @Published var sortAscending = false {
-        didSet { UserDefaults.standard.set(sortAscending, forKey: "sortAscending") }
+        didSet {
+            UserDefaults.standard.set(sortAscending, forKey: "sortAscending")
+            invalidateFilteredProjectsCache()
+        }
     }
 
     let audioPlayer = AudioPlayer()
@@ -165,25 +185,79 @@ class AppStore: ObservableObject {
         activeWorkspaceSection = .project
     }
 
-    // Flat list of all projects, derived from tree
+    // MARK: - Memoized Project Lists
+    private var _cachedProjects: [Project]?
+    private var _cachedVisibleProjects: [Project]?
+    private var _cachedRecentProjects: [Project]?
+    private var _cachedRecentDashboardProjects: [Project]?
+    private var _cachedFavouriteProjects: [Project]?
+    private var _cachedFilteredProjects: [Project]?
+
+    func invalidateProjectsCache() {
+        _cachedProjects = nil
+        invalidateVisibleProjectsCache()
+    }
+
+    func invalidateVisibleProjectsCache() {
+        _cachedVisibleProjects = nil
+        _cachedRecentProjects = nil
+        _cachedRecentDashboardProjects = nil
+        _cachedFavouriteProjects = nil
+        invalidateFilteredProjectsCache()
+    }
+
+    func invalidateFavouritesCache() {
+        _cachedFavouriteProjects = nil
+        invalidateFilteredProjectsCache()
+    }
+
+    func invalidateFilteredProjectsCache() {
+        _cachedFilteredProjects = nil
+    }
+
+    // Flat list of all projects, derived from tree (memoized)
     var projects: [Project] {
-        folderTree.flatMap { $0.allProjects() }
+        if let cached = _cachedProjects { return cached }
+        let list = folderTree.flatMap { $0.allProjects() }
+        _cachedProjects = list
+        return list
     }
 
     var visibleProjects: [Project] {
-        showHidden ? projects : projects.filter { !isProjectHidden($0) }
+        if let cached = _cachedVisibleProjects { return cached }
+        let all = projects
+        let list = showHidden ? all : all.filter { !isProjectHidden($0) }
+        _cachedVisibleProjects = list
+        return list
     }
 
     var recentProjects: [Project] {
-        visibleProjects
+        if let cached = _cachedRecentProjects { return cached }
+        let list = visibleProjects
             .filter { $0.latestModification != .distantPast }
             .sorted { $0.latestModification > $1.latestModification }
             .prefix(5)
             .map { $0 }
+        _cachedRecentProjects = list
+        return list
+    }
+
+    var recentDashboardProjects: [Project] {
+        if let cached = _cachedRecentDashboardProjects { return cached }
+        let list = visibleProjects
+            .filter { $0.latestModification != .distantPast }
+            .sorted { $0.latestModification > $1.latestModification }
+            .prefix(15)
+            .map { $0 }
+        _cachedRecentDashboardProjects = list
+        return list
     }
 
     var favouriteProjects: [Project] {
-        visibleProjects.filter { favourites.contains($0.folderURL) }
+        if let cached = _cachedFavouriteProjects { return cached }
+        let list = visibleProjects.filter { favourites.contains($0.folderURL) }
+        _cachedFavouriteProjects = list
+        return list
     }
 
     var libraryLoadPresentation: LibraryLoadPresentation {
@@ -196,8 +270,9 @@ class AppStore: ObservableObject {
         )
     }
 
-    // Filtered + sorted flat list (used during search and for playback ordering)
+    // Filtered + sorted flat list (used during search and for playback ordering, memoized)
     var filteredProjects: [Project] {
+        if let cached = _cachedFilteredProjects { return cached }
         let baseList: [Project]
         switch selectedSidebarSection {
         case .all:
@@ -207,7 +282,7 @@ class AppStore: ObservableObject {
                 .filter { $0.latestModification != .distantPast }
                 .sorted { $0.latestModification > $1.latestModification }
         case .favorites:
-            baseList = visibleProjects.filter { favourites.contains($0.folderURL) }
+            baseList = favouriteProjects
         case .folder(let collectionURL):
             baseList = folderTree.findNode(at: collectionURL)?.allProjects() ?? visibleProjects
         }
@@ -218,23 +293,26 @@ class AppStore: ObservableObject {
         let base = searchQuery.isEmpty ? visibleCollectionProjects : visibleCollectionProjects.filter {
             $0.name.localizedCaseInsensitiveContains(searchQuery)
         }
+        let result: [Project]
         switch sortOrder {
         case .recentlyEdited:
-            return sorted(base, value: { $0.latestModification })
+            result = sorted(base, value: { $0.latestModification })
         case .name:
-            return base.sorted {
-                let result = $0.name.localizedCompare($1.name)
-                return sortAscending ? result == .orderedAscending : result == .orderedDescending
+            result = base.sorted {
+                let r = $0.name.localizedCompare($1.name)
+                return sortAscending ? r == .orderedAscending : r == .orderedDescending
             }
         case .dateAdded:
-            return sortedOptional(base, value: { $0.creationDate })
+            result = sortedOptional(base, value: { $0.creationDate })
         case .activity:
-            return sortedOptional(base, value: { $0.activity.backupCount > 0 ? $0.activity.activityPercent : nil })
+            result = sortedOptional(base, value: { $0.activity.backupCount > 0 ? $0.activity.activityPercent : nil })
         case .bpm:
-            return sortedOptional(base, value: { $0.bpm })
+            result = sortedOptional(base, value: { $0.bpm })
         case .work:
-            return sortedOptional(base, value: { $0.activity.estimatedWorkTime > 0 ? $0.activity.estimatedWorkTime : nil })
+            result = sortedOptional(base, value: { $0.activity.estimatedWorkTime > 0 ? $0.activity.estimatedWorkTime : nil })
         }
+        _cachedFilteredProjects = result
+        return result
     }
 
     private func sorted<T: Comparable>(_ projects: [Project], value: (Project) -> T) -> [Project] {

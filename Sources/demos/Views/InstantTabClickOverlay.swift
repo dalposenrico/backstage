@@ -30,6 +30,13 @@ final class InstantTabClickNSView: NSView {
         true
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if bounds.contains(point) {
+            return self
+        }
+        return nil
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea {

@@ -8,7 +8,7 @@ struct HomeDashboardView: View {
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     private var projects: [Project] {
-        Array(store.visibleProjects.sorted { $0.latestModification > $1.latestModification }.prefix(15))
+        store.recentDashboardProjects
     }
 
     var body: some View {

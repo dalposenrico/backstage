@@ -155,6 +155,9 @@ struct ProjectBrowserListView: View {
     }
 
     private var displayedProjects: [Project] {
+        if !hasActiveFilters {
+            return store.filteredProjects
+        }
         let filtered = store.filteredProjects.filter { project in
             let progress = progressStore.progress(for: project)
             let metadata = metadataStore.metadata(for: project)
