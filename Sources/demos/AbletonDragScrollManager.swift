@@ -65,8 +65,14 @@ final class AbletonDragScrollManager: ObservableObject {
 
                 // 1. Must be Ableton Live active in the foreground
                 guard let frontApp = NSWorkspace.shared.frontmostApplication,
-                      let name = frontApp.localizedName,
-                      name.contains("Live") || name.contains("Ableton") else {
+                      let name = frontApp.localizedName else {
+                    return Unmanaged.passRetained(event)
+                }
+                let bundle = frontApp.bundleIdentifier?.lowercased() ?? ""
+                let isAbleton = name.localizedCaseInsensitiveContains("Live")
+                    || name.localizedCaseInsensitiveContains("Ableton")
+                    || bundle.hasPrefix("com.ableton.live")
+                guard isAbleton else {
                     return Unmanaged.passRetained(event)
                 }
 

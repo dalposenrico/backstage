@@ -198,8 +198,16 @@ public final class PluginCloserManager: ObservableObject {
                 // If onlyWhenAbletonActive is set, check if frontmost app is Ableton Live
                 if manager.onlyWhenAbletonActive {
                     guard let frontApp = NSWorkspace.shared.frontmostApplication,
-                          let name = frontApp.localizedName,
-                          name.localizedCaseInsensitiveContains("Live") || name.localizedCaseInsensitiveContains("Ableton") else {
+                          let name = frontApp.localizedName else {
+                        return Unmanaged.passRetained(event)
+                    }
+                    let bundle = frontApp.bundleIdentifier?.lowercased() ?? ""
+                    let isDaw = name.localizedCaseInsensitiveContains("Live")
+                        || name.localizedCaseInsensitiveContains("Ableton")
+                        || bundle.hasPrefix("com.ableton.live")
+                        || name.localizedCaseInsensitiveContains("Bitwig")
+                        || bundle.hasPrefix("com.bitwig.studio")
+                    guard isDaw else {
                         return Unmanaged.passRetained(event)
                     }
                 }
@@ -310,6 +318,10 @@ public final class PluginCloserManager: ObservableObject {
         return await Task.detached(priority: .userInitiated) {
             let runningApps = NSWorkspace.shared.runningApplications
             guard let dawApp = runningApps.first(where: { app in
+                if let preferred = AbletonAppDetector.selectedAppURL(),
+                   app.bundleURL?.standardizedFileURL.path == preferred.standardizedFileURL.path {
+                    return true
+                }
                 let bundle = app.bundleIdentifier?.lowercased() ?? ""
                 let name = app.localizedName?.lowercased() ?? ""
                 return bundle.hasPrefix("com.ableton.live") || name.contains("live")

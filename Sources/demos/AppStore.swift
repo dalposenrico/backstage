@@ -556,7 +556,7 @@ class AppStore: ObservableObject {
         lastAbletonLaunchRequest = now
 
         startAbletonPolling(snappy: true)
-        NSWorkspace.shared.open(targetVersion.url)
+        AbletonAppDetector.openALS(at: targetVersion.url)
     }
 
     /// Watching Live's windows costs a window-server round trip, so it is only

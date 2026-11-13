@@ -192,6 +192,46 @@ class SettingsStore: ObservableObject {
             }
         }
     }
+    @Published var selectedAbletonAppPath: String {
+        didSet {
+            AbletonAppDetector.setSelectedAppPath(selectedAbletonAppPath)
+        }
+    }
+    @Published var availableAbletonApps: [AbletonAppInfo] = []
+
+    var currentSelectedAbletonApp: AbletonAppInfo? {
+        guard !selectedAbletonAppPath.isEmpty else { return nil }
+        if let match = availableAbletonApps.first(where: { $0.path == selectedAbletonAppPath }) {
+            return match
+        }
+        return AbletonAppDetector.appInfo(for: URL(fileURLWithPath: selectedAbletonAppPath))
+    }
+
+    func refreshAvailableAbletonApps() {
+        Task.detached(priority: .userInitiated) {
+            let apps = AbletonAppDetector.discoverInstalledApps()
+            await MainActor.run {
+                self.availableAbletonApps = apps
+            }
+        }
+    }
+
+    func browseForAbletonApp() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Ableton Live Application"
+        panel.prompt = "Choose Application"
+        panel.message = "Select an Ableton Live app (.app bundle) to use with goodvibrations HQ."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            self.selectedAbletonAppPath = url.path
+            refreshAvailableAbletonApps()
+        }
+    }
 
     init() {
         let rawMode  = UserDefaults.standard.string(forKey: "appearanceMode") ?? "system"
@@ -240,6 +280,9 @@ class SettingsStore: ObservableObject {
 
         let rawPuckSize = UserDefaults.standard.string(forKey: "petPuckSize") ?? "medium"
         petPuckSize = PetPuckSize(rawValue: rawPuckSize) ?? .medium
+
+        selectedAbletonAppPath = UserDefaults.standard.string(forKey: AbletonAppDetector.defaultsKey) ?? ""
+        refreshAvailableAbletonApps()
     }
 }
 

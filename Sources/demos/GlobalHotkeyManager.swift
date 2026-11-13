@@ -261,7 +261,11 @@ final class GlobalHotkeyManager: ObservableObject {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [scriptPath]
+        var scriptArgs = [scriptPath]
+        if let preferredApp = AbletonAppDetector.selectedAppURL() {
+            scriptArgs.append(contentsOf: ["--app-path", preferredApp.path])
+        }
+        process.arguments = scriptArgs
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe

@@ -23,7 +23,16 @@ struct OpenProjectInAbletonIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         if !alsPath.isEmpty, FileManager.default.fileExists(atPath: alsPath) {
-            NSWorkspace.shared.open(URL(fileURLWithPath: alsPath))
+            let alsURL = URL(fileURLWithPath: alsPath)
+            if let preferredAppPath = UserDefaults.standard.string(forKey: "selectedAbletonAppPath"),
+               !preferredAppPath.isEmpty,
+               FileManager.default.fileExists(atPath: preferredAppPath) {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                NSWorkspace.shared.open([alsURL], withApplicationAt: URL(fileURLWithPath: preferredAppPath), configuration: config, completionHandler: nil)
+            } else {
+                NSWorkspace.shared.open(alsURL)
+            }
             return .result()
         }
         if !folderPath.isEmpty, FileManager.default.fileExists(atPath: folderPath) {

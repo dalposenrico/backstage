@@ -9,12 +9,48 @@ struct AbletonSessionSnapshot: Equatable {
 }
 
 enum AbletonSessionDetector {
-    static func snapshot() -> AbletonSessionSnapshot {
+    /// Returns the active or preferred running Ableton Live application, if any.
+    static func runningAbletonApp(preferredAppURL: URL? = AbletonAppDetector.selectedAppURL()) -> NSRunningApplication? {
         let runningApplications = NSWorkspace.shared.runningApplications
-        let abletonApplications = runningApplications.filter { application in
+        if let preferred = preferredAppURL {
+            let preferredPath = preferred.standardizedFileURL.path
+            if let exact = runningApplications.first(where: {
+                $0.bundleURL?.standardizedFileURL.path == preferredPath
+            }) {
+                return exact
+            }
+        }
+        return runningApplications.first { application in
             application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
                 || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
+                || (application.localizedName?.localizedCaseInsensitiveContains("Live") == true && application.bundleIdentifier?.lowercased().contains("ableton") == true)
         }
+    }
+
+    static func snapshot(preferredAppURL: URL? = AbletonAppDetector.selectedAppURL()) -> AbletonSessionSnapshot {
+        let runningApplications = NSWorkspace.shared.runningApplications
+        let abletonApplications: [NSRunningApplication]
+
+        if let preferred = preferredAppURL {
+            let preferredPath = preferred.standardizedFileURL.path
+            let matching = runningApplications.filter {
+                $0.bundleURL?.standardizedFileURL.path == preferredPath
+            }
+            if !matching.isEmpty {
+                abletonApplications = matching
+            } else {
+                abletonApplications = runningApplications.filter { application in
+                    application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
+                        || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
+                }
+            }
+        } else {
+            abletonApplications = runningApplications.filter { application in
+                application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
+                    || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
+            }
+        }
+
         guard !abletonApplications.isEmpty else {
             return AbletonSessionSnapshot(isRunning: false, windowTitles: [], loadedDocumentURLs: [])
         }
@@ -34,7 +70,7 @@ enum AbletonSessionDetector {
         let launchDate = abletonApplications.compactMap(\.launchDate).max() ?? .distantPast
         // Plug-in windows can have readable titles while Live's main set window is
         // hidden by macOS privacy protections. Always keep the local log fallback.
-        let loadedDocuments = recentlyLoadedDocuments(since: launchDate)
+        let loadedDocuments = recentlyLoadedDocuments(since: launchDate, preferredAppURL: preferredAppURL)
         return AbletonSessionSnapshot(
             isRunning: true,
             windowTitles: titles,
@@ -43,10 +79,35 @@ enum AbletonSessionDetector {
     }
 
     /// Brings the running Ableton Live application to the front and gives it focus,
-    /// without reopening or reloading any set documents.
+    /// or launches the preferred Ableton Live application if configured and not yet open.
     @discardableResult
-    static func activateAbleton() -> Bool {
+    static func activateAbleton(preferredAppURL: URL? = AbletonAppDetector.selectedAppURL()) -> Bool {
         let runningApplications = NSWorkspace.shared.runningApplications
+
+        if let preferred = preferredAppURL {
+            let preferredPath = preferred.standardizedFileURL.path
+            if let runningPreferred = runningApplications.first(where: {
+                $0.bundleURL?.standardizedFileURL.path == preferredPath
+            }) {
+                if let bundleURL = runningPreferred.bundleURL {
+                    let config = NSWorkspace.OpenConfiguration()
+                    config.activates = true
+                    NSWorkspace.shared.openApplication(at: bundleURL, configuration: config, completionHandler: nil)
+                }
+                if #available(macOS 14.0, *) {
+                    return runningPreferred.activate()
+                } else {
+                    return runningPreferred.activate(options: [.activateIgnoringOtherApps])
+                }
+            } else if FileManager.default.fileExists(atPath: preferred.path) {
+                // Preferred Live is not running; launch it
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                NSWorkspace.shared.openApplication(at: preferred, configuration: config, completionHandler: nil)
+                return true
+            }
+        }
+
         guard let ableton = runningApplications.first(where: { application in
             application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
                 || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
@@ -192,7 +253,7 @@ enum AbletonSessionDetector {
         }
     }
 
-    private static func recentlyLoadedDocuments(since launchDate: Date) -> [URL] {
+    private static func recentlyLoadedDocuments(since launchDate: Date, preferredAppURL: URL? = AbletonAppDetector.selectedAppURL()) -> [URL] {
         let preferencesURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Preferences/Ableton", isDirectory: true)
         guard let versionFolders = try? FileManager.default.contentsOfDirectory(
@@ -201,11 +262,23 @@ enum AbletonSessionDetector {
             options: .skipsHiddenFiles
         ) else { return [] }
 
-        let logURLs = versionFolders.compactMap { folder -> URL? in
+        var logURLs = versionFolders.compactMap { folder -> URL? in
             guard folder.lastPathComponent.hasPrefix("Live ") else { return nil }
             let logURL = folder.appendingPathComponent("Log.txt")
             return FileManager.default.fileExists(atPath: logURL.path) ? logURL : nil
         }
+        guard !logURLs.isEmpty else { return [] }
+
+        // If a preferred Live app is configured, prioritize log files from its matching version folder
+        if let preferred = preferredAppURL, let appInfo = AbletonAppDetector.appInfo(for: preferred) {
+            if let prefix = appInfo.majorVersionPrefix {
+                let matching = logURLs.filter { $0.deletingLastPathComponent().lastPathComponent.hasPrefix(prefix) }
+                if !matching.isEmpty {
+                    logURLs = matching
+                }
+            }
+        }
+
         guard let newestLog = logURLs.max(by: {
             let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast

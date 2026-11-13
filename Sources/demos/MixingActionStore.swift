@@ -67,23 +67,17 @@ final class MixingActionStore: ObservableObject {
 
     /// Brings Ableton Live forward to focus on the project and optionally focuses the track.
     func jumpToAbleton(project: Project? = nil, trackName: String? = nil) {
-        let runningApps = NSWorkspace.shared.runningApplications
-        let abletonApp = runningApps.first { app in
-            app.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
-                || app.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
-        }
-
-        guard let abletonApp else {
+        guard AbletonSessionDetector.runningAbletonApp() != nil else {
             // Ableton not currently open, open project file directly if available
             if let version = project?.versions.first {
-                NSWorkspace.shared.open(version.url)
+                AbletonAppDetector.openALS(at: version.url)
                 lastActionResult = "Opening \(project?.name ?? "project") in Ableton Live..."
             }
             return
         }
 
         // Activate Ableton Live
-        abletonApp.activate(options: .activateAllWindows)
+        AbletonSessionDetector.activateAbleton()
 
         // If track name is provided, copy to clipboard so producer can quick-search or paste
         if let trackName, !trackName.isEmpty {

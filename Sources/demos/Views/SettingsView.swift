@@ -82,6 +82,63 @@ struct SettingsView: View {
 
             Divider()
 
+            // MARK: Ableton Live Application
+            Section {
+                Picker("Live Application", selection: $settings.selectedAbletonAppPath) {
+                    Text("Auto-detect / System Default").tag("")
+                    ForEach(settings.availableAbletonApps) { app in
+                        Text(app.pickerLabel).tag(app.path)
+                    }
+                    if !settings.selectedAbletonAppPath.isEmpty && !settings.availableAbletonApps.contains(where: { $0.path == settings.selectedAbletonAppPath }) {
+                        Text(settings.currentSelectedAbletonApp?.pickerLabel ?? settings.selectedAbletonAppPath)
+                            .tag(settings.selectedAbletonAppPath)
+                    }
+                }
+
+                HStack {
+                    if let app = settings.currentSelectedAbletonApp {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(app.displayName)
+                                    .font(.caption.bold())
+                                if app.isBeta {
+                                    Text("BETA")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.orange.opacity(0.2))
+                                        .foregroundStyle(Color.orange)
+                                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                                }
+                            }
+                            Text(app.path)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } else {
+                        Text("Automatic: uses whichever Live app is open or macOS default for .als sets.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Browse…") {
+                        settings.browseForAbletonApp()
+                    }
+                    .controlSize(.small)
+                }
+
+                Text("HQ will open project sets, run export shortcuts, and monitor session status using this version of Ableton Live.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Ableton Live Application", systemImage: "pianokeys")
+                    .font(.headline)
+            }
+
+            Divider()
+
             // MARK: Ableton Export Hotkey
             Section {
                 Toggle("Enable F1 global hotkey", isOn: $globalHotkey.isEnabled)
@@ -321,6 +378,7 @@ struct SettingsView: View {
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
         .onAppear {
             launchAtLogin.refresh()
+            settings.refreshAvailableAbletonApps()
         }
     }
 

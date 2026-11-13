@@ -45,8 +45,48 @@ def acquire_lock():
         sys.exit(0)
 
 
-def get_latest_ableton_log() -> Path | None:
-    """Finds the most recently modified Ableton Live Log.txt."""
+def get_target_app_path() -> str | None:
+    """Extracts --app-path from command-line arguments or ABLETON_APP_PATH environment variable."""
+    if "--app-path" in sys.argv:
+        try:
+            idx = sys.argv.index("--app-path")
+            if idx + 1 < len(sys.argv):
+                path = sys.argv[idx + 1]
+                if os.path.exists(path):
+                    return path
+        except Exception:
+            pass
+    env_path = os.environ.get("ABLETON_APP_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    return None
+
+
+def get_app_version_prefix(app_path: str | None) -> str | None:
+    """Determines the version prefix (e.g. 'Live 13' or 'Live 12') for preferences lookup."""
+    if not app_path:
+        return None
+    info_plist = Path(app_path) / "Contents" / "Info.plist"
+    if info_plist.exists():
+        try:
+            import plistlib
+            with open(info_plist, "rb") as f:
+                pl = plistlib.load(f)
+                ver = str(pl.get("CFBundleShortVersionString") or pl.get("CFBundleVersion") or "")
+                m = re.search(r"(\d+)\.", ver)
+                if m:
+                    return f"Live {m.group(1)}"
+        except Exception:
+            pass
+    name = Path(app_path).stem
+    m = re.search(r"Live\s*(\d+)", name, re.IGNORECASE)
+    if m:
+        return f"Live {m.group(1)}"
+    return None
+
+
+def get_latest_ableton_log(target_version_prefix: str | None = None) -> Path | None:
+    """Finds the most recently modified Ableton Live Log.txt, prioritizing target_version_prefix if set."""
     home = Path.home()
     pref_dir = home / "Library" / "Preferences" / "Ableton"
     if not pref_dir.exists():
@@ -55,6 +95,11 @@ def get_latest_ableton_log() -> Path | None:
     log_files = list(pref_dir.glob("Live */Log.txt"))
     if not log_files:
         return None
+
+    if target_version_prefix:
+        matching = [p for p in log_files if p.parent.name.startswith(target_version_prefix)]
+        if matching:
+            return max(matching, key=lambda p: p.stat().st_mtime)
 
     return max(log_files, key=lambda p: p.stat().st_mtime)
 
@@ -152,20 +197,46 @@ def show_untitled_warning(win_title: str | None = None):
     subprocess.run(["osascript", "-e", alert_script])
 
 
-def get_ableton_window_titles() -> list[str]:
+def get_ableton_window_titles(target_app_path: str | None = None) -> list[str]:
     """Uses AppleScript / System Events to get all window titles of Ableton Live."""
-    script = '''
-    tell application "System Events"
+    if target_app_path:
+        escaped_path = target_app_path.replace('"', '\\"')
+        find_proc = f'''
+        set abletonProc to missing value
+        try
+            tell application "{escaped_path}" to activate
+            delay 0.1
+            set frontApp to (first process whose frontmost is true)
+            set fName to name of frontApp
+            if fName contains "Live" or fName contains "Ableton" then
+                set abletonProc to frontApp
+            end if
+        end try
+        if abletonProc is missing value then
+            if exists (first process whose name contains "Live" and background only is false) then
+                set abletonProc to (first process whose name contains "Live" and background only is false)
+            end if
+        end if
+        '''
+    else:
+        find_proc = '''
+        set abletonProc to missing value
         if exists (first process whose name contains "Live" and background only is false) then
             set abletonProc to (first process whose name contains "Live" and background only is false)
+        end if
+        '''
+    script = f'''
+    tell application "System Events"
+        {find_proc}
+        if abletonProc is not missing value then
             try
                 return name of every window of abletonProc
             on error
-                return {}
+                return {{}}
             end try
         end if
     end tell
-    return {}
+    return {{}}
     '''
     res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
     if res.returncode != 0 or not res.stdout.strip():
@@ -211,12 +282,12 @@ def clean_project_name_from_title(title: str | None) -> str | None:
     return s if s else None
 
 
-def get_active_project_path() -> tuple[Path | None, bool]:
+def get_active_project_path(target_version_prefix: str | None = None, target_app_path: str | None = None) -> tuple[Path | None, bool]:
     """
     Parses Ableton's active Log.txt and window titles to find the currently open .als project.
     Returns (als_path, is_untitled_or_template).
     """
-    log_path = get_latest_ableton_log()
+    log_path = get_latest_ableton_log(target_version_prefix)
     last_doc: Path | None = None
     is_template = False
 
@@ -256,7 +327,7 @@ def get_active_project_path() -> tuple[Path | None, bool]:
                                 last_doc = cand
                     break
 
-    win_titles = get_ableton_window_titles()
+    win_titles = get_ableton_window_titles(target_app_path)
     main_title = find_main_ableton_window_title(win_titles)
     project_name = clean_project_name_from_title(main_title)
 
@@ -366,7 +437,7 @@ def notify(title: str, message: str):
     ])
 
 
-def automate_ableton(folder_path: str, target_name: str, create_new_version: bool) -> bool:
+def automate_ableton(folder_path: str, target_name: str, create_new_version: bool, target_app_path: str | None = None) -> bool:
     """
     Executes a single, fast, atomic AppleScript automation.
     Completes in ~2.5 - 3.5 seconds total with zero subprocess polling lag.
@@ -377,15 +448,21 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
     escaped_folder = folder_path.replace('"', '\\"')
     escaped_target = target_name.replace('"', '\\"')
 
+    if target_app_path:
+        escaped_app = target_app_path.replace('"', '\\"')
+        activate_app = f'tell application "{escaped_app}" to activate'
+    else:
+        activate_app = 'tell application "Live" to activate'
+
     save_as_part = f'''
     -- Save Live Set As... (Shift + Cmd + S)
-    tell process "Live"
+    tell process procName
         keystroke "s" using {{command down, shift down}}
     end tell
     delay 0.5
 
     set the clipboard to "{escaped_target}"
-    tell process "Live"
+    tell process procName
         keystroke "a" using {{command down}}
         delay 0.05
         keystroke "v" using {{command down}}
@@ -398,21 +475,37 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
     '''
 
     atomic_script = f'''
-    tell application "Live" to activate
+    {activate_app}
     tell application "System Events"
-        set frontmost of process "Live" to true
+        set liveProc to missing value
         repeat 20 times
-            if frontmost of process "Live" then exit repeat
-            delay 0.04
+            set frontApp to (first process whose frontmost is true)
+            if exists frontApp then
+                set fName to name of frontApp
+                if fName contains "Live" or fName contains "Ableton" then
+                    set liveProc to frontApp
+                    exit repeat
+                end if
+            end if
+            delay 0.05
         end repeat
+        if liveProc is missing value then
+            if exists (first process whose name contains "Live" and background only is false) then
+                set liveProc to (first process whose name contains "Live" and background only is false)
+            else
+                set liveProc to process "Live"
+            end if
+        end if
+        set procName to name of liveProc
+        set frontmost of process procName to true
 
         -- 1. Raise real project window (ignoring floating plugin windows with "/")
-        tell process "Live"
+        tell process procName
             set mainWin to missing value
             repeat with w in (every window)
                 try
                     set wName to name of w
-                    if wName does not contain "/" and wName is not "" and wName is not "Live" then
+                    if wName does not contain "/" and wName is not "" and wName is not procName and wName is not "Live" then
                         set mainWin to w
                         exit repeat
                     end if
@@ -427,23 +520,23 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
         {save_as_part}
 
         -- 2. Open Export Audio/Video (Shift + Cmd + R)
-        tell process "Live"
+        tell process procName
             keystroke "r" using {{command down, shift down}}
         end tell
         delay 0.5
 
         -- 3. Confirm Export settings dialog (Return clicks 'Export' and opens Save dialog)
         repeat 10 times
-            tell process "Live" to key code 36
+            tell process procName to key code 36
             delay 0.2
-            tell process "Live"
+            tell process procName
                 if exists (first window whose name is "Save") then exit repeat
             end tell
         end repeat
 
         -- 4. Navigate Save panel to project folder and set export filename
         set the clipboard to "{escaped_folder}"
-        tell process "Live"
+        tell process procName
             if exists (first window whose name is "Save") then
                 -- Drop "Go to the folder:" sheet via Cmd+Shift+G
                 keystroke "g" using {{command down, shift down}}
@@ -475,7 +568,7 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
 
         delay 0.5
         -- 5. Auto-confirm Replace if file already exists
-        tell process "Live"
+        tell process procName
             try
                 if exists (first window whose name is "Save") then
                     click (first button of (first sheet of window "Save") whose name is "Replace")
@@ -495,8 +588,13 @@ def automate_ableton(folder_path: str, target_name: str, create_new_version: boo
 def main():
     lock_file = acquire_lock()
 
+    app_path = get_target_app_path()
+    version_prefix = get_app_version_prefix(app_path)
+
     print("🔍 Inspecting active Ableton Live session...")
-    win_titles = get_ableton_window_titles()
+    if app_path:
+        print(f"🎯 Target Live App: {app_path}")
+    win_titles = get_ableton_window_titles(target_app_path=app_path)
     main_win = find_main_ableton_window_title(win_titles)
 
     if main_win:
@@ -506,7 +604,7 @@ def main():
             show_untitled_warning(main_win)
             sys.exit(2)
 
-    als_path, is_untitled_or_template = get_active_project_path()
+    als_path, is_untitled_or_template = get_active_project_path(target_version_prefix=version_prefix, target_app_path=app_path)
 
     if is_untitled_or_template or not als_path or not als_path.exists() or is_untitled_name(als_path.stem):
         print(f"⚠️ Active project is Untitled or a template (Path: '{als_path}', Window: '{main_win}').", file=sys.stderr)
@@ -536,7 +634,7 @@ def main():
         print(f"🎵 Exporting as '{target_name}'.")
         notify("goodvibrations HQ", f"Exporting: {target_name}...")
 
-    success = automate_ableton(str(project_folder), target_name, create_new_version=create_new_version)
+    success = automate_ableton(str(project_folder), target_name, create_new_version=create_new_version, target_app_path=app_path)
 
     if success:
         action_desc = "New version saved and exporting" if create_new_version else "Exporting"
