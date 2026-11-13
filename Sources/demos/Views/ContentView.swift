@@ -37,12 +37,14 @@ struct ContentView: View {
                 .opacity(store.activeWorkspaceSection == .library ? 1 : 0)
                 .allowsHitTesting(store.activeWorkspaceSection == .library)
 
-                ForEach(displayedWorkspaceProjects) { project in
-                    ProjectFullWorkspaceView(project: project) {
-                        store.closeProjectTab(project)
+                if store.activeWorkspaceSection == .project {
+                    ForEach(displayedWorkspaceProjects) { project in
+                        ProjectFullWorkspaceView(project: project) {
+                            store.closeProjectTab(project)
+                        }
+                        .opacity(store.selectedProject?.id == project.id ? 1 : 0)
+                        .allowsHitTesting(store.selectedProject?.id == project.id)
                     }
-                    .opacity((store.activeWorkspaceSection == .project && store.selectedProject?.id == project.id) ? 1 : 0)
-                    .allowsHitTesting(store.activeWorkspaceSection == .project && store.selectedProject?.id == project.id)
                 }
 
                 HomeDashboardView { project in

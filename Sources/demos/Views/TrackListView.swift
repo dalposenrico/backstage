@@ -19,6 +19,8 @@ struct TrackListView: View {
     @State private var parseStatus: String = "Reading Ableton set…"
     @State private var selectedVersionURL: URL? = nil
     @State private var hoveredInspectorSection: ProjectInspectorSection? = nil
+    @State private var hasVisitedVersions = false
+    @State private var hasVisitedStudio = false
     @AppStorage("projectWorkspaceExpanded") private var workspaceExpanded = false
 
     private var sortedVersions: [AbletonVersion] {
@@ -359,17 +361,21 @@ struct TrackListView: View {
                 .opacity((section == .overview || section == .workflow || section == .files) ? 1 : 0)
                 .allowsHitTesting(section == .overview || section == .workflow || section == .files)
 
-                // Versions View (Preserved hot in memory for 0ms instant tab switching)
-                ABComparisonView(embeddedProject: project)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(section == .versions ? 1 : 0)
-                    .allowsHitTesting(section == .versions)
+                // Versions View (Preserved hot in memory once visited for 0ms instant tab switching)
+                if hasVisitedVersions || section == .versions {
+                    ABComparisonView(embeddedProject: project)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(section == .versions ? 1 : 0)
+                        .allowsHitTesting(section == .versions)
+                }
 
-                // Studio Hub View (Planning, Dropbox Sync, Deliverables Matrix, Revisions)
-                StudioHubView(project: project)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(section == .studio ? 1 : 0)
-                    .allowsHitTesting(section == .studio)
+                // Studio Hub View (Preserved hot in memory once visited)
+                if hasVisitedStudio || section == .studio {
+                    StudioHubView(project: project)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(section == .studio ? 1 : 0)
+                        .allowsHitTesting(section == .studio)
+                }
 
                 // Arrangement View
                 if section == .arrangement {
@@ -405,7 +411,12 @@ struct TrackListView: View {
             }
         }
         .onAppear {
-            store.isVersionsTabActive = (section == .versions)
+            if section == .versions { hasVisitedVersions = true }
+            if section == .studio { hasVisitedStudio = true }
+            let isVersions = (section == .versions)
+            if store.isVersionsTabActive != isVersions {
+                store.isVersionsTabActive = isVersions
+            }
             if let target = store.initialProjectInspectorSection, target == "mixer" {
                 section = .arrangement
                 store.initialProjectInspectorSection = nil
@@ -536,6 +547,8 @@ struct TrackListView: View {
 
     private func selectSection(_ item: ProjectInspectorSection) {
         guard section != item else { return }
+        if item == .versions { hasVisitedVersions = true }
+        if item == .studio { hasVisitedStudio = true }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {

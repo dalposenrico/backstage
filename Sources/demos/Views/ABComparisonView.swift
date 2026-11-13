@@ -917,8 +917,11 @@ struct ABComparisonView: View {
     }
 
     private func audioDuration(_ url: URL) -> Double {
+        if let cached = audioDurations[url.path], cached > 0 { return cached }
         guard let file = try? AVAudioFile(forReading: url) else { return 0 }
-        return Double(file.length) / file.processingFormat.sampleRate
+        let dur = Double(file.length) / file.processingFormat.sampleRate
+        audioDurations[url.path] = dur
+        return dur
     }
 }
 
