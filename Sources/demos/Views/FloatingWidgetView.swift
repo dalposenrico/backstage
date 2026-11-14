@@ -167,6 +167,9 @@ struct FloatingWidgetView: View {
             if let project = activeProject {
                 Divider()
                 Text(project.name).font(.caption).disabled(true)
+                Button("Open Project Folder in Finder") {
+                    NSWorkspace.shared.open(project.folderURL)
+                }
                 if project.newestAbletonVersion != nil {
                     Button("Fast Export New Version (Open & Export)") {
                         store.openAndExport(project)
@@ -331,6 +334,21 @@ struct FloatingWidgetView: View {
 
             Spacer(minLength: 0)
                 .allowsHitTesting(false)
+
+            // Open Project Folder in Finder Button
+            if let project = store.currentOpenProject ?? activeProject {
+                Button {
+                    NSWorkspace.shared.open(project.folderURL)
+                } label: {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                        .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
+                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                        .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Open project folder in Finder: \(project.folderURL.path)")
+            }
 
             // Open in Ableton Live Button
             Button {
@@ -682,6 +700,21 @@ struct FloatingWidgetView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                // Open Project Folder in Finder Button
+                if let project = store.currentOpenProject ?? activeProject {
+                    Button {
+                        NSWorkspace.shared.open(project.folderURL)
+                    } label: {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
+                            .frame(width: 19, height: 19)
+                            .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open project folder in Finder: \(project.folderURL.path)")
+                }
+
                 // Open in Ableton Live Button
                 Button {
                     if let project = store.currentOpenProject ?? activeProject {
@@ -794,15 +827,21 @@ struct FloatingWidgetView: View {
                     .foregroundStyle(.primary)
 
                 if store.isExternalProject(project) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 8.5))
-                        Text(store.displayLocation(for: project))
-                            .font(.system(size: 9))
+                    Button {
+                        NSWorkspace.shared.open(project.folderURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 8.5))
+                            Text(store.displayLocation(for: project))
+                                .font(.system(size: 9))
+                            Image(systemName: "arrow.up.forward")
+                                .font(.system(size: 7.5))
+                        }
+                        .foregroundStyle(.secondary)
                     }
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .help("File location: \(project.folderURL.path) (outside Music Projects)")
+                    .buttonStyle(.plain)
+                    .help("Open project folder in Finder: \(project.folderURL.path)")
                 }
 
                 HStack(spacing: 5) {
@@ -1043,10 +1082,19 @@ struct FloatingWidgetView: View {
                         Text("•")
                             .font(.system(size: 8))
                             .foregroundStyle(.secondary)
-                        Text(store.displayLocation(for: project))
-                            .font(.system(size: 9))
+                        Button {
+                            NSWorkspace.shared.open(project.folderURL)
+                        } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 7.5))
+                                Text(store.displayLocation(for: project))
+                                    .font(.system(size: 9))
+                            }
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open in Finder: \(project.folderURL.path)")
                     }
                 }
             }
