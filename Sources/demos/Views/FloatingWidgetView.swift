@@ -26,14 +26,20 @@ struct FloatingWidgetView: View {
     }
 
     private var displayedProjects: [Project] {
-        let baseList: [Project]
+        var baseList: [Project]
         switch filter {
         case .recents:
             baseList = store.recentProjects
+            if let external = store.externalOpenProject, !baseList.contains(where: { $0.id == external.id }) {
+                baseList.insert(external, at: 0)
+            }
         case .favourites:
             baseList = store.favouriteProjects
         case .all:
             baseList = store.visibleProjects
+            if let external = store.externalOpenProject, !baseList.contains(where: { $0.id == external.id }) {
+                baseList.insert(external, at: 0)
+            }
         }
 
         if searchText.isEmpty {
@@ -273,6 +279,13 @@ struct FloatingWidgetView: View {
             if isOpening {
                 return "Opening in Live…"
             }
+            if let active = store.currentOpenProject ?? activeProject, store.isExternalProject(active) {
+                let loc = store.displayLocation(for: active)
+                if let ver = active.newestAbletonVersion?.displayName {
+                    return "\(ver) • \(loc)"
+                }
+                return isLiveActive ? "Live • \(loc)" : loc
+            }
             if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
                 return "\(ver) • Ableton Live"
             }
@@ -397,6 +410,9 @@ struct FloatingWidgetView: View {
 
     private var puckHelpText: String {
         if let project = store.currentOpenProject {
+            if store.isExternalProject(project) {
+                return "Active in Ableton Live: \(project.name) [\(store.displayLocation(for: project))] (click to expand HUD, drag to move)"
+            }
             return "Active in Ableton Live: \(project.name) (click to expand HUD, drag to move)"
         }
         if let opening = store.openingAbletonProject {
@@ -615,6 +631,13 @@ struct FloatingWidgetView: View {
             if isOpening {
                 return "Opening in Live…"
             }
+            if let active = store.currentOpenProject ?? activeProject, store.isExternalProject(active) {
+                let loc = store.displayLocation(for: active)
+                if let ver = active.newestAbletonVersion?.displayName {
+                    return "\(ver) • \(loc)"
+                }
+                return isLiveActive ? "Live • \(loc)" : loc
+            }
             if let ver = store.currentOpenProject?.newestAbletonVersion?.displayName {
                 return "\(ver) • Ableton Live"
             }
@@ -769,6 +792,18 @@ struct FloatingWidgetView: View {
                     .font(.system(size: 13.5, weight: .bold))
                     .lineLimit(1)
                     .foregroundStyle(.primary)
+
+                if store.isExternalProject(project) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 8.5))
+                        Text(store.displayLocation(for: project))
+                            .font(.system(size: 9))
+                    }
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("File location: \(project.folderURL.path) (outside Music Projects)")
+                }
 
                 HStack(spacing: 5) {
                     if let bpm = project.bpmLabel {
@@ -997,11 +1032,22 @@ struct FloatingWidgetView: View {
                         .lineLimit(1)
                 }
 
-                if let saved = project.latestSavedItem?.date {
-                    Text(formatRelative(saved))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                HStack(spacing: 4) {
+                    if let saved = project.latestSavedItem?.date {
+                        Text(formatRelative(saved))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    if store.isExternalProject(project) {
+                        Text("•")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.secondary)
+                        Text(store.displayLocation(for: project))
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             }
 

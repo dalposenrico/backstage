@@ -62,6 +62,23 @@ def get_target_app_path() -> str | None:
     return None
 
 
+def get_target_project_path() -> str | None:
+    """Extracts --project-path from command-line arguments or ABLETON_PROJECT_PATH environment variable."""
+    if "--project-path" in sys.argv:
+        try:
+            idx = sys.argv.index("--project-path")
+            if idx + 1 < len(sys.argv):
+                path = sys.argv[idx + 1]
+                if os.path.exists(path):
+                    return path
+        except Exception:
+            pass
+    env_path = os.environ.get("ABLETON_PROJECT_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    return None
+
+
 def get_app_version_prefix(app_path: str | None) -> str | None:
     """Determines the version prefix (e.g. 'Live 13' or 'Live 12') for preferences lookup."""
     if not app_path:
@@ -119,7 +136,7 @@ def is_template_path(path: Path | None) -> bool:
 
 
 def find_project_by_name(project_name: str) -> Path | None:
-    """Instantly finds a project's .als file using Spotlight mdfind (runs in milliseconds)."""
+    """Instantly finds a project's .als file using Spotlight mdfind or common folders."""
     if not project_name:
         return None
     try:
@@ -136,16 +153,46 @@ def find_project_by_name(project_name: str) -> Path | None:
         pass
 
     candidates = [
+        Path.home() / "Downloads",
+        Path.home() / "Desktop",
         Path.home() / "Documents" / "Music Projects",
+        Path.home() / "Documents",
         Path.home() / "Music",
     ]
     for c in candidates:
         if c.exists():
-            direct = list(c.glob(f"**/{project_name}.als"))
-            for p in direct:
-                if not is_template_path(p):
-                    return p
+            try:
+                # Direct check first
+                cand = c / f"{project_name}.als"
+                if cand.exists() and not is_template_path(cand):
+                    return cand
+                # Subfolder check (e.g. ~/Downloads/ProjectFolder/Project.als)
+                for sub in c.iterdir():
+                    if sub.is_dir():
+                        cand = sub / f"{project_name}.als"
+                        if cand.exists() and not is_template_path(cand):
+                            return cand
+            except Exception:
+                pass
     return None
+
+
+def get_open_als_from_lsof() -> list[Path]:
+    """Finds currently open .als files under running Live processes using lsof."""
+    try:
+        res = subprocess.run(["lsof", "-c", "Live"], capture_output=True, text=True, timeout=1.5)
+        paths = []
+        for line in res.stdout.splitlines():
+            if ".als" in line:
+                parts = line.split(None, 8)
+                if len(parts) >= 9:
+                    p = Path(parts[8].strip())
+                    if p.suffix.lower() == ".als" and p.exists() and not is_template_path(p):
+                        if p not in paths:
+                            paths.append(p)
+        return paths
+    except Exception:
+        return []
 
 
 def is_untitled_name(name: str | None) -> bool:
@@ -331,19 +378,53 @@ def get_active_project_path(target_version_prefix: str | None = None, target_app
     main_title = find_main_ableton_window_title(win_titles)
     project_name = clean_project_name_from_title(main_title)
 
-    # 1. If window title points to a saved project, find it instantly via Spotlight (runs in ~80ms)
+    # 1. Explicit target project path passed via CLI or env var
+    target_project = get_target_project_path()
+    if target_project:
+        p = Path(target_project)
+        if p.is_file() and p.suffix.lower() == ".als" and p.exists() and not is_template_path(p):
+            return p, False
+        if p.is_dir() and p.exists():
+            if project_name:
+                cand = p / f"{project_name}.als"
+                if cand.exists() and not is_template_path(cand):
+                    return cand, False
+            als_files = [f for f in p.glob("*.als") if not is_template_path(f)]
+            if als_files:
+                als_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+                return als_files[0], False
+
+    # 2. Check last_doc from Ableton's own Log.txt
+    # This directly identifies sets regardless of whether they are in Music Projects, Downloads, Desktop, etc.
+    if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
+        if project_name and not is_untitled_name(project_name):
+            if last_doc.stem.lower() == project_name.lower():
+                return last_doc, False
+            if last_doc.parent.exists():
+                direct_cand = last_doc.parent / f"{project_name}.als"
+                if direct_cand.exists() and not is_template_path(direct_cand):
+                    return direct_cand, False
+        else:
+            return last_doc, False
+
+    # 3. Check open file descriptors in Live process using lsof
+    open_als_list = get_open_als_from_lsof()
+    if open_als_list:
+        if project_name and not is_untitled_name(project_name):
+            for cand in open_als_list:
+                if cand.stem.lower() == project_name.lower():
+                    return cand, False
+        if last_doc and last_doc in open_als_list:
+            return last_doc, False
+        return open_als_list[0], False
+
+    # 4. If window title points to a saved project, search for it across folders and Spotlight
     if project_name and not is_untitled_name(project_name):
-        spotlight_hit = find_project_by_name(project_name)
-        if spotlight_hit and spotlight_hit.exists():
-            return spotlight_hit, False
+        hit = find_project_by_name(project_name)
+        if hit and hit.exists():
+            return hit, False
 
-        # Check adjacent to last_doc
-        if last_doc and last_doc.parent.exists():
-            direct_cand = last_doc.parent / f"{project_name}.als"
-            if direct_cand.exists() and not is_template_path(direct_cand):
-                return direct_cand, False
-
-    # 2. Check last_doc from Log.txt
+    # 5. Fall back to last_doc from Log.txt even if name comparison was fuzzy
     if last_doc and not is_template and last_doc.exists() and not is_untitled_name(last_doc.stem):
         return last_doc, False
 

@@ -39,6 +39,7 @@ enum LibraryLoadPresentation: Equatable {
 
 @MainActor
 class AppStore: ObservableObject {
+    static weak var shared: AppStore?
     @Published var rootFolderURL: URL?
     @Published var folderTree: [FolderNode] = [] {
         didSet { invalidateProjectsCache() }
@@ -60,6 +61,7 @@ class AppStore: ObservableObject {
     @Published var exportCheckpointProject: Project?
     @Published var checkpointError: String?
     @Published private(set) var currentOpenProjectURL: URL?
+    @Published private(set) var externalOpenProject: Project?
     @Published private(set) var openingAbletonProject: AbletonOpeningState?
     private var openingDismissTask: Task<Void, Never>?
     private var pendingCheckpointPath: String?
@@ -342,6 +344,7 @@ class AppStore: ObservableObject {
     }
 
     init() {
+        Self.shared = self
         // Restore sort order
         if let raw = UserDefaults.standard.string(forKey: "sortOrder"),
            let saved = SortOrder(rawValue: raw) {
@@ -519,7 +522,30 @@ class AppStore: ObservableObject {
 
     var currentOpenProject: Project? {
         guard let currentOpenProjectURL else { return nil }
-        return projects.first { $0.folderURL == currentOpenProjectURL }
+        if let internalMatch = projects.first(where: { $0.folderURL == currentOpenProjectURL }) {
+            return internalMatch
+        }
+        if let external = externalOpenProject, external.folderURL == currentOpenProjectURL {
+            return external
+        }
+        return nil
+    }
+
+    func isExternalProject(_ project: Project) -> Bool {
+        guard let rootFolderURL else { return true }
+        let projectPath = project.folderURL.standardizedFileURL.path
+        let rootPath = rootFolderURL.standardizedFileURL.path
+        if projectPath == rootPath { return false }
+        return !projectPath.hasPrefix(rootPath + "/")
+    }
+
+    func displayLocation(for project: Project) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let path = project.folderURL.standardizedFileURL.path
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 
     func isCurrentOpenProject(_ project: Project) -> Bool {
@@ -698,6 +724,14 @@ class AppStore: ObservableObject {
                 ), opening.matchesLoadedProject(folderURL: match.folderURL) {
                     isLoaded = true
                     setCurrentOpenProject(match.folderURL)
+                } else if let external = externalOpenProject, opening.matchesLoadedProject(folderURL: external.folderURL) {
+                    isLoaded = true
+                    setCurrentOpenProject(external.folderURL)
+                } else if let docURL = snapshot.loadedDocumentURLs.first,
+                          let folder = AbletonSessionDetector.projectFolder(forDocumentURL: docURL),
+                          opening.matchesLoadedProject(folderURL: folder) {
+                    isLoaded = true
+                    setCurrentOpenProject(folder)
                 }
             }
 
@@ -741,16 +775,15 @@ class AppStore: ObservableObject {
             }
             if lastAbletonLaunchRequest.map({ now.timeIntervalSince($0) >= 12 }) ?? true {
                 setCurrentOpenProject(nil)
+                externalOpenProject = nil
             }
             return
         }
 
         startAbletonPolling(snappy: openingAbletonProject?.phase == .opening)
 
-        // Don't attempt project resolution if projects have not been scanned yet
-        guard !projects.isEmpty else { return }
-
-        if let match = AbletonSessionDetector.activeProject(
+        // 1. Check scanned library projects
+        if !projects.isEmpty, let match = AbletonSessionDetector.activeProject(
             in: projects,
             windowTitles: snapshot.windowTitles,
             loadedDocumentURLs: snapshot.loadedDocumentURLs
@@ -767,7 +800,61 @@ class AppStore: ObservableObject {
                     }
                 }
             }
-        } else if !snapshot.windowTitles.isEmpty || !snapshot.loadedDocumentURLs.isEmpty {
+            return
+        }
+
+        // 2. Check external project (e.g. downloaded sets in Downloads, Desktop, etc.)
+        resolveExternalAbletonSession(snapshot: snapshot)
+    }
+
+    private func resolveExternalAbletonSession(snapshot: AbletonSessionSnapshot) {
+        if let docURL = snapshot.loadedDocumentURLs.first,
+           let folderURL = AbletonSessionDetector.projectFolder(forDocumentURL: docURL) {
+            if let existing = externalOpenProject, existing.folderURL == folderURL {
+                let isNewSession = currentOpenProjectURL != folderURL
+                setCurrentOpenProject(folderURL)
+                if isNewSession {
+                    if audioPlayer.currentTrack == nil || !audioPlayer.isPlaying {
+                        selectedProject = existing
+                        if let track = existing.primaryTrack {
+                            audioPlayer.prepare(track, autoPlay: false)
+                        }
+                    }
+                }
+                return
+            }
+
+            guard !refreshingProjects.contains(folderURL) else { return }
+            refreshingProjects.insert(folderURL)
+            Task { @MainActor [weak self, folderURL] in
+                defer { self?.refreshingProjects.remove(folderURL) }
+                guard let self else { return }
+                if let scanned = await ProjectScanner.scanProject(at: folderURL, cache: self.inspectionCache) {
+                    self.externalOpenProject = scanned
+                    let isNewSession = self.currentOpenProjectURL != folderURL
+                    self.setCurrentOpenProject(folderURL)
+                    if isNewSession {
+                        if self.audioPlayer.currentTrack == nil || !self.audioPlayer.isPlaying {
+                            self.selectedProject = scanned
+                            if let track = scanned.primaryTrack {
+                                self.audioPlayer.prepare(track, autoPlay: false)
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        if let external = externalOpenProject {
+            let matched = AbletonSessionDetector.matchingProject(in: [external], windowTitles: snapshot.windowTitles)
+            if matched != nil {
+                setCurrentOpenProject(external.folderURL)
+                return
+            }
+        }
+
+        if !snapshot.windowTitles.isEmpty || !snapshot.loadedDocumentURLs.isEmpty {
             setCurrentOpenProject(nil)
         }
     }
@@ -791,7 +878,11 @@ class AppStore: ObservableObject {
 
     private func resolvePendingExportCheckpoint(reportFailure: Bool) {
         guard let targetPath = pendingCheckpointPath else { return }
-        let candidates = projects.filter { project in
+        var allProjects = projects
+        if let external = externalOpenProject {
+            allProjects.append(external)
+        }
+        let candidates = allProjects.filter { project in
             let folderPath = project.folderURL.standardizedFileURL.path
             return targetPath == folderPath || targetPath.hasPrefix(folderPath + "/")
         }
@@ -800,6 +891,18 @@ class AppStore: ObservableObject {
             pendingCheckpointPath = nil
             selectedProject = project
             exportCheckpointProject = project
+        } else if let folder = AbletonSessionDetector.projectFolder(forDocumentURL: URL(fileURLWithPath: targetPath)) {
+            pendingCheckpointPath = nil
+            Task { @MainActor [weak self, folder] in
+                guard let self else { return }
+                if let scanned = await ProjectScanner.scanProject(at: folder, cache: self.inspectionCache) {
+                    self.externalOpenProject = scanned
+                    self.selectedProject = scanned
+                    self.exportCheckpointProject = scanned
+                } else if reportFailure {
+                    self.checkpointError = "No scanned project contains \(URL(fileURLWithPath: targetPath).lastPathComponent)."
+                }
+            }
         } else if reportFailure {
             pendingCheckpointPath = nil
             checkpointError = "No scanned project contains \(URL(fileURLWithPath: targetPath).lastPathComponent). Refresh the library or check the path sent by Keyboard Maestro."
@@ -821,6 +924,9 @@ class AppStore: ObservableObject {
         }
         if let idx = openProjects.firstIndex(where: { $0.folderURL == refreshed.folderURL }) {
             openProjects[idx] = refreshed
+        }
+        if externalOpenProject?.folderURL == refreshed.folderURL {
+            externalOpenProject = refreshed
         }
 
         let cache = inspectionCache

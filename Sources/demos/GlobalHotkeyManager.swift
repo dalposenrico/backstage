@@ -265,6 +265,9 @@ final class GlobalHotkeyManager: ObservableObject {
         if let preferredApp = AbletonAppDetector.selectedAppURL() {
             scriptArgs.append(contentsOf: ["--app-path", preferredApp.path])
         }
+        if let activeProjectURL = AppStore.shared?.currentOpenProjectURL {
+            scriptArgs.append(contentsOf: ["--project-path", activeProjectURL.standardizedFileURL.path])
+        }
         process.arguments = scriptArgs
         let pipe = Pipe()
         process.standardOutput = pipe

@@ -89,6 +89,50 @@ final class AbletonSessionDetectorTests: XCTestCase {
         )
     }
 
+    func testLogReaderReturnsBothLoadingAndSavingDocuments() throws {
+        let launchDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-08-21T14:00:00Z"))
+        let log = """
+        2026-08-21T14:01:00.000000Z: info: Loading document "/Downloads/Collab/Collab_1.als"
+        2026-08-21T14:05:00.000000Z: info: Saving document "/Downloads/Collab/Collab_2.als"
+        """
+
+        let docs = AbletonSessionDetector.loadedDocuments(in: log, since: launchDate).map(\.path)
+        XCTAssertEqual(docs, ["/Downloads/Collab/Collab_2.als", "/Downloads/Collab/Collab_1.als"])
+    }
+
+    func testProjectFolderExtraction() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let docURL = tempDir.appendingPathComponent("Track_1.als")
+        let extracted = AbletonSessionDetector.projectFolder(forDocumentURL: docURL)
+        XCTAssertEqual(extracted?.standardizedFileURL.path, tempDir.standardizedFileURL.path)
+
+        // Backup folder unwrapping
+        let backupDir = tempDir.appendingPathComponent("Backup")
+        try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let backupDocURL = backupDir.appendingPathComponent("Track_backup.als")
+        let backupExtracted = AbletonSessionDetector.projectFolder(forDocumentURL: backupDocURL)
+        XCTAssertEqual(backupExtracted?.standardizedFileURL.path, tempDir.standardizedFileURL.path)
+    }
+
+    @MainActor
+    func testAppStoreExternalProjectClassificationAndDisplayLocation() {
+        let store = AppStore()
+        store.rootFolderURL = URL(fileURLWithPath: "/Users/test/Music/Music Projects")
+
+        let internalProject = project("Internal Song", path: "/Users/test/Music/Music Projects/Sketches/Internal Song", versions: ["v1"])
+        let externalProject = project("Collab Download", path: "/Users/test/Downloads/Collab Download", versions: ["v1"])
+
+        XCTAssertFalse(store.isExternalProject(internalProject))
+        XCTAssertTrue(store.isExternalProject(externalProject))
+
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let homeExternal = project("Download", path: "\(home)/Downloads/ProjectX", versions: ["v1"])
+        XCTAssertEqual(store.displayLocation(for: homeExternal), "~/Downloads/ProjectX")
+    }
+
     private func project(_ name: String, path: String, versions: [String]) -> Project {
         Project(
             name: name,

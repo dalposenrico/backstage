@@ -205,6 +205,20 @@ enum AbletonSessionDetector {
         return strongest[0].project
     }
 
+    static func projectFolder(forDocumentURL documentURL: URL) -> URL? {
+        let standardized = documentURL.standardizedFileURL
+        var folder = standardized.deletingLastPathComponent()
+        let folderName = folder.lastPathComponent.lowercased()
+        if folderName == "backup" || folderName == "backups" {
+            folder = folder.deletingLastPathComponent()
+        }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir), isDir.boolValue {
+            return folder
+        }
+        return nil
+    }
+
     static func activeProject(
         in projects: [Project],
         windowTitles: [String],
@@ -235,11 +249,18 @@ enum AbletonSessionDetector {
         localFormatter.locale = Locale(identifier: "en_US_POSIX")
         localFormatter.timeZone = .current
         localFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
-        let marker = ": info: Loading document \""
+        let markers = [": info: Loading document \"", ": info: Saving document \"", ": info: Document \""]
 
         return logText.split(separator: "\n", omittingEmptySubsequences: true).reversed().compactMap { rawLine in
             let line = String(rawLine)
-            guard let markerRange = line.range(of: marker),
+            var matchedMarkerRange: Range<String.Index>?
+            for marker in markers {
+                if let range = line.range(of: marker) {
+                    matchedMarkerRange = range
+                    break
+                }
+            }
+            guard let markerRange = matchedMarkerRange,
                   let timestamp = isoFormatter.date(from: String(line[..<markerRange.lowerBound]))
                     ?? localFormatter.date(from: String(line[..<markerRange.lowerBound])),
                   timestamp >= launchDate else { return nil }
