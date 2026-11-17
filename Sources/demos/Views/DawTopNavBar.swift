@@ -245,6 +245,21 @@ struct DawTopNavBar: View {
             .buttonStyle(.plain)
             .help("Click to collapse back into floating mini HUD")
 
+            // Open Project Folder in Finder Button
+            if let project = store.currentOpenProject ?? activeProj {
+                Button {
+                    NSWorkspace.shared.open(project.folderURL)
+                } label: {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
+                        .frame(width: 20, height: 20)
+                        .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Open project folder in Finder: \(project.folderURL.path)")
+            }
+
             // Open in Ableton Live Button
             Button {
                 if let project = store.currentOpenProject ?? activeProj {

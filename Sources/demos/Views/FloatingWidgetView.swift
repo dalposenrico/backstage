@@ -665,127 +665,132 @@ struct FloatingWidgetView: View {
             return "goodvibrations HUD"
         }()
 
-        return Button {
-            collapseWidget()
-        } label: {
-            HStack(spacing: 7) {
-                // Mini status indicator
-                if isOpening {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .scaleEffect(0.7)
-                } else if isLiveActive {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
-                        .shadow(color: Color.green.opacity(0.6), radius: 3)
-                } else {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.85))
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(projectName)
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(Color(hex: "F3F4F6"))
-                        .lineLimit(1)
-
-                    Text(subtitle)
-                        .font(.system(size: 9))
-                        .foregroundStyle(Color(hex: "9CA3AF"))
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Open Project Folder in Finder Button
-                if let project = store.currentOpenProject ?? activeProject {
-                    Button {
-                        NSWorkspace.shared.open(project.folderURL)
-                    } label: {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
-                            .frame(width: 19, height: 19)
-                            .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open project folder in Finder: \(project.folderURL.path)")
-                }
-
-                // Open in Ableton Live Button
-                Button {
-                    if let project = store.currentOpenProject ?? activeProject {
-                        store.openInAbleton(project)
-                    } else {
-                        _ = AbletonSessionDetector.activateAbleton()
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(hex: "E5E7EB"))
-                        .frame(width: 19, height: 19)
-                        .background(Color.white.opacity(0.10), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Open in Ableton Live")
-
-                // Auto-Export Button ("E")
-                Button {
-                    if globalHotkey.isRunningExport {
-                        globalHotkey.cancelExport()
-                    } else if let project = activeProject {
-                        store.openAndExport(project)
-                    } else {
-                        globalHotkey.triggerExport()
-                    }
-                } label: {
-                    if globalHotkey.isRunningExport {
+        return HStack(spacing: 7) {
+            // Clickable info area to collapse back to mini floating pill
+            Button {
+                collapseWidget()
+            } label: {
+                HStack(spacing: 7) {
+                    // Mini status indicator
+                    if isOpening {
                         ProgressView()
                             .controlSize(.mini)
                             .scaleEffect(0.7)
-                            .frame(width: 19, height: 19)
+                    } else if isLiveActive {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                            .shadow(color: Color.green.opacity(0.6), radius: 3)
                     } else {
-                        Text("E")
-                            .font(.system(size: 10.5, weight: .black, design: .rounded))
-                            .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
-                            .frame(width: 19, height: 19)
-                            .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.85))
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
                     }
-                }
-                .buttonStyle(.plain)
-                .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
 
-                // Quick Launcher Tray Toggle Button ("⚡️")
-                Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
-                        launcherStore.isTrayOpen.toggle()
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(projectName)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(Color(hex: "F3F4F6"))
+                            .lineLimit(1)
+
+                        Text(subtitle)
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color(hex: "9CA3AF"))
+                            .lineLimit(1)
                     }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Click to collapse back to mini floating pill")
+
+            Spacer(minLength: 0)
+
+            // Open Project Folder in Finder Button
+            if let project = store.currentOpenProject ?? activeProject {
+                Button {
+                    NSWorkspace.shared.open(project.folderURL)
                 } label: {
-                    Image(systemName: "bolt.fill")
+                    Image(systemName: "folder.fill")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
+                        .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
                         .frame(width: 19, height: 19)
-                        .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
+                        .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher" : "Show quick plugin launcher (1–9)")
+                .help("Open project folder in Finder: \(project.folderURL.path)")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(Color(hex: "16191E"))
-            )
-            .overlay(
-                Capsule()
-                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
-            )
+
+            // Open in Ableton Live Button
+            Button {
+                if let project = store.currentOpenProject ?? activeProject {
+                    store.openInAbleton(project)
+                } else {
+                    _ = AbletonSessionDetector.activateAbleton()
+                }
+            } label: {
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color(hex: "E5E7EB"))
+                    .frame(width: 19, height: 19)
+                    .background(Color.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Open in Ableton Live")
+
+            // Auto-Export Button ("E")
+            Button {
+                if globalHotkey.isRunningExport {
+                    globalHotkey.cancelExport()
+                } else if let project = activeProject {
+                    store.openAndExport(project)
+                } else {
+                    globalHotkey.triggerExport()
+                }
+            } label: {
+                if globalHotkey.isRunningExport {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                        .frame(width: 19, height: 19)
+                } else {
+                    Text("E")
+                        .font(.system(size: 10.5, weight: .black, design: .rounded))
+                        .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
+                        .frame(width: 19, height: 19)
+                        .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+            .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
+
+            // Quick Launcher Tray Toggle Button ("⚡️")
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                    launcherStore.isTrayOpen.toggle()
+                }
+            } label: {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
+                    .frame(width: 19, height: 19)
+                    .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher" : "Show quick plugin launcher (1–9)")
         }
-        .buttonStyle(.plain)
-        .help("Click to collapse back to mini floating pill")
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(Color(hex: "16191E"))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+        )
     }
 
     // MARK: - Hero Card (High Contrast)
