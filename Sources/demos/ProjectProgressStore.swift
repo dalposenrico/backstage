@@ -154,6 +154,12 @@ final class ProjectProgressStore: ObservableObject {
         update(project) { $0.sparkRating = max(0, min(5, rating)) }
     }
 
+    func migratePath(from oldPath: String, to newPath: String) {
+        guard let value = values.removeValue(forKey: oldPath) else { return }
+        values[newPath] = value
+        save()
+    }
+
     private func update(_ project: Project, change: (inout ProjectProgress) -> Void) {
         var value = progress(for: project)
         change(&value)

@@ -279,8 +279,14 @@ enum FocusStudioOrganizer {
         return (clientItems, personalItems)
     }
 
-    static func groupByClient(items: [FocusActionableItem]) -> [FocusClientGroup] {
-        let grouped = Dictionary(grouping: items, by: { $0.clientName })
+    static func groupByClient(items: [FocusActionableItem], knownClientNames: [String] = []) -> [FocusClientGroup] {
+        var grouped = Dictionary(grouping: items, by: { $0.clientName })
+        for known in knownClientNames {
+            let trimmed = known.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && grouped[trimmed] == nil {
+                grouped[trimmed] = []
+            }
+        }
         return grouped.map { clientName, groupItems in
             FocusClientGroup(
                 clientName: clientName,
@@ -290,6 +296,9 @@ enum FocusStudioOrganizer {
         .sorted { lhs, rhs in
             if lhs.mostUrgentDeadline != rhs.mostUrgentDeadline {
                 return lhs.mostUrgentDeadline < rhs.mostUrgentDeadline
+            }
+            if lhs.items.isEmpty != rhs.items.isEmpty {
+                return !lhs.items.isEmpty
             }
             return lhs.clientName.localizedCaseInsensitiveCompare(rhs.clientName) == .orderedAscending
         }

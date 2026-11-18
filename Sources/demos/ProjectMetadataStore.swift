@@ -426,10 +426,35 @@ final class ProjectMetadataStore: ObservableObject {
         }
     }
 
+    func migratePath(from oldPath: String, to newPath: String) {
+        guard let meta = values.removeValue(forKey: oldPath) else { return }
+        values[newPath] = meta
+        save()
+    }
+
+    func setProjectKind(_ kind: ProjectKind?, forPath path: String) {
+        var meta = values[path] ?? ProjectMetadata()
+        meta.projectKind = kind
+        values[path] = meta
+        save()
+    }
+
+    func setClientName(_ name: String?, forPath path: String) {
+        var meta = values[path] ?? ProjectMetadata()
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        meta.clientName = trimmed.isEmpty ? nil : trimmed
+        values[path] = meta
+        save()
+    }
+
     private func update(_ project: Project, change: (inout ProjectMetadata) -> Void) {
         var metadata = self.metadata(for: project)
         change(&metadata)
         values[project.folderURL.path] = metadata
+        save()
+    }
+
+    private func save() {
         guard let data = try? JSONEncoder().encode(values) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }

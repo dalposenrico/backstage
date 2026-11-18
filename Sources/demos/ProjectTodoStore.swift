@@ -56,6 +56,12 @@ final class ProjectTodoStore: ObservableObject {
         save()
     }
 
+    func migratePath(from oldPath: String, to newPath: String) {
+        guard let items = values.removeValue(forKey: oldPath) else { return }
+        values[newPath] = items
+        save()
+    }
+
     private func save() {
         guard let data = try? JSONEncoder().encode(values) else { return }
         try? data.write(to: fileURL, options: .atomic)

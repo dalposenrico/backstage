@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HomeDashboardView: View, Equatable {
     var isActive: Bool = true
@@ -9,9 +10,22 @@ struct HomeDashboardView: View, Equatable {
     @EnvironmentObject private var todoStore: ProjectTodoStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
+    @ObservedObject private var clientManager = ClientWorkManager.shared
+
     @AppStorage("focusStudioViewMode") private var viewModeRaw: String = FocusStudioViewMode.split.rawValue
     @State private var searchQuery: String = ""
     @State private var expandedProjectIDs: Set<Project.ID> = []
+    @State private var collapsedClientNames: Set<String> = []
+
+    // Client Creation & Folder Management State
+    @State private var showingCreateClientAlert = false
+    @State private var newClientNameDraft = ""
+    @State private var showingRenameFolderAlert = false
+    @State private var renameFolderNameDraft = ""
+
+    // Move Project to Client State
+    @State private var projectToMove: Project? = nil
+    @State private var statusFeedbackMessage: String? = nil
 
     static func == (lhs: HomeDashboardView, rhs: HomeDashboardView) -> Bool {
         lhs.isActive == rhs.isActive && !lhs.isActive
@@ -44,6 +58,13 @@ struct HomeDashboardView: View, Equatable {
         }
     }
 
+    private var clientGroups: [FocusClientGroup] {
+        FocusStudioOrganizer.groupByClient(
+            items: filteredClientItems,
+            knownClientNames: clientManager.discoveredClientNames
+        )
+    }
+
     private var filteredPersonalItems: [FocusActionableItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return organizedData.personal }
@@ -72,6 +93,41 @@ struct HomeDashboardView: View, Equatable {
                 Color.clear
             }
         }
+        .sheet(item: $projectToMove) { proj in
+            MoveProjectToClientSheet(
+                project: proj,
+                clientManager: clientManager,
+                metadataStore: metadataStore,
+                todoStore: todoStore,
+                progressStore: progressStore,
+                onMoved: { newClient, newPath in
+                    projectToMove = nil
+                    statusFeedbackMessage = "Moved “\(proj.name)” to client “\(newClient)”"
+                    Task { await store.scan() }
+                },
+                onCancel: {
+                    projectToMove = nil
+                }
+            )
+        }
+        .alert("Create New Client Folder", isPresented: $showingCreateClientAlert) {
+            TextField("Client Name (e.g. Francisco Luz)", text: $newClientNameDraft)
+            Button("Cancel", role: .cancel) { newClientNameDraft = "" }
+            Button("Create Folder") {
+                createClientFolderAction()
+            }
+        } message: {
+            Text("A folder will be created inside:\n\(clientManager.clientWorkBaseURL.path)")
+        }
+        .alert("Rename Client Work Folder", isPresented: $showingRenameFolderAlert) {
+            TextField("Folder Name", text: $renameFolderNameDraft)
+            Button("Cancel", role: .cancel) { renameFolderNameDraft = "" }
+            Button("Rename") {
+                renameBaseFolderAction()
+            }
+        } message: {
+            Text("Enter a new folder name for your client work. If it already exists on disk, it will be renamed safely.")
+        }
     }
 
     private var content: some View {
@@ -83,6 +139,11 @@ struct HomeDashboardView: View, Equatable {
                 } else {
                     // Header Bar
                     topHeaderBar
+
+                    // Status Toast Message
+                    if let msg = statusFeedbackMessage {
+                        statusBanner(message: msg)
+                    }
 
                     // Top Urgency Alert Banner (if urgent deadlines exist)
                     if !urgentItems.isEmpty {
@@ -167,7 +228,7 @@ struct HomeDashboardView: View, Equatable {
                     )
                     metricPill(
                         icon: "person.2.fill",
-                        label: "\(organizedData.clients.count) clients · \(pendingClientDeliverablesCount) deliverables left",
+                        label: "\(clientGroups.count) clients · \(organizedData.clients.count) projects · \(pendingClientDeliverablesCount) deliverables",
                         color: .accent
                     )
                     metricPill(
@@ -219,6 +280,30 @@ struct HomeDashboardView: View, Equatable {
         .padding(.vertical, 4)
         .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.18), lineWidth: 0.5))
+    }
+
+    private func statusBanner(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.accent)
+                .font(.system(size: 12))
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primaryText)
+            Spacer()
+            Button {
+                statusFeedbackMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondaryText)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accent.opacity(0.24), lineWidth: 1))
     }
 
     // MARK: - Urgency Alert Banner
@@ -287,11 +372,11 @@ struct HomeDashboardView: View, Equatable {
         switch viewMode {
         case .split:
             HStack(alignment: .top, spacing: 22) {
-                // Client Work Column (Left)
+                // Client Work Column (Left) - Split by Clients
                 VStack(alignment: .leading, spacing: 14) {
                     columnHeader(
                         title: "Client Work",
-                        subtitle: "\(filteredClientItems.count) projects · \(pendingClientDeliverablesCount) open deliverables",
+                        subtitle: "\(clientGroups.count) clients · \(filteredClientItems.count) projects",
                         icon: "person.2.fill",
                         color: .accent,
                         expandAction: {
@@ -301,16 +386,22 @@ struct HomeDashboardView: View, Equatable {
                         }
                     )
 
-                    if filteredClientItems.isEmpty {
+                    // Client Base Folder & Create Client Toolbar
+                    clientFolderControlBar
+
+                    if clientGroups.isEmpty {
                         emptyClientsCard
                     } else {
-                        VStack(spacing: 12) {
-                            ForEach(filteredClientItems) { item in
-                                FocusClientCard(
-                                    item: item,
-                                    isExpanded: expandedProjectIDs.contains(item.id),
-                                    toggleExpand: { toggleExpand(item.id) },
-                                    open: { openProject(item.project) }
+                        VStack(spacing: 14) {
+                            ForEach(clientGroups) { group in
+                                FocusClientGroupSection(
+                                    group: group,
+                                    isGroupCollapsed: collapsedClientNames.contains(group.clientName),
+                                    expandedProjectIDs: expandedProjectIDs,
+                                    toggleGroupCollapse: { toggleClientGroupCollapse(group.clientName) },
+                                    toggleProjectExpand: { toggleExpand($0) },
+                                    openProject: openProject,
+                                    onMoveProject: { proj in projectToMove = proj }
                                 )
                             }
                         }
@@ -341,7 +432,8 @@ struct HomeDashboardView: View, Equatable {
                                     item: item,
                                     isExpanded: expandedProjectIDs.contains(item.id),
                                     toggleExpand: { toggleExpand(item.id) },
-                                    open: { openProject(item.project) }
+                                    open: { openProject(item.project) },
+                                    onMoveToClient: { projectToMove = item.project }
                                 )
                             }
                         }
@@ -354,21 +446,27 @@ struct HomeDashboardView: View, Equatable {
             VStack(alignment: .leading, spacing: 16) {
                 expandedHeader(
                     title: "Client Work",
-                    countLabel: "\(filteredClientItems.count) client projects",
+                    countLabel: "\(clientGroups.count) clients · \(filteredClientItems.count) projects",
                     icon: "person.2.fill",
                     color: .accent
                 )
 
-                if filteredClientItems.isEmpty {
+                // Client Base Folder & Create Client Toolbar
+                clientFolderControlBar
+
+                if clientGroups.isEmpty {
                     emptyClientsCard
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16)], spacing: 16) {
-                        ForEach(filteredClientItems) { item in
-                            FocusClientCard(
-                                item: item,
-                                isExpanded: expandedProjectIDs.contains(item.id),
-                                toggleExpand: { toggleExpand(item.id) },
-                                open: { openProject(item.project) }
+                    VStack(spacing: 16) {
+                        ForEach(clientGroups) { group in
+                            FocusClientGroupSection(
+                                group: group,
+                                isGroupCollapsed: collapsedClientNames.contains(group.clientName),
+                                expandedProjectIDs: expandedProjectIDs,
+                                toggleGroupCollapse: { toggleClientGroupCollapse(group.clientName) },
+                                toggleProjectExpand: { toggleExpand($0) },
+                                openProject: openProject,
+                                onMoveProject: { proj in projectToMove = proj }
                             )
                         }
                     }
@@ -393,13 +491,118 @@ struct HomeDashboardView: View, Equatable {
                                 item: item,
                                 isExpanded: expandedProjectIDs.contains(item.id),
                                 toggleExpand: { toggleExpand(item.id) },
-                                open: { openProject(item.project) }
+                                open: { openProject(item.project) },
+                                onMoveToClient: { projectToMove = item.project }
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Client Folder Control Bar
+
+    private var clientFolderControlBar: some View {
+        HStack(spacing: 8) {
+            // Folder location pill with menu
+            Menu {
+                Button {
+                    clientManager.revealInFinder(url: clientManager.clientWorkBaseURL)
+                } label: {
+                    Label("Reveal Base Folder in Finder", systemImage: "folder")
+                }
+
+                Button {
+                    clientManager.chooseCustomBaseFolder()
+                } label: {
+                    Label("Change Base Folder…", systemImage: "folder.badge.gearshape")
+                }
+
+                Button {
+                    renameFolderNameDraft = clientManager.clientWorkFolderName
+                    showingRenameFolderAlert = true
+                } label: {
+                    Label("Rename Base Folder…", systemImage: "pencil")
+                }
+
+                if clientManager.customClientWorkFolderPath != nil {
+                    Divider()
+                    Button {
+                        clientManager.resetToDefaultBaseFolder()
+                    } label: {
+                        Label("Reset to Default Location", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.accent)
+                    Text(clientManager.clientWorkFolderName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.primaryText)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.tertiaryText)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.07), lineWidth: 1))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Client base folder: \(clientManager.clientWorkBaseURL.path)")
+
+            Spacer()
+
+            // + New Client Folder Button
+            Button {
+                newClientNameDraft = ""
+                showingCreateClientAlert = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("New Client Folder")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.accent)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accent.opacity(0.25), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Create a folder for a new client on disk")
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private func createClientFolderAction() {
+        let trimmed = newClientNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let url = try clientManager.createClientFolder(named: trimmed)
+            statusFeedbackMessage = "Created client folder at “\(url.lastPathComponent)”"
+        } catch {
+            statusFeedbackMessage = error.localizedDescription
+        }
+        newClientNameDraft = ""
+    }
+
+    private func renameBaseFolderAction() {
+        let trimmed = renameFolderNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try clientManager.renameClientWorkFolder(to: trimmed)
+            statusFeedbackMessage = "Client work folder renamed to “\(trimmed)”"
+        } catch {
+            statusFeedbackMessage = error.localizedDescription
+        }
+        renameFolderNameDraft = ""
     }
 
     private func columnHeader(
@@ -491,10 +694,10 @@ struct HomeDashboardView: View, Equatable {
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 26))
                 .foregroundColor(.secondaryText)
-            Text("No Client Projects Tagged")
+            Text("No Clients or Client Projects Yet")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.primaryText)
-            Text("Tag any project as Client Work inside its Studio Hub or click 'Switch to Client' on any personal track below to track deliverables and deadlines here.")
+            Text("Click “New Client Folder” above to create a folder on disk for a client, or use “Move to Client…” on any personal track.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondaryText)
                 .multilineTextAlignment(.center)
@@ -535,6 +738,132 @@ struct HomeDashboardView: View, Equatable {
             }
         }
     }
+
+    private func toggleClientGroupCollapse(_ clientName: String) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if collapsedClientNames.contains(clientName) {
+                collapsedClientNames.remove(clientName)
+            } else {
+                collapsedClientNames.insert(clientName)
+            }
+        }
+    }
+}
+
+// MARK: - Focus Client Group Section
+
+private struct FocusClientGroupSection: View {
+    let group: FocusClientGroup
+    let isGroupCollapsed: Bool
+    let expandedProjectIDs: Set<Project.ID>
+    let toggleGroupCollapse: () -> Void
+    let toggleProjectExpand: (Project.ID) -> Void
+    let openProject: (Project) -> Void
+    let onMoveProject: (Project) -> Void
+
+    @ObservedObject private var clientManager = ClientWorkManager.shared
+
+    private var clientFolderURL: URL {
+        clientManager.clientWorkBaseURL.appendingPathComponent(group.clientName, isDirectory: true)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Client Header Banner
+            HStack(alignment: .center, spacing: 10) {
+                Button(action: toggleGroupCollapse) {
+                    HStack(spacing: 8) {
+                        Image(systemName: isGroupCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 14)
+
+                        Image(systemName: "person.crop.square.fill")
+                            .font(.system(size: 15))
+                            .foregroundColor(.accent)
+
+                        Text(group.clientName)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.primaryText)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Project count & task summary pill
+                HStack(spacing: 4) {
+                    Text("\(group.items.count) \(group.items.count == 1 ? "project" : "projects")")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondaryText)
+                    if group.totalOpenTasks > 0 {
+                        Text("· \(group.totalOpenTasks) open")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.accent)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 4))
+
+                Spacer()
+
+                // Urgent deadline badge if any
+                if group.mostUrgentDeadline != .noDeadline {
+                    Text(group.mostUrgentDeadline.shortBadge)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(group.mostUrgentDeadline.badgeColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(group.mostUrgentDeadline.badgeBackground, in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                // Reveal Client Folder in Finder
+                Button {
+                    clientManager.revealInFinder(url: clientFolderURL)
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("Reveal “\(group.clientName)” folder in Finder")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.03))
+
+            // Client Projects List (when expanded)
+            if !isGroupCollapsed {
+                VStack(spacing: 10) {
+                    if group.items.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "tray")
+                                .font(.system(size: 12))
+                                .foregroundColor(.tertiaryText)
+                            Text("No projects in this client folder yet. Move a project here using 'Move to Client…'")
+                                .font(.system(size: 11))
+                                .foregroundColor(.tertiaryText)
+                            Spacer()
+                        }
+                        .padding(12)
+                    } else {
+                        ForEach(group.items) { item in
+                            FocusClientCard(
+                                item: item,
+                                isExpanded: expandedProjectIDs.contains(item.id),
+                                toggleExpand: { toggleProjectExpand(item.id) },
+                                open: { openProject(item.project) },
+                                onMoveToClient: { onMoveProject(item.project) }
+                            )
+                        }
+                    }
+                }
+                .padding(10)
+            }
+        }
+        .background(Color.surfaceBg.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.subtleBorder, lineWidth: 1))
+    }
 }
 
 // MARK: - Focus Client Card
@@ -544,13 +873,13 @@ private struct FocusClientCard: View {
     let isExpanded: Bool
     let toggleExpand: () -> Void
     let open: () -> Void
+    let onMoveToClient: () -> Void
 
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     @State private var newDeliverableTitle: String = ""
     @State private var newRevisionText: String = ""
-    @State private var showingDeadlineSheet = false
 
     private var project: Project { item.project }
     private var metadata: ProjectMetadata { item.metadata }
@@ -932,6 +1261,14 @@ private struct FocusClientCard: View {
             Spacer()
 
             Menu {
+                Button {
+                    onMoveToClient()
+                } label: {
+                    Label("Move to Another Client…", systemImage: "folder.badge.gearshape")
+                }
+
+                Divider()
+
                 Button("Reclassify as Personal Track") {
                     metadataStore.setProjectKind(.personal, for: project)
                 }
@@ -955,6 +1292,7 @@ private struct FocusPersonalCard: View {
     let isExpanded: Bool
     let toggleExpand: () -> Void
     let open: () -> Void
+    let onMoveToClient: () -> Void
 
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var progressStore: ProjectProgressStore
@@ -1299,6 +1637,14 @@ private struct FocusPersonalCard: View {
             Spacer()
 
             Menu {
+                Button {
+                    onMoveToClient()
+                } label: {
+                    Label("Move to Client…", systemImage: "folder.badge.gearshape")
+                }
+
+                Divider()
+
                 Button("Reclassify as Client Project") {
                     metadataStore.setProjectKind(.client, for: project)
                 }
@@ -1312,6 +1658,192 @@ private struct FocusPersonalCard: View {
             .fixedSize()
         }
         .padding(.top, 4)
+    }
+}
+
+// MARK: - Move Project to Client Sheet
+
+private struct MoveProjectToClientSheet: View {
+    let project: Project
+    @ObservedObject var clientManager: ClientWorkManager
+    let metadataStore: ProjectMetadataStore
+    let todoStore: ProjectTodoStore
+    let progressStore: ProjectProgressStore
+    let onMoved: (String, String) -> Void
+    let onCancel: () -> Void
+
+    @State private var selectedClientName: String = ""
+    @State private var isCreatingInlineClient = false
+    @State private var inlineClientName = ""
+    @State private var errorMessage: String? = nil
+    @State private var isMoving = false
+
+    private var availableClients: [String] {
+        var names = Set(clientManager.discoveredClientNames)
+        if let currentClient = metadataStore.metadata(for: project).clientName {
+            names.insert(currentClient)
+        }
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var targetClient: String {
+        isCreatingInlineClient ? inlineClientName.trimmingCharacters(in: .whitespacesAndNewlines) : selectedClientName
+    }
+
+    private var destinationPreviewURL: URL {
+        let client = targetClient.isEmpty ? "Client Name" : targetClient
+        return clientManager.clientWorkBaseURL
+            .appendingPathComponent(client, isDirectory: true)
+            .appendingPathComponent(project.folderURL.lastPathComponent, isDirectory: true)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Header
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.accent)
+                    Text("Move Project to Client")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.primaryText)
+                }
+                Text("Moves the Ableton project folder on disk into your client directory and preserves all project metadata, notes, and to-dos.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondaryText)
+            }
+
+            Divider().background(Color.divider)
+
+            // Current location
+            VStack(alignment: .leading, spacing: 4) {
+                Text("PROJECT")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Text(project.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.primaryText)
+                Text(project.folderURL.path)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            // Client Selection
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("TARGET CLIENT")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundColor(.tertiaryText)
+                    Spacer()
+                    Button(isCreatingInlineClient ? "Choose Existing" : "+ New Client") {
+                        isCreatingInlineClient.toggle()
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.accent)
+                    .buttonStyle(.plain)
+                }
+
+                if isCreatingInlineClient {
+                    TextField("Enter new client name (e.g. Francisco Luz)", text: $inlineClientName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                } else {
+                    if availableClients.isEmpty {
+                        Text("No client folders found. Click “+ New Client” above to create one.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondaryText)
+                    } else {
+                        Picker("", selection: $selectedClientName) {
+                            Text("Select a Client…").tag("")
+                            ForEach(availableClients, id: \.self) { client in
+                                Text(client).tag(client)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+                }
+            }
+
+            // Destination Path Preview
+            VStack(alignment: .leading, spacing: 4) {
+                Text("NEW LOCATION ON DISK")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Text(destinationPreviewURL.path)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.accent)
+                    .lineLimit(2)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+
+            Spacer()
+
+            // Action Buttons
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.bordered)
+                    .disabled(isMoving)
+
+                Spacer()
+
+                Button {
+                    performMove()
+                } label: {
+                    if isMoving {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Move Project")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(targetClient.isEmpty || isMoving)
+            }
+        }
+        .padding(24)
+        .frame(width: 480, height: 420)
+        .background(Color.surfaceBg)
+        .onAppear {
+            if let first = availableClients.first {
+                selectedClientName = first
+            }
+        }
+    }
+
+    private func performMove() {
+        let client = targetClient
+        guard !client.isEmpty else { return }
+
+        isMoving = true
+        errorMessage = nil
+
+        do {
+            let newURL = try clientManager.moveProject(
+                project,
+                toClient: client,
+                metadataStore: metadataStore,
+                todoStore: todoStore,
+                progressStore: progressStore
+            )
+            onMoved(client, newURL.path)
+        } catch {
+            isMoving = false
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
