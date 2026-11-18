@@ -3,17 +3,65 @@ import SwiftUI
 struct HomeDashboardView: View, Equatable {
     var isActive: Bool = true
     let openProject: (Project) -> Void
+
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var progressStore: ProjectProgressStore
     @EnvironmentObject private var todoStore: ProjectTodoStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
+    @AppStorage("focusStudioViewMode") private var viewModeRaw: String = FocusStudioViewMode.split.rawValue
+    @State private var searchQuery: String = ""
+    @State private var expandedProjectIDs: Set<Project.ID> = []
+
     static func == (lhs: HomeDashboardView, rhs: HomeDashboardView) -> Bool {
         lhs.isActive == rhs.isActive && !lhs.isActive
     }
 
-    private var projects: [Project] {
-        store.recentDashboardProjects
+    private var viewMode: FocusStudioViewMode {
+        FocusStudioViewMode(rawValue: viewModeRaw) ?? .split
+    }
+
+    private var allVisibleProjects: [Project] {
+        store.visibleProjects
+    }
+
+    private var organizedData: (clients: [FocusActionableItem], personal: [FocusActionableItem]) {
+        FocusStudioOrganizer.buildItems(
+            projects: allVisibleProjects,
+            metadataStore: metadataStore,
+            todoStore: todoStore,
+            progressStore: progressStore
+        )
+    }
+
+    private var filteredClientItems: [FocusActionableItem] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return organizedData.clients }
+        return organizedData.clients.filter {
+            $0.project.name.lowercased().contains(query)
+                || $0.clientName.lowercased().contains(query)
+                || ($0.metadata.serviceType?.rawValue.lowercased().contains(query) ?? false)
+        }
+    }
+
+    private var filteredPersonalItems: [FocusActionableItem] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return organizedData.personal }
+        return organizedData.personal.filter {
+            $0.project.name.lowercased().contains(query)
+                || $0.progress.stage.title.lowercased().contains(query)
+                || $0.progress.nextMove.lowercased().contains(query)
+        }
+    }
+
+    private var urgentItems: [FocusActionableItem] {
+        (organizedData.clients + organizedData.personal)
+            .filter { $0.urgency.isUrgent }
+            .sorted { $0.urgency < $1.urgency }
+    }
+
+    private var pendingClientDeliverablesCount: Int {
+        organizedData.clients.reduce(0) { $0 + ($1.totalDeliverablesCount - $1.completedDeliverablesCount) }
     }
 
     var body: some View {
@@ -28,149 +76,1246 @@ struct HomeDashboardView: View, Equatable {
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Welcome back")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.primaryText)
-                    Text("Pick up a project with the context you need to make the next decision.")
-                        .font(.system(size: 14))
+            VStack(alignment: .leading, spacing: 20) {
+                if allVisibleProjects.isEmpty {
+                    HomeLibraryStatusView(state: store.libraryLoadPresentation)
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                } else {
+                    // Header Bar
+                    topHeaderBar
+
+                    // Top Urgency Alert Banner (if urgent deadlines exist)
+                    if !urgentItems.isEmpty {
+                        urgencyAlertBanner
+                    }
+
+                    // Main Work Area (Split or Expanded)
+                    mainWorkArea
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 24)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 1360, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .background(Color.appBg)
+    }
+
+    // MARK: - Header Bar
+
+    private var topHeaderBar: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.accent)
+                        Text("Focus Studio")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundColor(.primaryText)
+                    }
+                    Text("Deadlines, client deliverables, and creative momentum organized in one place.")
+                        .font(.system(size: 13))
                         .foregroundColor(.secondaryText)
                 }
 
-                if projects.isEmpty {
-                    HomeLibraryStatusView(state: store.libraryLoadPresentation)
-                    .frame(maxWidth: .infinity, minHeight: 300)
-                } else {
-                    if case .updating(let folderName) = store.libraryLoadPresentation {
-                        HStack(spacing: 9) {
-                            ProgressView().controlSize(.small)
-                            Text("Updating \(folderName)…")
-                                .font(.system(size: 11, weight: .medium))
-                            Text("Your current projects remain available while the library refreshes.")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondaryText)
-                            Spacer()
+                Spacer()
+
+                // View Mode Switcher: Split | Clients | Personal
+                HStack(spacing: 4) {
+                    ForEach(FocusStudioViewMode.allCases) { mode in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                viewModeRaw = mode.rawValue
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: mode.icon)
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(mode.rawValue)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                viewMode == mode ? Color.accent.opacity(0.18) : Color.white.opacity(0.04),
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(viewMode == mode ? Color.accent.opacity(0.4) : Color.white.opacity(0.06), lineWidth: 1)
+                            )
+                            .foregroundColor(viewMode == mode ? .primaryText : .secondaryText)
                         }
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                        .buttonStyle(.plain)
                     }
+                }
+                .padding(3)
+                .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+            }
 
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Pick up where you left off")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.primaryText)
-                        Spacer()
-                        Text("Your most recently edited projects")
-                            .font(.system(size: 11))
-                            .foregroundColor(.tertiaryText)
+            // Metrics & Search Bar
+            HStack(spacing: 12) {
+                // Summary Metric Pills
+                HStack(spacing: 8) {
+                    metricPill(
+                        icon: "flame.fill",
+                        label: "\(urgentItems.count) urgent",
+                        color: urgentItems.isEmpty ? .secondaryText : Color(hex: "FF5C5C")
+                    )
+                    metricPill(
+                        icon: "person.2.fill",
+                        label: "\(organizedData.clients.count) clients · \(pendingClientDeliverablesCount) deliverables left",
+                        color: .accent
+                    )
+                    metricPill(
+                        icon: "music.note",
+                        label: "\(organizedData.personal.count) personal tracks",
+                        color: .secondaryText
+                    )
+                }
+
+                Spacer()
+
+                // Search Bar
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundColor(.tertiaryText)
+                    TextField("Filter projects, clients, or tasks…", text: $searchQuery)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundColor(.primaryText)
+                        .frame(width: 220)
+                    if !searchQuery.isEmpty {
+                        Button { searchQuery = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
                     }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+            }
+        }
+    }
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 18)], spacing: 18) {
-                        ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
-                            HomeProjectCard(
-                                project: project,
-                                progress: progressStore.progress(for: project),
-                                todos: Array(todoStore.openTodos(for: project).prefix(2)),
-                                metadata: metadataStore.metadata(for: project),
-                                artworkStyle: HomeCardArtworkStyle.style(at: index),
-                                open: { openProject(project) },
-                                play: {
-                                    guard let track = project.sortedTracks.first else { return }
-                                    store.playTrack(track)
-                                }
+    private func metricPill(icon: String, label: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(color)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondaryText)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.18), lineWidth: 0.5))
+    }
+
+    // MARK: - Urgency Alert Banner
+
+    private var urgencyAlertBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(Color(hex: "FF8A00"))
+                    .font(.system(size: 12))
+                Text("IMMEDIATE DEADLINES")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(Color(hex: "FF8A00"))
+                Spacer()
+                Text("\(urgentItems.count) require attention")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondaryText)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(urgentItems) { item in
+                        urgentItemChip(item: item)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(hex: "FF8A00").opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: "FF8A00").opacity(0.22), lineWidth: 1))
+    }
+
+    private func urgentItemChip(item: FocusActionableItem) -> some View {
+        Button {
+            expandedProjectIDs.insert(item.id)
+            openProject(item.project)
+        } label: {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(item.urgency.badgeColor)
+                    .frame(width: 6, height: 6)
+                Text(item.project.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primaryText)
+                    .lineLimit(1)
+                Text(item.urgency.shortBadge)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(item.urgency.badgeColor)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(item.urgency.badgeBackground, in: RoundedRectangle(cornerRadius: 4))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.surfaceBg, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.subtleBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Main Work Area
+
+    @ViewBuilder
+    private var mainWorkArea: some View {
+        switch viewMode {
+        case .split:
+            HStack(alignment: .top, spacing: 22) {
+                // Client Work Column (Left)
+                VStack(alignment: .leading, spacing: 14) {
+                    columnHeader(
+                        title: "Client Work",
+                        subtitle: "\(filteredClientItems.count) projects · \(pendingClientDeliverablesCount) open deliverables",
+                        icon: "person.2.fill",
+                        color: .accent,
+                        expandAction: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                viewModeRaw = FocusStudioViewMode.clientsExpanded.rawValue
+                            }
+                        }
+                    )
+
+                    if filteredClientItems.isEmpty {
+                        emptyClientsCard
+                    } else {
+                        VStack(spacing: 12) {
+                            ForEach(filteredClientItems) { item in
+                                FocusClientCard(
+                                    item: item,
+                                    isExpanded: expandedProjectIDs.contains(item.id),
+                                    toggleExpand: { toggleExpand(item.id) },
+                                    open: { openProject(item.project) }
+                                )
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                // Personal Work Column (Right)
+                VStack(alignment: .leading, spacing: 14) {
+                    columnHeader(
+                        title: "Personal Music",
+                        subtitle: "\(filteredPersonalItems.count) tracks in progress",
+                        icon: "music.note.house.fill",
+                        color: Color(hex: "8759E8"),
+                        expandAction: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                viewModeRaw = FocusStudioViewMode.personalExpanded.rawValue
+                            }
+                        }
+                    )
+
+                    if filteredPersonalItems.isEmpty {
+                        emptyPersonalCard
+                    } else {
+                        VStack(spacing: 12) {
+                            ForEach(filteredPersonalItems) { item in
+                                FocusPersonalCard(
+                                    item: item,
+                                    isExpanded: expandedProjectIDs.contains(item.id),
+                                    toggleExpand: { toggleExpand(item.id) },
+                                    open: { openProject(item.project) }
+                                )
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+
+        case .clientsExpanded:
+            VStack(alignment: .leading, spacing: 16) {
+                expandedHeader(
+                    title: "Client Work",
+                    countLabel: "\(filteredClientItems.count) client projects",
+                    icon: "person.2.fill",
+                    color: .accent
+                )
+
+                if filteredClientItems.isEmpty {
+                    emptyClientsCard
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16)], spacing: 16) {
+                        ForEach(filteredClientItems) { item in
+                            FocusClientCard(
+                                item: item,
+                                isExpanded: expandedProjectIDs.contains(item.id),
+                                toggleExpand: { toggleExpand(item.id) },
+                                open: { openProject(item.project) }
                             )
                         }
                     }
                 }
             }
-            .padding(.horizontal, 34)
-            .padding(.top, 32)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 1120, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
+
+        case .personalExpanded:
+            VStack(alignment: .leading, spacing: 16) {
+                expandedHeader(
+                    title: "Personal Music",
+                    countLabel: "\(filteredPersonalItems.count) personal tracks",
+                    icon: "music.note.house.fill",
+                    color: Color(hex: "8759E8")
+                )
+
+                if filteredPersonalItems.isEmpty {
+                    emptyPersonalCard
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16)], spacing: 16) {
+                        ForEach(filteredPersonalItems) { item in
+                            FocusPersonalCard(
+                                item: item,
+                                isExpanded: expandedProjectIDs.contains(item.id),
+                                toggleExpand: { toggleExpand(item.id) },
+                                open: { openProject(item.project) }
+                            )
+                        }
+                    }
+                }
+            }
         }
-        .background(Color.appBg)
+    }
+
+    private func columnHeader(
+        title: String,
+        subtitle: String,
+        icon: String,
+        color: Color,
+        expandAction: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .center) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(color)
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.primaryText)
+                Text("·")
+                    .foregroundColor(.tertiaryText)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondaryText)
+            }
+
+            Spacer()
+
+            Button(action: expandAction) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("Expand")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundColor(.secondaryText)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help("Expand \(title) to full width")
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func expandedHeader(
+        title: String,
+        countLabel: String,
+        icon: String,
+        color: Color
+    ) -> some View {
+        HStack(alignment: .center) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(color)
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.primaryText)
+                Text("(\(countLabel))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondaryText)
+            }
+
+            Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    viewModeRaw = FocusStudioViewMode.split.rawValue
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Back to Split View")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(.primaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.bottom, 4)
+    }
+
+    private var emptyClientsCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 26))
+                .foregroundColor(.secondaryText)
+            Text("No Client Projects Tagged")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.primaryText)
+            Text("Tag any project as Client Work inside its Studio Hub or click 'Switch to Client' on any personal track below to track deliverables and deadlines here.")
+                .font(.system(size: 12))
+                .foregroundColor(.secondaryText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity)
+        .background(Color.surfaceBg, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.subtleBorder, lineWidth: 1))
+    }
+
+    private var emptyPersonalCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "music.note")
+                .font(.system(size: 26))
+                .foregroundColor(.secondaryText)
+            Text("No Personal Tracks Found")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.primaryText)
+            Text("Add or scan Ableton set folders to view and manage your creative tracks here.")
+                .font(.system(size: 12))
+                .foregroundColor(.secondaryText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity)
+        .background(Color.surfaceBg, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.subtleBorder, lineWidth: 1))
+    }
+
+    private func toggleExpand(_ id: Project.ID) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if expandedProjectIDs.contains(id) {
+                expandedProjectIDs.remove(id)
+            } else {
+                expandedProjectIDs.insert(id)
+            }
+        }
     }
 }
 
-private struct HomeMasonryLayout: Layout {
-    let minimumColumnWidth: CGFloat
-    let maximumColumns: Int
-    let spacing: CGFloat
+// MARK: - Focus Client Card
 
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let width = proposal.width ?? minimumColumnWidth
-        let metrics = measurements(for: subviews, width: width)
-        return CGSize(width: width, height: metrics.columnHeights.max() ?? 0)
+private struct FocusClientCard: View {
+    let item: FocusActionableItem
+    let isExpanded: Bool
+    let toggleExpand: () -> Void
+    let open: () -> Void
+
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
+
+    @State private var newDeliverableTitle: String = ""
+    @State private var newRevisionText: String = ""
+    @State private var showingDeadlineSheet = false
+
+    private var project: Project { item.project }
+    private var metadata: ProjectMetadata { item.metadata }
+    private var deliverables: [DeliverableItem] { item.effectiveDeliverables }
+    private var revisions: [ProjectRevisionItem] { metadata.revisions ?? [] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Card Header
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(item.clientName.uppercased())
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundColor(.accent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+
+                            if let service = metadata.serviceType {
+                                Text(service.rawValue)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.secondaryText)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+                            }
+                        }
+
+                        Text(project.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.primaryText)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    // Deadline Badge
+                    deadlineBadge
+
+                    // Audio Play Button
+                    if project.hasExports {
+                        Button {
+                            guard let track = project.sortedTracks.first else { return }
+                            store.playTrack(track)
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 19))
+                                .foregroundColor(.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play latest export")
+                    }
+
+                    // Expand Chevron
+                    Button(action: toggleExpand) {
+                        Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(isExpanded ? .primaryText : .tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isExpanded ? "Collapse card" : "Expand deliverables & notes")
+                }
+
+                // Summary status strip
+                HStack(spacing: 12) {
+                    // Deliverables progress bar
+                    HStack(spacing: 5) {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondaryText)
+                        Text("\(item.completedDeliverablesCount)/\(item.totalDeliverablesCount) Deliverables")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondaryText)
+                    }
+
+                    if !item.unresolvedRevisions.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bubble.left.and.exclamationmark.bubble.right.fill")
+                                .font(.system(size: 9))
+                                .foregroundColor(Color(hex: "FF8A00"))
+                            Text("\(item.unresolvedRevisions.count) notes")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(Color(hex: "FF8A00"))
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color(hex: "FF8A00").opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                    }
+
+                    Spacer()
+
+                    if project.latestModification != .distantPast {
+                        Text("Edited \(project.latestModification.compactAge)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.tertiaryText)
+                    }
+                }
+            }
+            .padding(14)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggleExpand)
+
+            // Expanded Details Section
+            if isExpanded {
+                Divider().background(Color.divider)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    // 1. Deadline Management Row
+                    deadlineSelectorRow
+
+                    // 2. Deliverables Checklist
+                    deliverablesMatrixSection
+
+                    // 3. Client Revisions / Feedback Log
+                    revisionsSection
+
+                    // 4. Action Bar
+                    cardActionBar
+                }
+                .padding(14)
+                .background(Color.elevatedBg.opacity(0.4))
+            }
+        }
+        .background(Color.surfaceBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.subtleBorder, lineWidth: 1))
     }
 
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        let metrics = measurements(for: subviews, width: bounds.width)
-        var columnHeights = Array(repeating: CGFloat.zero, count: metrics.columnCount)
+    private var deadlineBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "calendar")
+                .font(.system(size: 9))
+            Text(item.urgency.title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+        }
+        .foregroundColor(item.urgency.badgeColor)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(item.urgency.badgeBackground, in: RoundedRectangle(cornerRadius: 5))
+    }
 
-        for subview in subviews {
-            let column = columnHeights.indices.min { columnHeights[$0] < columnHeights[$1] } ?? 0
-            let size = subview.sizeThatFits(ProposedViewSize(width: metrics.columnWidth, height: nil))
-            let x = bounds.minX + CGFloat(column) * (metrics.columnWidth + spacing)
-            let y = bounds.minY + columnHeights[column]
-            subview.place(
-                at: CGPoint(x: x, y: y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: metrics.columnWidth, height: size.height)
-            )
-            columnHeights[column] += size.height + spacing
+    private var deadlineSelectorRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("DELIVERY DEADLINE")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                if metadata.targetDeadline != nil {
+                    Button("Clear") {
+                        metadataStore.setTargetDeadline(nil, for: project)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondaryText)
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 6) {
+                // Quick Presets
+                Button("Today") {
+                    metadataStore.setTargetDeadline(Date(), for: project)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+3 Days") {
+                    let date = Calendar.current.date(byAdding: .day, value: 3, to: Date())
+                    metadataStore.setTargetDeadline(date, for: project)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+1 Week") {
+                    let date = Calendar.current.date(byAdding: .day, value: 7, to: Date())
+                    metadataStore.setTargetDeadline(date, for: project)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Spacer()
+
+                // DatePicker
+                DatePicker(
+                    "",
+                    selection: Binding(
+                        get: { metadata.targetDeadline ?? Date() },
+                        set: { metadataStore.setTargetDeadline($0, for: project) }
+                    ),
+                    displayedComponents: [.date]
+                )
+                .labelsHidden()
+                .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var deliverablesMatrixSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("DELIVERABLES")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                Text("\(item.completedDeliverablesCount) of \(item.totalDeliverablesCount) completed")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondaryText)
+            }
+
+            VStack(spacing: 4) {
+                ForEach(deliverables) { del in
+                    HStack(spacing: 8) {
+                        Button {
+                            metadataStore.toggleDeliverable(del.id, for: project)
+                        } label: {
+                            Image(systemName: del.isCompleted ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 12))
+                                .foregroundColor(del.isCompleted ? .accent : .secondaryText)
+                        }
+                        .buttonStyle(.plain)
+
+                        Text(del.title)
+                            .font(.system(size: 12))
+                            .foregroundColor(del.isCompleted ? .tertiaryText : .primaryText)
+                            .strikethrough(del.isCompleted, color: .tertiaryText)
+
+                        Spacer()
+
+                        Button {
+                            metadataStore.deleteDeliverable(del.id, for: project)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                                .foregroundColor(.tertiaryText)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 3)
+                    .padding(.horizontal, 6)
+                    .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                // Add Deliverable Field
+                HStack(spacing: 6) {
+                    TextField("Add deliverable (e.g. Club Master, Instrumental)…", text: $newDeliverableTitle)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .onSubmit(addDeliverable)
+                    if !newDeliverableTitle.isEmpty {
+                        Button("Add", action: addDeliverable)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.accent)
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+            }
         }
     }
 
-    private func measurements(for subviews: Subviews, width: CGFloat) -> Metrics {
-        let possibleColumns = Int((width + spacing) / (minimumColumnWidth + spacing))
-        let columnCount = max(1, min(maximumColumns, possibleColumns))
-        let columnWidth = (width - CGFloat(columnCount - 1) * spacing) / CGFloat(columnCount)
-        var columnHeights = Array(repeating: CGFloat.zero, count: columnCount)
-
-        for subview in subviews {
-            let column = columnHeights.indices.min { columnHeights[$0] < columnHeights[$1] } ?? 0
-            let size = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil))
-            columnHeights[column] += size.height + spacing
-        }
-
-        if !subviews.isEmpty {
-            columnHeights = columnHeights.map { max(0, $0 - spacing) }
-        }
-        return Metrics(columnCount: columnCount, columnWidth: columnWidth, columnHeights: columnHeights)
+    private func addDeliverable() {
+        let trimmed = newDeliverableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        metadataStore.addDeliverable(title: trimmed, for: project)
+        newDeliverableTitle = ""
     }
 
-    private struct Metrics {
-        let columnCount: Int
-        let columnWidth: CGFloat
-        let columnHeights: [CGFloat]
+    private var revisionsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("REVISION NOTES & FEEDBACK")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                if !revisions.isEmpty {
+                    Text("\(item.unresolvedRevisions.count) unresolved")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondaryText)
+                }
+            }
+
+            if !revisions.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(revisions) { rev in
+                        HStack(spacing: 8) {
+                            Button {
+                                metadataStore.toggleRevision(rev.id, for: project)
+                            } label: {
+                                Image(systemName: rev.isResolved ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(rev.isResolved ? .accent : Color(hex: "FF8A00"))
+                            }
+                            .buttonStyle(.plain)
+
+                            if let stamp = rev.timestampLabel {
+                                Text("[\(stamp)]")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.accent)
+                            }
+
+                            Text(rev.text)
+                                .font(.system(size: 12))
+                                .foregroundColor(rev.isResolved ? .tertiaryText : .primaryText)
+                                .strikethrough(rev.isResolved, color: .tertiaryText)
+
+                            Spacer()
+
+                            Button {
+                                metadataStore.deleteRevision(rev.id, for: project)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 6)
+                        .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+
+            // Add Revision Field
+            HStack(spacing: 6) {
+                TextField("Add client note or fix item…", text: $newRevisionText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .onSubmit(addRevision)
+                if !newRevisionText.isEmpty {
+                    Button("Add", action: addRevision)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.accent)
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private func addRevision() {
+        let trimmed = newRevisionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        metadataStore.addRevision(text: trimmed, for: project)
+        newRevisionText = ""
+    }
+
+    private var cardActionBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                store.openInAbleton(project)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.right.square")
+                    Text("Ableton Live")
+                }
+                .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button("Continue in HQ", action: open)
+                .font(.system(size: 11))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+            Spacer()
+
+            Menu {
+                Button("Reclassify as Personal Track") {
+                    metadataStore.setProjectKind(.personal, for: project)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11))
+                    .foregroundColor(.tertiaryText)
+                    .frame(width: 22, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.top, 4)
     }
 }
 
-private enum HomeCardArtworkStyle {
-    case compact
-    case landscape(CGFloat)
+// MARK: - Focus Personal Card
 
-    static func style(at index: Int) -> HomeCardArtworkStyle {
-        switch index % 7 {
-        case 1: return .landscape(132)
-        case 2: return .landscape(174)
-        case 5: return .landscape(150)
-        default: return .compact
+private struct FocusPersonalCard: View {
+    let item: FocusActionableItem
+    let isExpanded: Bool
+    let toggleExpand: () -> Void
+    let open: () -> Void
+
+    @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var progressStore: ProjectProgressStore
+    @EnvironmentObject private var todoStore: ProjectTodoStore
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
+
+    @State private var newTodoTitle: String = ""
+
+    private var project: Project { item.project }
+    private var progress: ProjectProgress { progressStore.progress(for: project) }
+    private var todos: [ProjectTodo] { todoStore.todos(for: project) }
+    private var metadata: ProjectMetadata { metadataStore.metadata(for: project) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Card Header
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(progress.stage.title.uppercased())
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundColor(Color(hex: "8759E8"))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(hex: "8759E8").opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+
+                            if let bpm = project.bpmLabel {
+                                Text("\(bpm) BPM")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.tertiaryText)
+                            }
+                        }
+
+                        Text(project.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.primaryText)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    // Optional Deadline Badge
+                    if metadata.targetDeadline != nil {
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 9))
+                            Text(item.urgency.title)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .foregroundColor(item.urgency.badgeColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(item.urgency.badgeBackground, in: RoundedRectangle(cornerRadius: 5))
+                    }
+
+                    // Audio Play Button
+                    if project.hasExports {
+                        Button {
+                            guard let track = project.sortedTracks.first else { return }
+                            store.playTrack(track)
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 19))
+                                .foregroundColor(.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play latest export")
+                    }
+
+                    // Expand Chevron
+                    Button(action: toggleExpand) {
+                        Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(isExpanded ? .primaryText : .tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isExpanded ? "Collapse card" : "Expand to-dos & next move")
+                }
+
+                // Stage progress line
+                HStack(spacing: 3) {
+                    ForEach(ProjectStage.allCases, id: \.rawValue) { stage in
+                        Capsule()
+                            .fill(stage.workflowIndex <= progress.stage.workflowIndex ? Color(hex: "8759E8") : Color.divider)
+                            .frame(height: 3)
+                    }
+                }
+
+                // Next Move Snippet & Todo count
+                HStack(spacing: 12) {
+                    if !progress.nextMove.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(hex: "8759E8"))
+                            Text(progress.nextMove)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.primaryText)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text("No next move defined")
+                            .font(.system(size: 11))
+                            .foregroundColor(.tertiaryText)
+                    }
+
+                    Spacer()
+
+                    let openTodos = item.openTodos.count
+                    if openTodos > 0 {
+                        Text("\(openTodos) to-do\(openTodos == 1 ? "" : "s")")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondaryText)
+                    }
+                }
+            }
+            .padding(14)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggleExpand)
+
+            // Expanded Details Section
+            if isExpanded {
+                Divider().background(Color.divider)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    // 1. Stage Stepper Selector
+                    stageSelectorRow
+
+                    // 2. Next Move Editor
+                    nextMoveEditor
+
+                    // 3. To-dos Checklist
+                    todosChecklistSection
+
+                    // 4. Milestone / Target Deadline
+                    personalDeadlineRow
+
+                    // 5. Action Bar
+                    personalActionBar
+                }
+                .padding(14)
+                .background(Color.elevatedBg.opacity(0.4))
+            }
+        }
+        .background(Color.surfaceBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.subtleBorder, lineWidth: 1))
+    }
+
+    private var stageSelectorRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("PRODUCTION STAGE")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundColor(.tertiaryText)
+
+            HStack(spacing: 4) {
+                ForEach(ProjectStage.allCases, id: \.rawValue) { stage in
+                    Button {
+                        progressStore.setStage(stage, for: project)
+                    } label: {
+                        Text(stage.title)
+                            .font(.system(size: 10, weight: stage == progress.stage ? .bold : .medium))
+                            .foregroundColor(stage == progress.stage ? .white : .secondaryText)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(
+                                stage == progress.stage ? Color(hex: "8759E8") : Color.white.opacity(0.04),
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
+
+    private var nextMoveEditor: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("NEXT MOVE")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundColor(.tertiaryText)
+
+            TextField("Add a concrete next move (e.g. write B-section bassline)…", text: progressStore.nextMoveBinding(for: project))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundColor(.primaryText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private var todosChecklistSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("TO-DOS")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                Text("\(todos.filter(\.isCompleted).count) of \(todos.count) completed")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondaryText)
+            }
+
+            if !todos.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(todos) { todo in
+                        HStack(spacing: 8) {
+                            Button {
+                                todoStore.toggle(todo, for: project)
+                            } label: {
+                                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(todo.isCompleted ? Color(hex: "8759E8") : .secondaryText)
+                            }
+                            .buttonStyle(.plain)
+
+                            Text(todo.title)
+                                .font(.system(size: 12))
+                                .foregroundColor(todo.isCompleted ? .tertiaryText : .primaryText)
+                                .strikethrough(todo.isCompleted, color: .tertiaryText)
+
+                            Spacer()
+
+                            Button {
+                                todoStore.remove(todo, from: project)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.tertiaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 6)
+                        .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+
+            // Add Todo Field
+            HStack(spacing: 6) {
+                TextField("Add task or checklist item…", text: $newTodoTitle)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .onSubmit(addTodo)
+                if !newTodoTitle.isEmpty {
+                    Button("Add", action: addTodo)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(hex: "8759E8"))
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private func addTodo() {
+        let trimmed = newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        todoStore.add(trimmed, to: project)
+        newTodoTitle = ""
+    }
+
+    private var personalDeadlineRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("TARGET RELEASE / MILESTONE")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                if metadata.targetDeadline != nil {
+                    Button("Clear") {
+                        metadataStore.setTargetDeadline(nil, for: project)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondaryText)
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Button("+1 Week") {
+                    let date = Calendar.current.date(byAdding: .day, value: 7, to: Date())
+                    metadataStore.setTargetDeadline(date, for: project)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("+1 Month") {
+                    let date = Calendar.current.date(byAdding: .month, value: 1, to: Date())
+                    metadataStore.setTargetDeadline(date, for: project)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Spacer()
+
+                DatePicker(
+                    "",
+                    selection: Binding(
+                        get: { metadata.targetDeadline ?? Date() },
+                        set: { metadataStore.setTargetDeadline($0, for: project) }
+                    ),
+                    displayedComponents: [.date]
+                )
+                .labelsHidden()
+                .controlSize(.small)
+            }
+        }
+        .padding(8)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var personalActionBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                store.openInAbleton(project)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.right.square")
+                    Text("Ableton Live")
+                }
+                .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button("Continue in HQ", action: open)
+                .font(.system(size: 11))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+            Spacer()
+
+            Menu {
+                Button("Reclassify as Client Project") {
+                    metadataStore.setProjectKind(.client, for: project)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11))
+                    .foregroundColor(.tertiaryText)
+                    .frame(width: 22, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.top, 4)
+    }
 }
+
+// MARK: - Library Status & Scan View
 
 private struct HomeLibraryStatusView: View {
     @EnvironmentObject private var store: AppStore
@@ -321,177 +1466,5 @@ private struct HomeLibraryStatusView: View {
         case .ready:
             EmptyView()
         }
-    }
-}
-
-private struct HomeProjectCard: View {
-    let project: Project
-    let progress: ProjectProgress
-    let todos: [ProjectTodo]
-    let metadata: ProjectMetadata
-    let artworkStyle: HomeCardArtworkStyle
-    let open: () -> Void
-    let play: () -> Void
-
-    private var nextMove: String {
-        let value = progress.nextMove.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? "Add a concrete next move" : value
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            projectHeader
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("PRODUCTION STAGE")
-                    Spacer()
-                    Text(progress.stage.title)
-                        .foregroundColor(.secondaryText)
-                }
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.7)
-                    .foregroundColor(.tertiaryText)
-                HStack(spacing: 4) {
-                    ForEach(ProjectStage.allCases, id: \.rawValue) { stage in
-                        Capsule()
-                            .fill(stage.workflowIndex <= progress.stage.workflowIndex ? Color.accent : Color.divider)
-                            .frame(height: 4)
-                    }
-                }
-                .padding(.bottom, 5)
-                Text("NEXT MOVE")
-                    .font(.system(size: 9, weight: .semibold))
-                    .tracking(0.7)
-                    .foregroundColor(.tertiaryText)
-                Text(nextMove)
-                    .font(.system(size: 13, weight: progress.nextMove.isEmpty ? .regular : .medium))
-                    .foregroundColor(progress.nextMove.isEmpty ? .tertiaryText : .primaryText)
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(11)
-            .background(Color.elevatedBg)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-
-            if !todos.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("TO-DO")
-                        .font(.system(size: 9, weight: .semibold))
-                        .tracking(0.7)
-                        .foregroundColor(.tertiaryText)
-                    ForEach(todos) { todo in
-                        Label(todo.title, systemImage: "circle")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondaryText)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.sortedTracks.first.map { "Latest export · \($0.displayName)" } ?? "No audio export yet")
-                        .lineLimit(1)
-                    if project.latestModification != .distantPast {
-                        Text("Edited \(project.latestModification.compactAge)")
-                    }
-                }
-                .font(.system(size: 10))
-                .foregroundColor(.tertiaryText)
-
-                Spacer()
-
-                if project.hasExports {
-                    Button(action: play) {
-                        Image(systemName: "play.fill")
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.secondaryText)
-                    .help("Play latest export")
-                }
-
-                Button("Continue", action: open)
-                    .font(.system(size: 12, weight: .semibold))
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.surfaceBg)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay { RoundedRectangle(cornerRadius: 14).stroke(Color.subtleBorder, lineWidth: 1) }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-    }
-
-    @ViewBuilder
-    private var projectHeader: some View {
-        switch artworkStyle {
-        case .compact:
-            HStack(alignment: .top, spacing: 14) {
-                ProjectArtworkImage(project: project)
-                    .frame(width: 78, height: 78)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                projectIdentity
-                Spacer(minLength: 0)
-            }
-        case .landscape(let height):
-            VStack(alignment: .leading, spacing: 12) {
-                ProjectArtworkImage(project: project)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: height)
-                    .clipShape(RoundedRectangle(cornerRadius: 11))
-                projectIdentity
-            }
-        }
-    }
-
-    private var projectIdentity: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(project.name)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.primaryText)
-                .lineLimit(2)
-            Text(project.folderURL.deletingLastPathComponent().lastPathComponent)
-                .font(.system(size: 11))
-                .foregroundColor(.tertiaryText)
-                .lineLimit(1)
-            HStack(spacing: 10) {
-                Label(progress.stage.title, systemImage: "flag")
-                if let bpm = project.bpmLabel {
-                    Label("\(bpm) BPM", systemImage: "metronome")
-                }
-                if progress.sparkRating > 0 {
-                    Label("\(progress.sparkRating)/5", systemImage: "sparkles")
-                }
-            }
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(.secondaryText)
-            HStack(spacing: 5) {
-                if let priority = metadata.priority {
-                    Text(priority.title).homeMetadataBadge(color: .orange)
-                }
-                if let rating = metadata.rating {
-                    Text(rating.rawValue).homeMetadataBadge(color: .accent)
-                }
-                if let key = metadata.musicalKey {
-                    Text(key).homeMetadataBadge(color: .secondaryText)
-                }
-            }
-        }
-    }
-}
-
-private extension Text {
-    func homeMetadataBadge(color: Color) -> some View {
-        self.font(.system(size: 9, weight: .bold))
-            .foregroundColor(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 5))
     }
 }
