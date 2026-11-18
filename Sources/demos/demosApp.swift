@@ -282,6 +282,8 @@ struct demosApp: App {
                 .environmentObject(globalHotkey)
                 .environmentObject(launcherStore)
                 .environmentObject(pluginCloser)
+                .environmentObject(projectMetadata)
+                .environmentObject(projectTodos)
         }
         .defaultSize(width: 330, height: 580)
         .windowStyle(.hiddenTitleBar)

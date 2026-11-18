@@ -281,6 +281,54 @@ struct StudioHubView: View {
                             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
                         }
                     }
+
+                    // Client Workflow Scope and Production Phase
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("CLIENT WORKFLOW SCOPE")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.6)
+                                .foregroundColor(.tertiaryText)
+                            Spacer()
+                            Menu {
+                                ForEach(ClientWorkflowScope.allCases) { scope in
+                                    Button(scope.title) {
+                                        metadataStore.setClientWorkflowScope(scope, for: project)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(metadataStore.effectiveClientScope(for: project).title)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(Color(hex: "FB923C"))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 7, weight: .bold))
+                                        .foregroundColor(Color(hex: "FB923C"))
+                                }
+                            }
+                            .menuStyle(.borderlessButton)
+                        }
+
+                        HStack(spacing: 5) {
+                            let phases = metadataStore.effectivePhases(for: project)
+                            ForEach(phases) { phase in
+                                let isSelected = metadata.productionPhase == phase
+                                Button {
+                                    metadataStore.setProductionPhase(isSelected ? nil : phase, for: project)
+                                } label: {
+                                    Text(phase.rawValue)
+                                        .font(.system(size: 9, weight: isSelected ? .bold : .medium, design: .monospaced))
+                                        .foregroundColor(isSelected ? Color(hex: "FB923C") : .secondaryText)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(isSelected ? Color(hex: "FB923C").opacity(0.18) : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(isSelected ? Color(hex: "FB923C").opacity(0.5) : Color.white.opacity(0.08), lineWidth: 0.8))
+                                }
+                                .buttonStyle(.plain)
+                                .help(isSelected ? "Active client phase (click to clear)" : "Set client phase to \(phase.rawValue)")
+                            }
+                        }
+                    }
                 }
                 .padding(12)
                 .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 10))

@@ -6,8 +6,16 @@ import SwiftUI
 struct ProjectBadgeView: View {
     let project: Project
     @EnvironmentObject private var progressStore: ProjectProgressStore
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     private var badgeData: (text: String, bg: Color, textCol: Color, border: Color) {
+        let meta = metadataStore.metadata(for: project)
+        if let phase = meta.productionPhase {
+            let isClient = meta.projectKind == .client
+            let color = isClient ? Color(hex: "FB923C") : Color(hex: "4ADE80")
+            return (phase.shortTitle.uppercased(), color.opacity(0.18), color, color.opacity(0.40))
+        }
+
         let progress = progressStore.progress(for: project)
 
         // 1. Production Stage if progressed past initial idea

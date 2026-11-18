@@ -73,6 +73,89 @@ struct ProjectProgressSection: View {
 
             Divider().background(Color.divider)
 
+            // MARK: - Enrico's Tailored Production Phase
+            let isClient = metadata.projectKind == .client
+            let currentPhase = metadata.productionPhase
+            let phases = metadataStore.effectivePhases(for: project)
+            let themeColor = isClient ? Color(hex: "FB923C") : Color(hex: "4ADE80")
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    HStack(spacing: 5) {
+                        Image(systemName: "flag.fill")
+                            .font(.system(size: 9))
+                        Text("PRODUCTION PHASE")
+                            .font(.system(size: 9.5, weight: .heavy)).tracking(0.8)
+                    }
+                    .foregroundColor(themeColor)
+
+                    Spacer()
+
+                    // Personal / Client switch
+                    Menu {
+                        Button("Personal Project (Green)") {
+                            metadataStore.setProjectKind(.personal, for: project)
+                        }
+                        Button("Client Project (Orange)") {
+                            metadataStore.setProjectKind(.client, for: project)
+                        }
+                        if isClient {
+                            Divider()
+                            ForEach(ClientWorkflowScope.allCases) { scope in
+                                Button(scope.title) {
+                                    metadataStore.setClientWorkflowScope(scope, for: project)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle().fill(themeColor).frame(width: 6, height: 6)
+                            Text(isClient ? "Client · \(metadataStore.effectiveClientScope(for: project).title)" : "Personal Project")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(themeColor)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundColor(themeColor.opacity(0.8))
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(themeColor.opacity(0.12), in: Capsule())
+                        .overlay(Capsule().stroke(themeColor.opacity(0.35), lineWidth: 0.8))
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+
+                HStack(spacing: 6) {
+                    ForEach(phases) { phase in
+                        let isSelected = currentPhase == phase
+                        Button {
+                            if isSelected {
+                                metadataStore.setProductionPhase(nil, for: project)
+                            } else {
+                                metadataStore.setProductionPhase(phase, for: project)
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Capsule()
+                                    .fill(isSelected ? themeColor : (currentPhase.map { p in phases.firstIndex(of: p).map { $0 >= (phases.firstIndex(of: phase) ?? 0) } ?? false } ?? false ? themeColor.opacity(0.3) : Color.divider))
+                                    .frame(height: 6)
+                                Text(phase.rawValue)
+                                    .font(.system(size: 8.5, weight: isSelected ? .black : .semibold, design: .monospaced))
+                                    .foregroundColor(isSelected ? themeColor : (currentPhase == nil ? .tertiaryText : .secondaryText))
+                                    .lineLimit(1)
+                            }
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, 4)
+                            .background(isSelected ? themeColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .help(isSelected ? "Active phase (click to clear / make floating pill smaller)" : "Set phase to \(phase.rawValue)")
+                    }
+                }
+            }
+
+            Divider().background(Color.divider)
+
             HStack {
                 Text("FINISH RUNWAY")
                     .font(.system(size: 10, weight: .semibold)).tracking(0.8)

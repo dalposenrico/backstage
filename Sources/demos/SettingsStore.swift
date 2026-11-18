@@ -129,13 +129,27 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         }
     }
 
-    var capsuleWidth: CGFloat {
-        switch self {
-        case .small: return 276
-        case .medium: return 318
-        case .large: return 360
-        case .extraLarge: return 402
+    func capsuleWidth(hasPhase: Bool) -> CGFloat {
+        if hasPhase {
+            switch self {
+            case .small: return 348
+            case .medium: return 396
+            case .large: return 448
+            case .extraLarge: return 500
+            }
+        } else {
+            // When phase is unknown ("and if we dont know the floating is just smaller")
+            switch self {
+            case .small: return 240
+            case .medium: return 276
+            case .large: return 316
+            case .extraLarge: return 356
+            }
         }
+    }
+
+    var capsuleWidth: CGFloat {
+        capsuleWidth(hasPhase: false)
     }
 
     var capsuleHeight: CGFloat {
@@ -165,8 +179,9 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         }
     }
 
-    func totalCollapsedWidth(hasIcon: Bool) -> CGFloat {
-        hasIcon ? (dimension + capsuleWidth + 8) : capsuleWidth
+    func totalCollapsedWidth(hasIcon: Bool, hasPhase: Bool = false) -> CGFloat {
+        let width = capsuleWidth(hasPhase: hasPhase)
+        return hasIcon ? (dimension + width + 8) : width
     }
 
     func totalCollapsedHeight(hasIcon: Bool) -> CGFloat {

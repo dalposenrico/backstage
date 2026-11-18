@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectTodoSection: View {
     let project: Project
     @EnvironmentObject private var todoStore: ProjectTodoStore
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
     @State private var newTodo = ""
 
     private var todos: [ProjectTodo] { todoStore.todos(for: project) }
@@ -44,6 +45,32 @@ struct ProjectTodoSection: View {
             .background(Color.elevatedBg)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.subtleBorder) }
+
+            let phase = metadataStore.metadata(for: project).productionPhase
+            let suggestions = phase?.suggestedTasks ?? ["Melody / topline idea", "Drum rhythm skeleton", "Low-end balance", "Mastering check"]
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            todoStore.add(suggestion, to: project)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text(suggestion)
+                                    .font(.system(size: 9.5))
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color.elevatedBg, in: Capsule())
+                            .overlay(Capsule().stroke(Color.subtleBorder, lineWidth: 0.8))
+                            .foregroundColor(.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
 
             if !todos.isEmpty {
                 VStack(spacing: 2) {

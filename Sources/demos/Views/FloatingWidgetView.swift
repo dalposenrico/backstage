@@ -14,6 +14,8 @@ struct FloatingWidgetView: View {
     @EnvironmentObject private var globalHotkey: GlobalHotkeyManager
     @EnvironmentObject private var launcherStore: QuickLauncherStore
     @EnvironmentObject private var pluginCloser: PluginCloserManager
+    @EnvironmentObject private var metadataStore: ProjectMetadataStore
+    @EnvironmentObject private var todoStore: ProjectTodoStore
     @Environment(\.openWindow) private var openWindow
 
     @State private var filter: FloatingWidgetFilter = .recents
@@ -21,9 +23,15 @@ struct FloatingWidgetView: View {
     @State private var isHoveringPuck = false
     @State private var isHoveringCube = false
     @State private var isContentReady = false
+    @State private var hudNewTodo = ""
 
     private var activeProject: Project? {
         store.currentOpenProject ?? store.selectedProject ?? store.recentProjects.first
+    }
+
+    private var activeProjectPhase: ProductionPhase? {
+        guard let project = activeProject else { return nil }
+        return metadataStore.metadata(for: project).productionPhase
     }
 
     private var displayedProjects: [Project] {
@@ -54,7 +62,8 @@ struct FloatingWidgetView: View {
         if settings.isFloatingWidgetDockedAsCube {
             return settings.petPuckSize.cubeSize
         }
-        return settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
+        let hasPhase = activeProjectPhase != nil
+        return settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck, hasPhase: hasPhase)
     }
 
     private var currentPuckHeight: CGFloat {
@@ -102,6 +111,9 @@ struct FloatingWidgetView: View {
             updateCollapsedWindowSize(animated: true)
         }
         .onChange(of: store.openingAbletonProject) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: activeProjectPhase) {
             updateCollapsedWindowSize(animated: true)
         }
     }
@@ -192,6 +204,81 @@ struct FloatingWidgetView: View {
             if let project = activeProject {
                 Divider()
                 Text(project.name).font(.caption).disabled(true)
+
+                let meta = metadataStore.metadata(for: project)
+                let isClient = meta.projectKind == .client
+                let currentPhase = meta.productionPhase
+
+                Menu("Phase: \(currentPhase?.rawValue ?? "Not Set (Smaller)")") {
+                    ForEach(metadataStore.effectivePhases(for: project)) { phase in
+                        Button {
+                            metadataStore.setProductionPhase(phase, for: project)
+                        } label: {
+                            HStack {
+                                Text(phase.rawValue)
+                                if currentPhase == phase {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    if currentPhase != nil {
+                        Divider()
+                        Button("Clear Phase (Smaller Floating Pill)") {
+                            metadataStore.setProductionPhase(nil, for: project)
+                        }
+                    }
+                }
+
+                Menu("Mode: \(isClient ? "Client (Orange)" : "Personal (Green)")") {
+                    Button {
+                        metadataStore.setProjectKind(.personal, for: project)
+                    } label: {
+                        HStack {
+                            Text("Personal Project (Green)")
+                            if !isClient { Image(systemName: "checkmark") }
+                        }
+                    }
+                    Button {
+                        metadataStore.setProjectKind(.client, for: project)
+                    } label: {
+                        HStack {
+                            Text("Client Project (Orange)")
+                            if isClient { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+
+                if isClient {
+                    Menu("Client Workflow: \(metadataStore.effectiveClientScope(for: project).title)") {
+                        ForEach(ClientWorkflowScope.allCases) { scope in
+                            Button {
+                                metadataStore.setClientWorkflowScope(scope, for: project)
+                            } label: {
+                                HStack {
+                                    Text(scope.title)
+                                    if metadataStore.effectiveClientScope(for: project) == scope {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let openTasks = todoStore.openTodos(for: project)
+                if !openTasks.isEmpty {
+                    Menu("Tasks (\(openTasks.count) open)") {
+                        ForEach(openTasks.prefix(6)) { todo in
+                            Button("✓ Complete \"\(todo.title)\"") {
+                                todoStore.toggle(todo, for: project)
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+
                 Button("Open Project Folder in Finder") {
                     NSWorkspace.shared.open(project.folderURL)
                 }
@@ -365,6 +452,19 @@ struct FloatingWidgetView: View {
             Spacer(minLength: 0)
                 .allowsHitTesting(false)
 
+            // Horizontal scrolling phase ticker if phase is known
+            if let phase = activeProjectPhase, let project = activeProject {
+                let isClient = metadataStore.metadata(for: project).projectKind == .client
+                FloatingPhaseTickerView(
+                    phase: phase,
+                    isClient: isClient,
+                    size: size,
+                    onNextPhase: {
+                        metadataStore.advanceToNextPhase(for: project)
+                    }
+                )
+            }
+
             // Open Project Folder in Finder Button
             if let project = store.currentOpenProject ?? activeProject {
                 Button {
@@ -449,7 +549,7 @@ struct FloatingWidgetView: View {
             .help("Close floating minibar (⇧⌘W)")
         }
         .padding(.horizontal, 10)
-        .frame(width: size.capsuleWidth, height: size.capsuleHeight)
+        .frame(width: size.capsuleWidth(hasPhase: activeProjectPhase != nil), height: size.capsuleHeight)
         .background(
             ZStack {
                 Capsule()
@@ -1131,6 +1231,12 @@ struct FloatingWidgetView: View {
                 }
             }
 
+            // Workflow Phase Bar (Green for Personal, Orange for Client)
+            heroPhaseBar(project: project)
+
+            // To-Do Worklist Card with Phase-aware suggestions
+            heroTodoSection(project: project)
+
             // 1-Click Action Buttons Bar
             HStack(spacing: 6) {
                 if project.newestAbletonVersion != nil {
@@ -1238,6 +1344,207 @@ struct FloatingWidgetView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isLiveSession ? Color.green.opacity(0.45) : Color.primary.opacity(0.12), lineWidth: 1)
         )
+    }
+
+    private func heroPhaseBar(project: Project) -> some View {
+        let meta = metadataStore.metadata(for: project)
+        let isClient = meta.projectKind == .client
+        let currentPhase = meta.productionPhase
+        let phases = metadataStore.effectivePhases(for: project)
+        let themeColor = isClient ? Color(hex: "FB923C") : Color(hex: "4ADE80")
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 8))
+                    Text("WORKFLOW PHASE")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .tracking(0.6)
+                }
+                .foregroundStyle(themeColor)
+
+                Spacer()
+
+                // Mode toggle (Personal vs Client)
+                Button {
+                    let nextKind: ProjectKind = isClient ? .personal : .client
+                    metadataStore.setProjectKind(nextKind, for: project)
+                } label: {
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(themeColor)
+                            .frame(width: 5, height: 5)
+                        Text(isClient ? "CLIENT" : "PERSONAL")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(themeColor)
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(themeColor.opacity(0.14), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Toggle between Personal (Green) and Client (Orange)")
+            }
+
+            // Phase buttons
+            HStack(spacing: 4) {
+                ForEach(phases) { phase in
+                    let isSelected = currentPhase == phase
+                    Button {
+                        if isSelected {
+                            metadataStore.setProductionPhase(nil, for: project)
+                        } else {
+                            metadataStore.setProductionPhase(phase, for: project)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(phase.shortTitle.uppercased())
+                                .font(.system(size: 8.5, weight: isSelected ? .black : .semibold, design: .monospaced))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(
+                            isSelected ? themeColor.opacity(0.25) : Color.white.opacity(0.04),
+                            in: RoundedRectangle(cornerRadius: 4.5)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4.5)
+                                .stroke(isSelected ? themeColor : Color.white.opacity(0.10), lineWidth: isSelected ? 1 : 0.5)
+                        )
+                        .foregroundStyle(isSelected ? themeColor : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isSelected ? "Active phase (click to clear / make floating pill smaller)" : "Set phase to \(phase.rawValue)")
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.06), lineWidth: 0.8))
+    }
+
+    private func heroTodoSection(project: Project) -> some View {
+        let openTodos = todoStore.openTodos(for: project)
+        let currentPhase = metadataStore.metadata(for: project).productionPhase
+        let suggestions = currentPhase?.suggestedTasks ?? ["Melody idea", "Vocal balance", "Mastering check"]
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(Color.accentColor)
+                    Text("TO-DO WORKLIST")
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(Color.accentColor)
+                }
+
+                Spacer()
+
+                Text("\(openTodos.count) open")
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            // Open tasks
+            if openTodos.isEmpty {
+                Text("No open tasks — add your next step below")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 2)
+            } else {
+                VStack(spacing: 3) {
+                    ForEach(openTodos.prefix(4)) { todo in
+                        HStack(spacing: 6) {
+                            Button {
+                                todoStore.toggle(todo, for: project)
+                            } label: {
+                                Image(systemName: "circle")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.secondary)
+                            }
+                            .buttonStyle(.plain)
+
+                            Text(todo.title)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                todoStore.remove(todo, from: project)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(Color.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+
+            // Quick add input
+            HStack(spacing: 6) {
+                TextField("Add next task…", text: $hudNewTodo)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10))
+                    .onSubmit {
+                        let trimmed = hudNewTodo.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            todoStore.add(trimmed, to: project)
+                            hudNewTodo = ""
+                        }
+                    }
+
+                Button {
+                    let trimmed = hudNewTodo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        todoStore.add(trimmed, to: project)
+                        hudNewTodo = ""
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(hudNewTodo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.5) : Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(hudNewTodo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+
+            // Quick phase suggested pills
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            todoStore.add(suggestion, to: project)
+                        } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 7, weight: .bold))
+                                Text(suggestion)
+                                    .font(.system(size: 8.5))
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2.5)
+                            .background(Color.white.opacity(0.05), in: Capsule())
+                            .foregroundStyle(Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.white.opacity(0.06), lineWidth: 0.8))
     }
 
     // MARK: - Filter & Search Controls

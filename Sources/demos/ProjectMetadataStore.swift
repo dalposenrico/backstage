@@ -133,6 +133,67 @@ enum ProjectKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ProductionPhase: String, Codable, CaseIterable, Identifiable {
+    case sketching = "SKETCHING"
+    case producing = "PRODUCING"
+    case mixing = "MIXING"
+    case masteringPolishing = "MASTERING / POLISHING"
+
+    var id: String { rawValue }
+    var title: String { rawValue }
+
+    var shortTitle: String {
+        switch self {
+        case .sketching: return "Sketch"
+        case .producing: return "Produce"
+        case .mixing: return "Mix"
+        case .masteringPolishing: return "Master"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .sketching: return "pencil.and.outline"
+        case .producing: return "waveform.badge.plus"
+        case .mixing: return "slider.vertical.3"
+        case .masteringPolishing: return "sparkles"
+        }
+    }
+
+    var suggestedTasks: [String] {
+        switch self {
+        case .sketching:
+            return ["Melody / topline idea", "Chord progression", "Drum rhythm skeleton", "Sound palette choice"]
+        case .producing:
+            return ["Intro to drop build", "Drum fills & transitions", "Second verse variation", "FX sweeps & impacts"]
+        case .mixing:
+            return ["Vocal EQ & de-ess", "Kick & bass low-end mono", "Reverb / delay space", "Automation rides"]
+        case .masteringPolishing:
+            return ["Target LUFS & true peak", "Car & phone speaker check", "Export full WAV & stems", "Client preview review"]
+        }
+    }
+}
+
+enum ClientWorkflowScope: String, Codable, CaseIterable, Identifiable {
+    case full = "Full Production"
+    case mixAndMaster = "Mixing & Mastering"
+    case masteringOnly = "Mastering Only"
+
+    var id: String { rawValue }
+    var title: String { rawValue }
+
+    var allowedPhases: [ProductionPhase] {
+        switch self {
+        case .full:
+            return [.sketching, .producing, .mixing, .masteringPolishing]
+        case .mixAndMaster:
+            return [.mixing, .masteringPolishing]
+        case .masteringOnly:
+            return [.masteringPolishing]
+        }
+    }
+}
+
 enum AudioServiceType: String, Codable, CaseIterable, Identifiable {
     case mixing = "Mixing"
     case mastering = "Mastering"
@@ -175,6 +236,8 @@ struct ProjectMetadata: Codable {
     var projectKind: ProjectKind? = nil
     var clientName: String? = nil
     var serviceType: AudioServiceType? = nil
+    var clientWorkflowScope: ClientWorkflowScope? = nil
+    var productionPhase: ProductionPhase? = nil
     var targetDeadline: Date? = nil
     var dropboxFolderPath: String? = nil
     var dropboxShareLink: String? = nil
@@ -227,6 +290,53 @@ final class ProjectMetadataStore: ObservableObject {
 
     func setServiceType(_ type: AudioServiceType?, for project: Project) {
         update(project) { $0.serviceType = type }
+    }
+
+    func setProductionPhase(_ phase: ProductionPhase?, for project: Project) {
+        update(project) { $0.productionPhase = phase }
+    }
+
+    func setClientWorkflowScope(_ scope: ClientWorkflowScope?, for project: Project) {
+        update(project) { $0.clientWorkflowScope = scope }
+    }
+
+    func effectiveClientScope(for project: Project) -> ClientWorkflowScope {
+        let meta = metadata(for: project)
+        if let explicit = meta.clientWorkflowScope {
+            return explicit
+        }
+        if let service = meta.serviceType {
+            switch service {
+            case .mastering, .stemMastering:
+                return .masteringOnly
+            case .mixing:
+                return .mixAndMaster
+            default:
+                return .full
+            }
+        }
+        return .full
+    }
+
+    func effectivePhases(for project: Project) -> [ProductionPhase] {
+        let meta = metadata(for: project)
+        if meta.projectKind == .client {
+            return effectiveClientScope(for: project).allowedPhases
+        } else {
+            return ProductionPhase.allCases
+        }
+    }
+
+    func advanceToNextPhase(for project: Project) {
+        let available = effectivePhases(for: project)
+        guard !available.isEmpty else { return }
+        let current = metadata(for: project).productionPhase
+        if let current, let idx = available.firstIndex(of: current) {
+            let nextIdx = (idx + 1) % available.count
+            setProductionPhase(available[nextIdx], for: project)
+        } else {
+            setProductionPhase(available.first, for: project)
+        }
     }
 
     func setTargetDeadline(_ date: Date?, for project: Project) {

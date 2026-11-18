@@ -71,6 +71,18 @@ struct ProjectDetailsPanel: View {
                             }
                             .font(.system(size: 11))
                             .foregroundColor(.secondaryText)
+
+                            if let phase = metadata.productionPhase {
+                                let isClient = metadata.projectKind == .client
+                                HStack {
+                                    Text("Workflow Phase")
+                                    Spacer()
+                                    Text(phase.rawValue)
+                                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                        .foregroundColor(isClient ? Color(hex: "FB923C") : Color(hex: "4ADE80"))
+                                }
+                                .font(.system(size: 11))
+                            }
                         }
                     }
 
