@@ -132,10 +132,10 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
     func capsuleWidth(hasPhase: Bool) -> CGFloat {
         if hasPhase {
             switch self {
-            case .small: return 348
-            case .medium: return 396
-            case .large: return 448
-            case .extraLarge: return 500
+            case .small: return 356
+            case .medium: return 406
+            case .large: return 458
+            case .extraLarge: return 510
             }
         } else {
             // When phase is unknown ("and if we dont know the floating is just smaller")
