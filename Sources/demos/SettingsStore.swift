@@ -147,10 +147,10 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         if hasPhase {
             // Expands vertically with the phase ticker below
             switch self {
-            case .small: return 58
-            case .medium: return 66
-            case .large: return 76
-            case .extraLarge: return 86
+            case .small: return 52
+            case .medium: return 60
+            case .large: return 70
+            case .extraLarge: return 80
             }
         } else {
             // Compact single row when phase is unknown ("smaller floating pill")
