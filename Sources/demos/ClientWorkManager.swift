@@ -41,12 +41,23 @@ final class ClientWorkManager: ObservableObject {
             return URL(fileURLWithPath: custom)
         }
 
-        if let dropbox = DropboxManager.shared.dropboxRootURL {
-            return dropbox.appendingPathComponent(clientWorkFolderName, isDirectory: true)
+        // 1. Check if ~/Music/<clientWorkFolderName> exists
+        let musicDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music", isDirectory: true)
+        let musicClientURL = musicDir.appendingPathComponent(clientWorkFolderName, isDirectory: true)
+        if FileManager.default.fileExists(atPath: musicClientURL.path) {
+            return musicClientURL
         }
 
-        let musicDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music", isDirectory: true)
-        return musicDir.appendingPathComponent(clientWorkFolderName, isDirectory: true)
+        // 2. Check if Dropbox has this folder (only if the folder actually exists on disk in Dropbox)
+        if let dropbox = DropboxManager.shared.dropboxRootURL {
+            let dropboxClientURL = dropbox.appendingPathComponent(clientWorkFolderName, isDirectory: true)
+            if FileManager.default.fileExists(atPath: dropboxClientURL.path) {
+                return dropboxClientURL
+            }
+        }
+
+        // 3. Default to ~/Music/<clientWorkFolderName>
+        return musicClientURL
     }
 
     /// Checks if the client work base directory exists on disk.

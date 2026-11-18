@@ -1,4 +1,25 @@
 import SwiftUI
+import AppKit
+
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case appearance = "Appearance"
+    case ableton = "Ableton Live"
+    case shortcuts = "Shortcuts"
+    case accounts = "Accounts"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "paintbrush"
+        case .ableton: return "pianokeys"
+        case .shortcuts: return "keyboard"
+        case .accounts: return "person.crop.circle"
+        }
+    }
+}
 
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
@@ -7,58 +28,183 @@ struct SettingsView: View {
     @EnvironmentObject var dragScroll: AbletonDragScrollManager
     @EnvironmentObject var launcherStore: QuickLauncherStore
     @EnvironmentObject var pluginCloser: PluginCloserManager
+
+    @ObservedObject private var clientManager = ClientWorkManager.shared
     @StateObject private var launchAtLogin = LaunchAtLoginManager()
 
+    @State private var selectedTab: SettingsTab = .general
+    @State private var showingRenameFolderAlert = false
+    @State private var renameFolderNameDraft = ""
+
     var body: some View {
+        TabView(selection: $selectedTab) {
+            generalTab
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+
+            appearanceTab
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                .tag(SettingsTab.appearance)
+
+            abletonTab
+                .tabItem { Label("Ableton Live", systemImage: "pianokeys") }
+                .tag(SettingsTab.ableton)
+
+            shortcutsTab
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+                .tag(SettingsTab.shortcuts)
+
+            accountsTab
+                .tabItem { Label("Accounts", systemImage: "person.crop.circle") }
+                .tag(SettingsTab.accounts)
+        }
+        .frame(width: 520)
+        .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
+        .alert("Rename Client Work Folder", isPresented: $showingRenameFolderAlert) {
+            TextField("Folder Name", text: $renameFolderNameDraft)
+            Button("Cancel", role: .cancel) { renameFolderNameDraft = "" }
+            Button("Rename") {
+                let trimmed = renameFolderNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    try? clientManager.renameClientWorkFolder(to: trimmed)
+                }
+                renameFolderNameDraft = ""
+            }
+        } message: {
+            Text("Enter a new folder name for your client work. If it exists in the default directory, it will be renamed on disk safely.")
+        }
+        .onAppear {
+            launchAtLogin.refresh()
+            settings.refreshAvailableAbletonApps()
+            clientManager.refreshDiscoveredClients()
+        }
+    }
+
+    // MARK: - General Tab
+
+    private var generalTab: some View {
         Form {
-
-            // MARK: Appearance
+            // Music Library
             Section {
-                Picker("Appearance", selection: $settings.appearanceMode) {
-                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
-                        Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Music Folder")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(store.rootFolderURL?.path ?? "Not selected")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
                     }
+                    Spacer()
+                    Button("Change…") {
+                        store.selectFolder()
+                    }
+                    .controlSize(.small)
                 }
-                .pickerStyle(.segmented)
 
-                Picker("Project List Display", selection: $settings.showInlineWaveforms) {
-                    Label("Inline Waveforms", systemImage: "waveform").tag(true)
-                    Label("Icons & Artwork", systemImage: "photo").tag(false)
+                HStack {
+                    Text("Default project sort")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Picker("", selection: $store.sortOrder) {
+                        ForEach(SortOrder.allCases, id: \.self) { order in
+                            Text(order.rawValue).tag(order)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 170)
                 }
-                .pickerStyle(.segmented)
-                Text("Show inline audio waveforms with quick-play buttons for bounced tracks, like DAWbro.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             } header: {
-                Label("Appearance", systemImage: "paintbrush")
+                Label("Music Library", systemImage: "folder")
                     .font(.headline)
             }
 
-            Divider()
-
+            // Client Work Directory
             Section {
-                ForEach(StreamingService.allCases, id: \.self) { service in
-                    HStack {
-                        Label(service.title, systemImage: service.icon)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text("Client Work Folder")
+                                    .font(.system(size: 13, weight: .semibold))
+                                if clientManager.customClientWorkFolderPath != nil {
+                                    Text("CUSTOM")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.accent)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                                } else {
+                                    Text("DEFAULT")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 3))
+                                }
+                            }
+
+                            Text(clientManager.clientWorkBaseURL.path)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                        }
+
                         Spacer()
-                        Text("Uses provider app")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Open") { NSWorkspace.shared.open(service.homeURL) }
-                    }
-                }
 
-                Text("Sign in and out in the official music app. HQ does not claim or store account connection state.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        Button("Choose Folder…") {
+                            clientManager.chooseCustomBaseFolder()
+                        }
+                        .controlSize(.small)
+                    }
+
+                    Text("Where client folders (e.g. Mixing & Mastering work) and their Ableton sets live on your Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        Button("Reveal in Finder") {
+                            clientManager.revealInFinder(url: clientManager.clientWorkBaseURL)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundColor(.accent)
+
+                        Text("·")
+                            .foregroundColor(.secondary)
+
+                        Button("Rename Folder Name…") {
+                            renameFolderNameDraft = clientManager.clientWorkFolderName
+                            showingRenameFolderAlert = true
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                        if clientManager.customClientWorkFolderPath != nil {
+                            Text("·")
+                                .foregroundColor(.secondary)
+
+                            Button("Reset to Default") {
+                                clientManager.resetToDefaultBaseFolder()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.top, 2)
+                }
             } header: {
-                Label("Music Accounts", systemImage: "person.crop.circle")
+                Label("Client Work & Mixing/Mastering", systemImage: "person.2")
                     .font(.headline)
             }
 
-            Divider()
-
-            // MARK: Startup
+            // Startup
             Section {
                 Toggle("Launch goodvibrations HQ at Login", isOn: Binding(
                     get: { launchAtLogin.isEnabled },
@@ -79,10 +225,61 @@ struct SettingsView: View {
                 Label("Startup", systemImage: "power")
                     .font(.headline)
             }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 6)
+    }
 
-            Divider()
+    // MARK: - Appearance Tab
 
-            // MARK: Ableton Live Application
+    private var appearanceTab: some View {
+        Form {
+            Section {
+                Picker("Appearance", selection: $settings.appearanceMode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Label(mode.rawValue, systemImage: mode.icon).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Project List Display", selection: $settings.showInlineWaveforms) {
+                    Label("Inline Waveforms", systemImage: "waveform").tag(true)
+                    Label("Icons & Artwork", systemImage: "photo").tag(false)
+                }
+                .pickerStyle(.segmented)
+
+                Text("Show inline audio waveforms with quick-play buttons for bounced tracks, like DAWbro.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Theme & Project Display", systemImage: "paintbrush")
+                    .font(.headline)
+            }
+
+            Section {
+                HStack {
+                    Text("Sidebar width")
+                    Spacer()
+                    Slider(value: $settings.sidebarWidth, in: 190...440, step: 1)
+                        .frame(width: 160)
+                    Text("\(Int(settings.sidebarWidth)) pt")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(width: 46, alignment: .trailing)
+                }
+            } header: {
+                Label("Sidebar Layout", systemImage: "sidebar.left")
+                    .font(.headline)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Ableton Live Tab
+
+    private var abletonTab: some View {
+        Form {
             Section {
                 Picker("Live Application", selection: $settings.selectedAbletonAppPath) {
                     Text("Auto-detect / System Default").tag("")
@@ -129,17 +326,23 @@ struct SettingsView: View {
                     .controlSize(.small)
                 }
 
-                Text("HQ will open project sets, run export shortcuts, and monitor session status using this version of Ableton Live.")
+                Text("goodvibrations HQ opens project sets, runs export shortcuts, and monitors session status using this version of Ableton Live.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Label("Ableton Live Application", systemImage: "pianokeys")
+                Label("Application Selection", systemImage: "pianokeys")
                     .font(.headline)
             }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 6)
+    }
 
-            Divider()
+    // MARK: - Shortcuts Tab
 
-            // MARK: Ableton Export Hotkey
+    private var shortcutsTab: some View {
+        Form {
+            // Ableton Export Hotkey
             Section {
                 Toggle("Enable F1 global hotkey", isOn: $globalHotkey.isEnabled)
 
@@ -163,9 +366,7 @@ struct SettingsView: View {
                     .font(.headline)
             }
 
-            Divider()
-
-            // MARK: Close Plugin Windows
+            // Close Plugin Windows
             Section {
                 Toggle("Enable Close Plugin Windows shortcut", isOn: $pluginCloser.isEnabled)
 
@@ -228,9 +429,7 @@ struct SettingsView: View {
                     .font(.headline)
             }
 
-            Divider()
-
-            // MARK: Ableton Drag Navigation (W/S)
+            // Drag Navigation
             Section {
                 Toggle("Drag-scroll tracks with W and S", isOn: $dragScroll.isEnabled)
 
@@ -242,9 +441,7 @@ struct SettingsView: View {
                     .font(.headline)
             }
 
-            Divider()
-
-            // MARK: Quick Plugin Launcher (1–9)
+            // Quick Plugin Launcher
             Section {
                 Text("Tap buttons in the floating dock's pop-out tray to trigger your plugin macros or keystrokes directly in Ableton Live.")
                     .font(.caption)
@@ -252,19 +449,16 @@ struct SettingsView: View {
 
                 ForEach($launcherStore.items) { $item in
                     HStack(spacing: 8) {
-                        // Key field
                         TextField("Key", text: $item.key)
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .frame(width: 34)
                             .multilineTextAlignment(.center)
                             .textFieldStyle(.roundedBorder)
 
-                        // Title field
                         TextField("Plugin / Action name", text: $item.title)
                             .font(.system(size: 12))
                             .textFieldStyle(.roundedBorder)
 
-                        // Category field (optional, e.g. EQ, SAT)
                         TextField("Tag", text: Binding(
                             get: { item.category ?? "" },
                             set: { item.category = $0.isEmpty ? nil : $0 }
@@ -274,7 +468,6 @@ struct SettingsView: View {
                         .multilineTextAlignment(.center)
                         .textFieldStyle(.roundedBorder)
 
-                        // Test trigger button
                         Button {
                             launcherStore.trigger(item)
                         } label: {
@@ -285,7 +478,6 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                         .help("Test trigger in Ableton")
 
-                        // Delete button
                         Button {
                             launcherStore.removeItem(id: item.id)
                         } label: {
@@ -320,68 +512,39 @@ struct SettingsView: View {
                 Label("Quick Plugin Launcher", systemImage: "bolt.fill")
                     .font(.headline)
             }
+        }
+        .formStyle(.grouped)
+        .padding(.vertical, 6)
+    }
 
-            Divider()
+    // MARK: - Accounts Tab
+
+    private var accountsTab: some View {
+        Form {
             Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Music Folder")
-                            .font(.system(size: 13, weight: .medium))
-                        Text(store.rootFolderURL?.path ?? "Not set")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
+                ForEach(StreamingService.allCases, id: \.self) { service in
+                    HStack {
+                        Label(service.title, systemImage: service.icon)
+                        Spacer()
+                        Text("Uses provider app")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Open") { NSWorkspace.shared.open(service.homeURL) }
+                            .controlSize(.small)
                     }
-                    Spacer()
-                    Button("Change…") { store.selectFolder() }
                 }
 
-                HStack {
-                    Text("Default sort")
-                    Spacer()
-                    Picker("", selection: $store.sortOrder) {
-                        ForEach(SortOrder.allCases, id: \.self) { order in
-                            Text(order.rawValue).tag(order)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 160)
-                }
+                Text("Sign in and out in the official music app. HQ does not claim or store account connection state.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
-                Label("Library", systemImage: "folder")
-                    .font(.headline)
-            }
-
-            Divider()
-
-            // MARK: Sidebar
-            Section {
-                HStack {
-                    Text("Sidebar width")
-                    Spacer()
-                    Slider(value: $settings.sidebarWidth, in: 190...440, step: 1)
-                        .frame(width: 160)
-                    Text("\(Int(settings.sidebarWidth)) pt")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .frame(width: 46, alignment: .trailing)
-                }
-            } header: {
-                Label("Layout", systemImage: "sidebar.left")
+                Label("Music Streaming Accounts", systemImage: "person.crop.circle")
                     .font(.headline)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450)
-        .padding(.vertical, 8)
-        .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
-        .onAppear {
-            launchAtLogin.refresh()
-            settings.refreshAvailableAbletonApps()
-        }
+        .padding(.vertical, 6)
     }
-
 }
 
 extension StreamingService: Identifiable {
