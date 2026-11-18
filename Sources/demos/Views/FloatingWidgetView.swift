@@ -189,8 +189,7 @@ struct FloatingWidgetView: View {
             }
             Divider()
             Button("Hide Floating Pill (⇧⌘W)") {
-                settings.isFloatingWidgetActive = false
-                WindowPresenter.hideFloatingWidget()
+                closeFloatingWidget()
             }
         }
         .help(puckHelpText)
@@ -404,6 +403,19 @@ struct FloatingWidgetView: View {
             }
             .buttonStyle(.plain)
             .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel (1–9)")
+
+            // Close / Hide Floating Minibar Button ("✕")
+            Button {
+                closeFloatingWidget()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: size.capsuleSubtitleFontSize * 0.85, weight: .bold))
+                    .foregroundStyle(Color(hex: "9CA3AF"))
+                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
+                    .background(Color.white.opacity(0.08), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Close floating minibar (⇧⌘W)")
         }
         .padding(.horizontal, 10)
         .frame(width: size.capsuleWidth, height: size.capsuleHeight)
@@ -471,6 +483,12 @@ struct FloatingWidgetView: View {
             targetWidth: currentPuckWidth,
             targetHeight: currentPuckHeight
         )
+    }
+
+    private func closeFloatingWidget() {
+        launcherStore.isTrayOpen = false
+        settings.isFloatingWidgetActive = false
+        WindowPresenter.hideFloatingWidget()
     }
 
     // MARK: - Expanded HUD View
@@ -626,6 +644,18 @@ struct FloatingWidgetView: View {
             }
             .buttonStyle(.plain)
             .help("Collapse to floating mini pill")
+
+            // Close / Hide Floating Widget Button ("✕")
+            Button {
+                closeFloatingWidget()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help("Close floating minibar (⇧⌘W)")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
