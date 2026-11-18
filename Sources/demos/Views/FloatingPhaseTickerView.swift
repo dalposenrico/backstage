@@ -3,11 +3,12 @@ import SwiftUI
 
 /// Horizontal scrolling marquee ticker for project workflow phases.
 /// Uses hardware CoreAnimation for 120Hz/60Hz buttery smoothness,
-/// a calm readable speed, and clean rounded typography.
+/// a calm readable speed, and clean rounded typography centered vertically.
 struct FloatingPhaseTickerView: View {
     let phase: ProductionPhase
     let isClient: Bool
     let size: PetPuckSize
+    var customWidth: CGFloat? = nil
     var onNextPhase: (() -> Void)? = nil
 
     @State private var isHovered = false
@@ -25,16 +26,24 @@ struct FloatingPhaseTickerView: View {
     }
 
     private var tickerWidth: CGFloat {
+        if let custom = customWidth {
+            return custom
+        }
         switch size {
-        case .small: return 88
-        case .medium: return 104
-        case .large: return 118
-        case .extraLarge: return 132
+        case .small: return 230
+        case .medium: return 268
+        case .large: return 308
+        case .extraLarge: return 348
         }
     }
 
     private var tickerHeight: CGFloat {
-        size.capsuleHeight * 0.58
+        switch size {
+        case .small: return 18
+        case .medium: return 20
+        case .large: return 23
+        case .extraLarge: return 26
+        }
     }
 
     private var fontSize: CGFloat {
@@ -51,9 +60,9 @@ struct FloatingPhaseTickerView: View {
             onNextPhase?()
         } label: {
             ZStack {
-                // High-contrast dark pill with tint
+                // High-contrast dark pill with subtle theme tint
                 Capsule()
-                    .fill(Color(hex: "111418"))
+                    .fill(Color(hex: "111418").opacity(0.92))
 
                 Capsule()
                     .fill(themeColor.opacity(isHovered ? 0.20 : 0.12))
@@ -73,7 +82,7 @@ struct FloatingPhaseTickerView: View {
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 6)
+                        .frame(width: 8)
 
                         Rectangle().fill(Color.black)
 
@@ -82,7 +91,7 @@ struct FloatingPhaseTickerView: View {
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: 6)
+                        .frame(width: 8)
                     }
                 )
             }
@@ -120,6 +129,8 @@ private struct HardwareMarqueeRepresentable: NSViewRepresentable {
 }
 
 private final class HardwareMarqueeNSView: NSView {
+    override var isFlipped: Bool { true }
+
     private let scrollLayer = CALayer()
     private var textLayers: [CATextLayer] = []
 
@@ -211,9 +222,9 @@ private final class HardwareMarqueeNSView: NSView {
             .kern: 0.4
         ])
 
-        // Vertical centering offset for CATextLayer font metrics
+        // Accurate vertical centering in flipped coordinate space
         let textHeight = ceil(font.ascender - font.descender)
-        let yOffset = max(0, (bounds.height - textHeight) / 2.0 + font.descender * 0.4)
+        let yOffset = max(0, floor((bounds.height - textHeight) / 2.0))
 
         for i in 0..<neededCopies {
             let tLayer = CATextLayer()
@@ -226,7 +237,7 @@ private final class HardwareMarqueeNSView: NSView {
                 x: CGFloat(i) * cycleWidth,
                 y: yOffset,
                 width: cycleWidth,
-                height: bounds.height
+                height: textHeight
             )
             scrollLayer.addSublayer(tLayer)
             textLayers.append(tLayer)

@@ -70,7 +70,8 @@ struct FloatingWidgetView: View {
         if settings.isFloatingWidgetDockedAsCube {
             return settings.petPuckSize.cubeSize
         }
-        return settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
+        let hasPhase = activeProjectPhase != nil
+        return settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck, hasPhase: hasPhase)
     }
 
     var body: some View {
@@ -155,7 +156,7 @@ struct FloatingWidgetView: View {
                     }
                     puckCapsuleView(size: size)
                 }
-                .contentShape(Capsule())
+                .contentShape(RoundedRectangle(cornerRadius: 14))
             }
         }
         .frame(width: currentPuckWidth, height: currentPuckHeight)
@@ -415,144 +416,155 @@ struct FloatingWidgetView: View {
             return "goodvibrations HQ"
         }()
 
-        return HStack(spacing: 8) {
-            // Indicator and text labels — allow dragging through them
+        let hasPhase = activeProjectPhase != nil
+        let capsuleW = size.capsuleWidth(hasPhase: hasPhase)
+        let capsuleH = size.capsuleHeight(hasPhase: hasPhase)
+        let cornerRad: CGFloat = hasPhase ? 14 : size.capsuleHeight / 2
+
+        return VStack(spacing: 3) {
+            // Main Controls Row
             HStack(spacing: 8) {
-                // Mini status indicator
-                if isOpening {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else if isLiveActive {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
-                        .shadow(color: Color.green.opacity(0.6), radius: 3)
-                } else {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.85))
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                // Indicator and text labels — allow dragging through them
+                HStack(spacing: 8) {
+                    // Mini status indicator
+                    if isOpening {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else if isLiveActive {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.85), lineWidth: 1))
+                            .shadow(color: Color.green.opacity(0.6), radius: 3)
+                    } else {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.85))
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                    }
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(projectName)
+                            .font(.system(size: size.capsuleTitleFontSize, weight: .semibold))
+                            .foregroundStyle(Color(hex: "F3F4F6"))
+                            .lineLimit(1)
+
+                        Text(subtitle)
+                            .font(.system(size: size.capsuleSubtitleFontSize))
+                            .foregroundStyle(Color(hex: "9CA3AF"))
+                            .lineLimit(1)
+                    }
                 }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(projectName)
-                        .font(.system(size: size.capsuleTitleFontSize, weight: .semibold))
-                        .foregroundStyle(Color(hex: "F3F4F6"))
-                        .lineLimit(1)
-
-                    Text(subtitle)
-                        .font(.system(size: size.capsuleSubtitleFontSize))
-                        .foregroundStyle(Color(hex: "9CA3AF"))
-                        .lineLimit(1)
-                }
-            }
-            .allowsHitTesting(false)
-
-            Spacer(minLength: 0)
                 .allowsHitTesting(false)
 
-            // Horizontal scrolling phase ticker if phase is known
+                Spacer(minLength: 0)
+                    .allowsHitTesting(false)
+
+                // Open Project Folder in Finder Button
+                if let project = store.currentOpenProject ?? activeProject {
+                    Button {
+                        NSWorkspace.shared.open(project.folderURL)
+                    } label: {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                            .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
+                            .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                            .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open project folder in Finder: \(project.folderURL.path)")
+                }
+
+                // Open in Ableton Live Button
+                Button {
+                    if let project = store.currentOpenProject ?? activeProject {
+                        store.openInAbleton(project)
+                    } else {
+                        _ = AbletonSessionDetector.activateAbleton()
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                        .foregroundStyle(Color(hex: "E5E7EB"))
+                        .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                        .background(Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Open in Ableton Live")
+
+                // Auto-Export Button ("E")
+                Button {
+                    if globalHotkey.isRunningExport {
+                        globalHotkey.cancelExport()
+                    } else if let project = activeProject {
+                        store.openAndExport(project)
+                    } else {
+                        globalHotkey.triggerExport()
+                    }
+                } label: {
+                    if globalHotkey.isRunningExport {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                    } else {
+                        Text("E")
+                            .font(.system(size: size.capsuleSubtitleFontSize + 1.5, weight: .black, design: .rounded))
+                            .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
+                            .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                            .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
+
+                // Quick Launcher Tray Toggle Button ("⚡️")
+                Button {
+                    launcherStore.isTrayOpen.toggle()
+                } label: {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
+                        .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
+                        .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                        .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel (1–9)")
+
+                // Close / Hide Floating Minibar Button ("✕")
+                Button {
+                    closeFloatingWidget()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: size.capsuleSubtitleFontSize * 0.85, weight: .bold))
+                        .foregroundStyle(Color(hex: "9CA3AF"))
+                        .frame(width: size.singleRowControlHeight * 0.65, height: size.singleRowControlHeight * 0.65)
+                        .background(Color.white.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close floating minibar (⇧⌘W)")
+            }
+            .frame(height: size.singleRowControlHeight)
+
+            // Bottom Row: Scrolling Phase Ticker (placed below, expanding vertically)
             if let phase = activeProjectPhase, let project = activeProject {
                 let isClient = metadataStore.metadata(for: project).projectKind == .client
                 FloatingPhaseTickerView(
                     phase: phase,
                     isClient: isClient,
                     size: size,
+                    customWidth: capsuleW - 16,
                     onNextPhase: {
                         metadataStore.advanceToNextPhase(for: project)
                     }
                 )
             }
-
-            // Open Project Folder in Finder Button
-            if let project = store.currentOpenProject ?? activeProject {
-                Button {
-                    NSWorkspace.shared.open(project.folderURL)
-                } label: {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
-                        .foregroundStyle(store.isExternalProject(project) ? Color.orange : Color(hex: "E5E7EB"))
-                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                        .background(store.isExternalProject(project) ? Color.orange.opacity(0.18) : Color.white.opacity(0.10), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Open project folder in Finder: \(project.folderURL.path)")
-            }
-
-            // Open in Ableton Live Button
-            Button {
-                if let project = store.currentOpenProject ?? activeProject {
-                    store.openInAbleton(project)
-                } else {
-                    _ = AbletonSessionDetector.activateAbleton()
-                }
-            } label: {
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
-                    .foregroundStyle(Color(hex: "E5E7EB"))
-                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                    .background(Color.white.opacity(0.10), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Open in Ableton Live")
-
-            // Auto-Export Button ("E")
-            Button {
-                if globalHotkey.isRunningExport {
-                    globalHotkey.cancelExport()
-                } else if let project = activeProject {
-                    store.openAndExport(project)
-                } else {
-                    globalHotkey.triggerExport()
-                }
-            } label: {
-                if globalHotkey.isRunningExport {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                } else {
-                    Text("E")
-                        .font(.system(size: size.capsuleSubtitleFontSize + 1.5, weight: .black, design: .rounded))
-                        .foregroundStyle(isLiveActive ? Color.accentColor : Color(hex: "E5E7EB"))
-                        .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                        .background(isLiveActive ? Color.accentColor.opacity(0.22) : Color.white.opacity(0.10), in: Circle())
-                }
-            }
-            .buttonStyle(.plain)
-            .help(globalHotkey.isRunningExport ? "Export running — click to cancel / reset" : "Export active project (F1 / ⇧⌘E)")
-
-            // Quick Launcher Tray Toggle Button ("⚡️")
-            Button {
-                launcherStore.isTrayOpen.toggle()
-            } label: {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: size.capsuleSubtitleFontSize, weight: .bold))
-                    .foregroundStyle(launcherStore.isTrayOpen ? Color.white : Color(hex: "E5E7EB"))
-                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                    .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel (1–9)")
-
-            // Close / Hide Floating Minibar Button ("✕")
-            Button {
-                closeFloatingWidget()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: size.capsuleSubtitleFontSize * 0.85, weight: .bold))
-                    .foregroundStyle(Color(hex: "9CA3AF"))
-                    .frame(width: size.capsuleHeight * 0.58, height: size.capsuleHeight * 0.58)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Close floating minibar (⇧⌘W)")
         }
-        .padding(.horizontal, 10)
-        .frame(width: size.capsuleWidth(hasPhase: activeProjectPhase != nil), height: size.capsuleHeight)
+        .padding(.horizontal, 8)
+        .padding(.vertical, hasPhase ? 5 : 0)
+        .frame(width: capsuleW, height: capsuleH)
         .background(
             ZStack {
-                Capsule()
+                RoundedRectangle(cornerRadius: cornerRad)
                     .fill(Color(hex: "16191E"))
                 PetPuckDragArea(
                     onDrag: { win in
@@ -567,9 +579,9 @@ struct FloatingWidgetView: View {
                 )
             }
         )
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: cornerRad))
         .overlay(
-            Capsule()
+            RoundedRectangle(cornerRadius: cornerRad)
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
                 .allowsHitTesting(false)
         )
