@@ -286,6 +286,53 @@ enum WindowPresenter {
         window.orderFrontRegardless()
     }
 
+    static func dockFloatingWidgetToEdge(
+        targetWidth: CGFloat,
+        targetHeight: CGFloat,
+        side: String?,
+        animated: Bool = true
+    ) {
+        guard let window = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
+        guard !window.styleMask.contains(.titled) else { return }
+
+        applyFloatingWindowTransparency(window)
+
+        window.minSize = NSSize(width: min(targetWidth, 120), height: min(targetHeight, 30))
+        window.maxSize = NSSize(width: max(targetWidth, 600), height: max(targetHeight, 600))
+
+        var newFrame = window.frame
+        let screen = window.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        newFrame.size = NSSize(width: targetWidth, height: targetHeight)
+
+        if side == "left" {
+            newFrame.origin.x = visible.minX + 8
+        } else if side == "right" {
+            newFrame.origin.x = visible.maxX - targetWidth - 8
+        } else {
+            let currentCenterX = window.frame.midX
+            newFrame.origin.x = currentCenterX - (targetWidth / 2)
+        }
+
+        clampFrameToScreen(&newFrame, screen: screen)
+
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                context.allowsImplicitAnimation = true
+                window.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            window.setFrame(newFrame, display: true, animate: false)
+        }
+        window.orderFrontRegardless()
+    }
+
     static func applyFloatingWindowTransparency(_ window: NSWindow) {
         window.styleMask.remove(.titled)
         window.titleVisibility = .hidden

@@ -19,6 +19,7 @@ struct FloatingWidgetView: View {
     @State private var filter: FloatingWidgetFilter = .recents
     @State private var searchText = ""
     @State private var isHoveringPuck = false
+    @State private var isHoveringCube = false
     @State private var isContentReady = false
 
     private var activeProject: Project? {
@@ -50,11 +51,17 @@ struct FloatingWidgetView: View {
     }
 
     private var currentPuckWidth: CGFloat {
-        settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
+        if settings.isFloatingWidgetDockedAsCube {
+            return settings.petPuckSize.cubeSize
+        }
+        return settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck)
     }
 
     private var currentPuckHeight: CGFloat {
-        settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
+        if settings.isFloatingWidgetDockedAsCube {
+            return settings.petPuckSize.cubeSize
+        }
+        return settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck)
     }
 
     var body: some View {
@@ -83,6 +90,9 @@ struct FloatingWidgetView: View {
             }
         }
         .onChange(of: settings.showAppIconOnPuck) {
+            updateCollapsedWindowSize(animated: true)
+        }
+        .onChange(of: settings.isFloatingWidgetDockedAsCube) {
             updateCollapsedWindowSize(animated: true)
         }
         .onChange(of: settings.petPuckSize) {
@@ -123,15 +133,21 @@ struct FloatingWidgetView: View {
 
     private var collapsedPetPuck: some View {
         let size = settings.petPuckSize
-        return HStack(spacing: 8) {
-            if settings.showAppIconOnPuck {
-                puckIconView(size: size)
+        return Group {
+            if settings.isFloatingWidgetDockedAsCube {
+                puckCubeView(size: size)
+            } else {
+                HStack(spacing: 8) {
+                    if settings.showAppIconOnPuck {
+                        puckIconView(size: size)
+                    }
+                    puckCapsuleView(size: size)
+                }
+                .contentShape(Capsule())
             }
-            puckCapsuleView(size: size)
         }
         .frame(width: currentPuckWidth, height: currentPuckHeight)
         .background(Color.clear)
-        .contentShape(Capsule())
         .ignoresSafeArea()
         .onHover { isHoveringPuck = $0 }
         .contextMenu {
@@ -140,6 +156,15 @@ struct FloatingWidgetView: View {
             }
             Button("Expand quick HUD panel") {
                 expandWidget()
+            }
+            if settings.isFloatingWidgetDockedAsCube {
+                Button("Expand to Floating Bar") {
+                    undockFromCube()
+                }
+            } else {
+                Button("Dock as Cube on Side") {
+                    dockToCube(side: "right")
+                }
             }
             Button(launcherStore.isTrayOpen ? "Close Quick Launcher" : "Open Quick Launcher (1–9)") {
                 launcherStore.isTrayOpen.toggle()
@@ -254,11 +279,17 @@ struct FloatingWidgetView: View {
             }
 
             // Drag & Click Handler Area
-            PetPuckDragArea(onDrag: { win in
-                QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
-            }) {
-                expandWidget()
-            }
+            PetPuckDragArea(
+                onDrag: { win in
+                    QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
+                },
+                onDragEnded: { win in
+                    handlePuckDragEnded(win)
+                },
+                onClick: {
+                    expandWidget()
+                }
+            )
         }
         .frame(width: size.dimension, height: size.dimension)
     }
@@ -423,11 +454,17 @@ struct FloatingWidgetView: View {
             ZStack {
                 Capsule()
                     .fill(Color(hex: "16191E"))
-                PetPuckDragArea(onDrag: { win in
-                    QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
-                }) {
-                    expandWidget()
-                }
+                PetPuckDragArea(
+                    onDrag: { win in
+                        QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
+                    },
+                    onDragEnded: { win in
+                        handlePuckDragEnded(win)
+                    },
+                    onClick: {
+                        expandWidget()
+                    }
+                )
             }
         )
         .clipShape(Capsule())
@@ -489,6 +526,193 @@ struct FloatingWidgetView: View {
         launcherStore.isTrayOpen = false
         settings.isFloatingWidgetActive = false
         WindowPresenter.hideFloatingWidget()
+    }
+
+    private func dockToCube(side: String = "right") {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            settings.isFloatingWidgetDockedAsCube = true
+            settings.floatingWidgetDockSide = side
+        }
+        WindowPresenter.dockFloatingWidgetToEdge(
+            targetWidth: settings.petPuckSize.cubeSize,
+            targetHeight: settings.petPuckSize.cubeSize,
+            side: side,
+            animated: true
+        )
+    }
+
+    private func undockFromCube() {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            settings.isFloatingWidgetDockedAsCube = false
+            settings.floatingWidgetDockSide = "none"
+        }
+        WindowPresenter.dockFloatingWidgetToEdge(
+            targetWidth: settings.petPuckSize.totalCollapsedWidth(hasIcon: settings.showAppIconOnPuck),
+            targetHeight: settings.petPuckSize.totalCollapsedHeight(hasIcon: settings.showAppIconOnPuck),
+            side: nil,
+            animated: true
+        )
+    }
+
+    private func handlePuckDragEnded(_ window: NSWindow) {
+        let screen = window.screen ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return }
+
+        let dockThreshold: CGFloat = 50
+        let undockThreshold: CGFloat = 85
+
+        let distToLeft = window.frame.minX - visible.minX
+        let distToRight = visible.maxX - window.frame.maxX
+
+        if settings.isFloatingWidgetDockedAsCube {
+            if distToLeft > undockThreshold && distToRight > undockThreshold {
+                undockFromCube()
+            } else {
+                let side = distToLeft < distToRight ? "left" : "right"
+                dockToCube(side: side)
+            }
+        } else {
+            if distToLeft <= dockThreshold {
+                dockToCube(side: "left")
+            } else if distToRight <= dockThreshold {
+                dockToCube(side: "right")
+            }
+        }
+    }
+
+    // MARK: - Collapsed Side Cube View
+
+    private func puckCubeView(size: PetPuckSize) -> some View {
+        let isOpening = store.openingAbletonProject?.phase == .opening
+        let isLiveActive = store.currentOpenProject != nil
+        let isDockedLeft = settings.floatingWidgetDockSide == "left"
+        let cubeDim = size.cubeSize
+        let cornerRad = size.cubeCornerRadius
+
+        let projectName = store.currentOpenProject?.name ?? activeProject?.name ?? "goodvibrations HQ"
+
+        return ZStack {
+            // Dark glass background
+            RoundedRectangle(cornerRadius: cornerRad)
+                .fill(Color(hex: "16191E"))
+                .shadow(color: Color.black.opacity(0.35), radius: 6, x: 0, y: 2)
+
+            // Side dock accent bezel indicator (facing screen border)
+            HStack {
+                if !isDockedLeft {
+                    Spacer()
+                }
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(isLiveActive ? Color.green : Color.accentColor.opacity(0.7))
+                    .frame(width: 2.5, height: cubeDim * 0.42)
+                if isDockedLeft {
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 2)
+            .allowsHitTesting(false)
+
+            // Center Icon: App Icon or Waveform
+            if let icon = appIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: cubeDim * 0.56, height: cubeDim * 0.56)
+                    .shadow(color: Color.black.opacity(0.3), radius: 3)
+                    .allowsHitTesting(false)
+            } else {
+                Image(systemName: "waveform")
+                    .font(.system(size: cubeDim * 0.40, weight: .bold))
+                    .foregroundStyle(isLiveActive ? Color.green : Color.accentColor)
+                    .allowsHitTesting(false)
+            }
+
+            // Live / Status Notification Dot
+            VStack {
+                HStack {
+                    if isDockedLeft {
+                        Spacer()
+                    }
+                    if isOpening {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.6)
+                            .padding(4)
+                    } else if isLiveActive {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                            .shadow(color: Color.green.opacity(0.6), radius: 3)
+                            .padding(5)
+                    } else {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.85))
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().stroke(Color.white.opacity(0.4), lineWidth: 1))
+                            .padding(5)
+                    }
+                    if !isDockedLeft {
+                        Spacer()
+                    }
+                }
+                Spacer()
+            }
+            .allowsHitTesting(false)
+
+            // Hover overlay: quick close button
+            if isHoveringCube {
+                RoundedRectangle(cornerRadius: cornerRad)
+                    .fill(Color.black.opacity(0.18))
+                    .allowsHitTesting(false)
+
+                VStack {
+                    Spacer()
+                    HStack {
+                        if !isDockedLeft {
+                            Spacer()
+                        }
+                        Button {
+                            closeFloatingWidget()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 7.5, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.9))
+                                .frame(width: 15, height: 15)
+                                .background(Color.black.opacity(0.65), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close floating minibar (⇧⌘W)")
+                        .padding(4)
+                        if isDockedLeft {
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
+            // Drag and click gesture handler
+            PetPuckDragArea(
+                onDrag: { win in
+                    QuickLauncherPanelPresenter.shared.updatePosition(hudWindow: win, launcherStore: launcherStore)
+                },
+                onDragEnded: { win in
+                    handlePuckDragEnded(win)
+                },
+                onClick: {
+                    expandWidget()
+                }
+            )
+        }
+        .frame(width: cubeDim, height: cubeDim)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRad)
+                .stroke(isLiveActive ? Color.green.opacity(0.4) : Color.white.opacity(0.14), lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: cornerRad))
+        .onHover { isHoveringCube = $0 }
+        .help("goodvibrations HQ • \(projectName) (Click to expand HUD, drag away from side to restore bar)")
     }
 
     // MARK: - Expanded HUD View
@@ -1391,23 +1615,27 @@ class DragNSView: NSView {
 
 struct PetPuckDragArea: NSViewRepresentable {
     var onDrag: ((NSWindow) -> Void)? = nil
+    var onDragEnded: ((NSWindow) -> Void)? = nil
     var onClick: () -> Void
 
     func makeNSView(context: Context) -> PetPuckDragNSView {
         let view = PetPuckDragNSView()
         view.onDrag = onDrag
+        view.onDragEnded = onDragEnded
         view.onClick = onClick
         return view
     }
 
     func updateNSView(_ nsView: PetPuckDragNSView, context: Context) {
         nsView.onDrag = onDrag
+        nsView.onDragEnded = onDragEnded
         nsView.onClick = onClick
     }
 }
 
 class PetPuckDragNSView: NSView {
     var onDrag: ((NSWindow) -> Void)?
+    var onDragEnded: ((NSWindow) -> Void)?
     var onClick: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) {
@@ -1445,6 +1673,7 @@ class PetPuckDragNSView: NSView {
             } else if nextEvent.type == .leftMouseUp {
                 if hasMoved {
                     WindowPresenter.recordCollapsedPillTopAnchor(window.frame.maxY)
+                    onDragEnded?(window)
                 } else {
                     onClick?()
                 }

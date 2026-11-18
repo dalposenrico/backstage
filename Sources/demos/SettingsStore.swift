@@ -111,6 +111,24 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
         }
     }
 
+    var cubeSize: CGFloat {
+        switch self {
+        case .small: return 42
+        case .medium: return 48
+        case .large: return 54
+        case .extraLarge: return 64
+        }
+    }
+
+    var cubeCornerRadius: CGFloat {
+        switch self {
+        case .small: return 11
+        case .medium: return 13
+        case .large: return 15
+        case .extraLarge: return 18
+        }
+    }
+
     var capsuleWidth: CGFloat {
         switch self {
         case .small: return 276
@@ -174,6 +192,12 @@ class SettingsStore: ObservableObject {
     }
     @Published var isFloatingWidgetCollapsed: Bool {
         didSet { UserDefaults.standard.set(isFloatingWidgetCollapsed, forKey: "isFloatingWidgetCollapsed") }
+    }
+    @Published var isFloatingWidgetDockedAsCube: Bool {
+        didSet { UserDefaults.standard.set(isFloatingWidgetDockedAsCube, forKey: "isFloatingWidgetDockedAsCube") }
+    }
+    @Published var floatingWidgetDockSide: String {
+        didSet { UserDefaults.standard.set(floatingWidgetDockSide, forKey: "floatingWidgetDockSide") }
     }
     @Published var showAppIconOnPuck: Bool {
         didSet { UserDefaults.standard.set(showAppIconOnPuck, forKey: "showAppIconOnPuck") }
@@ -259,6 +283,14 @@ class SettingsStore: ObservableObject {
         } else {
             isFloatingWidgetCollapsed = true
         }
+
+        if let storedDocked = UserDefaults.standard.object(forKey: "isFloatingWidgetDockedAsCube") as? Bool {
+            isFloatingWidgetDockedAsCube = storedDocked
+        } else {
+            isFloatingWidgetDockedAsCube = false
+        }
+
+        floatingWidgetDockSide = UserDefaults.standard.string(forKey: "floatingWidgetDockSide") ?? "none"
 
         if let storedAppIcon = UserDefaults.standard.object(forKey: "showAppIconOnPuck") as? Bool {
             showAppIconOnPuck = storedAppIcon
