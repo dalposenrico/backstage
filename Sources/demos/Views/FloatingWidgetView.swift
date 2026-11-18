@@ -545,16 +545,22 @@ struct FloatingWidgetView: View {
             }
             .frame(height: size.singleRowControlHeight)
 
-            // Bottom Row: Scrolling Phase Ticker (placed below, expanding vertically)
+            // Bottom Row: Phase Dropdown Badge (placed below, expanding vertically)
             if let phase = activeProjectPhase, let project = activeProject {
                 let isClient = metadataStore.metadata(for: project).projectKind == .client
+                let phases = metadataStore.effectivePhases(for: project)
                 FloatingPhaseTickerView(
                     phase: phase,
                     isClient: isClient,
+                    availablePhases: phases,
                     size: size,
                     customWidth: capsuleW - 16,
-                    onNextPhase: {
-                        metadataStore.advanceToNextPhase(for: project)
+                    onSelectPhase: { selected in
+                        metadataStore.setProductionPhase(selected, for: project)
+                    },
+                    onToggleMode: {
+                        let nextKind: ProjectKind = isClient ? .personal : .client
+                        metadataStore.setProjectKind(nextKind, for: project)
                     }
                 )
             }

@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// Static, refined phase badge for the floating minibar.
-/// Displays the current workflow phase in calm, high-contrast green for personal projects
-/// and orange for client projects without moving text.
+/// Static, refined phase dropdown badge for the floating minibar.
+/// Clicking opens a dropdown menu with checkmark selection for phases,
+/// color-coded green for personal projects and orange for client projects.
 struct FloatingPhaseTickerView: View {
     let phase: ProductionPhase
     let isClient: Bool
+    let availablePhases: [ProductionPhase]
     let size: PetPuckSize
     var customWidth: CGFloat? = nil
-    var onNextPhase: (() -> Void)? = nil
+    var onSelectPhase: ((ProductionPhase?) -> Void)? = nil
+    var onToggleMode: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -47,8 +49,34 @@ struct FloatingPhaseTickerView: View {
     }
 
     var body: some View {
-        Button {
-            onNextPhase?()
+        Menu {
+            Section("Workflow Phase") {
+                ForEach(availablePhases) { item in
+                    Button {
+                        onSelectPhase?(item)
+                    } label: {
+                        HStack {
+                            Text(item.rawValue)
+                            if item == phase {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Clear Phase (Smaller Floating Pill)") {
+                onSelectPhase?(nil)
+            }
+
+            if let onToggleMode {
+                Divider()
+                Button(isClient ? "Switch to Personal Project (Green)" : "Switch to Client Project (Orange)") {
+                    onToggleMode()
+                }
+            }
         } label: {
             HStack(spacing: 5) {
                 Circle()
@@ -60,6 +88,10 @@ struct FloatingPhaseTickerView: View {
                     .tracking(0.7)
                     .foregroundStyle(themeColor)
                     .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6.5, weight: .bold))
+                    .foregroundStyle(themeColor.opacity(0.75))
             }
             .frame(width: tickerWidth, height: tickerHeight)
             .background(
@@ -68,17 +100,17 @@ struct FloatingPhaseTickerView: View {
             )
             .background(
                 Capsule()
-                    .fill(themeColor.opacity(isHovered ? 0.18 : 0.08))
+                    .fill(themeColor.opacity(isHovered ? 0.20 : 0.10))
             )
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(themeColor.opacity(isHovered ? 0.55 : 0.28), lineWidth: 0.8)
+                    .stroke(themeColor.opacity(isHovered ? 0.60 : 0.32), lineWidth: 0.8)
             )
-            .shadow(color: themeColor.opacity(isHovered ? 0.25 : 0.06), radius: isHovered ? 2 : 1)
+            .shadow(color: themeColor.opacity(isHovered ? 0.25 : 0.08), radius: isHovered ? 2 : 1)
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
         .onHover { isHovered = $0 }
-        .help("Workflow Phase: \(phase.rawValue) (\(isClient ? "Client Project" : "Personal Project")) — Click to advance phase")
+        .help("Current Phase: \(phase.rawValue) — Click to choose phase")
     }
 }
