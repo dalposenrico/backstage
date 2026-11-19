@@ -150,4 +150,146 @@ final class FocusStudioOrganizerTests: XCTestCase {
         XCTAssertEqual(groups.last?.clientName, "Warner Music")
         XCTAssertEqual(groups.last?.items.count, 2)
     }
+
+    func testClientFolderHierarchyResolution() {
+        let clientBaseURL = URL(fileURLWithPath: "/Users/test/Music/MIXING - MASTERING WORK")
+
+        // 1. Loose project directly inside client work base folder
+        let looseProject = Project(
+            name: "Loose Mix Project",
+            folderURL: clientBaseURL.appendingPathComponent("Loose Mix Project", isDirectory: true),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let looseItem = FocusActionableItem(
+            project: looseProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            clientBaseURL: clientBaseURL
+        )
+
+        XCTAssertTrue(looseItem.isClient)
+        XCTAssertEqual(looseItem.clientName, FocusStudioOrganizer.unassignedClientName)
+
+        // 2. Project in client subfolder
+        let nestedProject = Project(
+            name: "Francisco Track 1",
+            folderURL: clientBaseURL
+                .appendingPathComponent("Francisco Luz", isDirectory: true)
+                .appendingPathComponent("Francisco Track 1", isDirectory: true),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let nestedItem = FocusActionableItem(
+            project: nestedProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            clientBaseURL: clientBaseURL
+        )
+
+        XCTAssertTrue(nestedItem.isClient)
+        XCTAssertEqual(nestedItem.clientName, "Francisco Luz")
+
+        // 3. Project inside client work base folder, but explicitly marked .personal
+        var personalMeta = ProjectMetadata()
+        personalMeta.projectKind = .personal
+
+        let personalItem = FocusActionableItem(
+            project: looseProject,
+            metadata: personalMeta,
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            clientBaseURL: clientBaseURL
+        )
+
+        XCTAssertFalse(personalItem.isClient)
+
+        // 4. Project outside client work base folder without client metadata
+        let outsideProject = Project(
+            name: "My Beat",
+            folderURL: URL(fileURLWithPath: "/Users/test/Music/Ableton Projects/My Beat"),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let outsideItem = FocusActionableItem(
+            project: outsideProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            clientBaseURL: clientBaseURL
+        )
+
+        XCTAssertFalse(outsideItem.isClient)
+    }
+
+    func testUnassignedClientGroupPinnedToTop() {
+        let clientBaseURL = URL(fileURLWithPath: "/Users/test/Music/MIXING - MASTERING WORK")
+
+        let looseProject = Project(
+            name: "Unassigned Single",
+            folderURL: clientBaseURL.appendingPathComponent("Unassigned Single", isDirectory: true),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let unassignedItem = FocusActionableItem(
+            project: looseProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            clientBaseURL: clientBaseURL
+        )
+
+        var clientMeta = ProjectMetadata()
+        clientMeta.clientName = "Apple Music"
+        clientMeta.projectKind = .client
+
+        let clientItem = FocusActionableItem(
+            project: makeProject(named: "Client Album"),
+            metadata: clientMeta,
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .overdue(days: 5),
+            clientBaseURL: clientBaseURL
+        )
+
+        let groups = FocusStudioOrganizer.groupByClient(
+            items: [clientItem, unassignedItem],
+            knownClientNames: ["Apple Music"]
+        )
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups.first?.clientName, FocusStudioOrganizer.unassignedClientName)
+        XCTAssertEqual(groups.last?.clientName, "Apple Music")
+    }
 }

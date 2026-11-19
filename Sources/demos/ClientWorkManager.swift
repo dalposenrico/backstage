@@ -105,13 +105,25 @@ final class ClientWorkManager: ObservableObject {
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDir), isDir.boolValue {
                 let name = item.lastPathComponent
-                if !name.hasPrefix(".") {
+                if !name.hasPrefix(".") && !isDirectProjectFolder(item) {
                     names.append(name)
                 }
             }
         }
 
         discoveredClientNames = names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Checks if a folder directly contains an Ableton project (.als file).
+    private func isDirectProjectFolder(_ url: URL) -> Bool {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+        return items.contains(where: { $0.pathExtension.lowercased() == "als" })
     }
 
     /// Creates a folder on disk for a new client inside the client work base directory.

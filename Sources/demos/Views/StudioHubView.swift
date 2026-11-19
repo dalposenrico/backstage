@@ -24,7 +24,20 @@ struct StudioHubView: View {
     }
 
     private var isClientProject: Bool {
-        metadata.projectKind == .client
+        if metadata.projectKind == .personal { return false }
+        if metadata.projectKind == .client { return true }
+        if !(metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) { return true }
+        return FocusStudioOrganizer.isProjectInsideBaseURL(project.folderURL, baseURL: ClientWorkManager.shared.clientWorkBaseURL)
+    }
+
+    private var effectiveClientName: String? {
+        if let explicit = metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        return FocusStudioOrganizer.deriveClientNameFromFolder(
+            projectURL: project.folderURL,
+            baseURL: ClientWorkManager.shared.clientWorkBaseURL
+        )
     }
 
     private var currentDeliverables: [DeliverableItem] {
@@ -49,7 +62,7 @@ struct StudioHubView: View {
             return URL(fileURLWithPath: stored)
         }
         return dropbox.recommendedFolderURL(
-            clientName: metadata.clientName,
+            clientName: effectiveClientName,
             projectName: project.name,
             isClientProject: isClientProject
         )

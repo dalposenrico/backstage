@@ -154,14 +154,52 @@ struct FocusActionableItem: Identifiable, Equatable {
     let todos: [ProjectTodo]
     let progress: ProjectProgress
     let urgency: DeadlineUrgency
+    let isClient: Bool
+    let clientName: String
 
-    var isClient: Bool {
-        metadata.projectKind == .client || !(metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-    }
+    init(
+        project: Project,
+        metadata: ProjectMetadata,
+        todos: [ProjectTodo],
+        progress: ProjectProgress,
+        urgency: DeadlineUrgency,
+        clientBaseURL: URL? = nil,
+        isClient: Bool? = nil,
+        clientName: String? = nil
+    ) {
+        self.project = project
+        self.metadata = metadata
+        self.todos = todos
+        self.progress = progress
+        self.urgency = urgency
 
-    var clientName: String {
-        let name = metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "Direct / Independent" : name
+        if let isClient, let clientName {
+            self.isClient = isClient
+            self.clientName = clientName
+        } else if let clientBaseURL {
+            let resolved = FocusStudioOrganizer.resolveClientStatus(
+                project: project,
+                metadata: metadata,
+                clientBaseURL: clientBaseURL
+            )
+            self.isClient = isClient ?? resolved.isClient
+            self.clientName = clientName ?? resolved.clientName
+        } else {
+            let trimmedMetadataName = metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if metadata.projectKind == .personal {
+                self.isClient = false
+                self.clientName = ""
+            } else if !trimmedMetadataName.isEmpty {
+                self.isClient = true
+                self.clientName = trimmedMetadataName
+            } else if metadata.projectKind == .client {
+                self.isClient = true
+                self.clientName = "Direct / Independent"
+            } else {
+                self.isClient = false
+                self.clientName = ""
+            }
+        }
     }
 
     var effectiveDeliverables: [DeliverableItem] {
@@ -194,6 +232,8 @@ struct FocusActionableItem: Identifiable, Equatable {
 
     static func == (lhs: FocusActionableItem, rhs: FocusActionableItem) -> Bool {
         lhs.id == rhs.id
+            && lhs.isClient == rhs.isClient
+            && lhs.clientName == rhs.clientName
             && lhs.urgency == rhs.urgency
             && lhs.metadata.projectKind == rhs.metadata.projectKind
             && lhs.metadata.clientName == rhs.metadata.clientName
@@ -230,13 +270,97 @@ struct FocusClientGroup: Identifiable {
 
 @MainActor
 enum FocusStudioOrganizer {
+    nonisolated static let unassignedClientName = "No Client Assigned"
+
+    /// Checks if a project URL is located anywhere inside the base client work URL.
+    nonisolated static func isProjectInsideBaseURL(_ projectURL: URL, baseURL: URL) -> Bool {
+        let standardizedProject = projectURL.standardizedFileURL.resolvingSymlinksInPath()
+        let standardizedBase = baseURL.standardizedFileURL.resolvingSymlinksInPath()
+
+        let baseComponents = standardizedBase.pathComponents
+        let projComponents = standardizedProject.pathComponents
+
+        guard projComponents.count > baseComponents.count else { return false }
+
+        for i in 0..<baseComponents.count {
+            if projComponents[i] != baseComponents[i] {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Derives the client name from the folder hierarchy if inside baseURL (e.g. baseURL/Client/Project -> Client).
+    /// If directly in baseURL (baseURL/Project), returns nil (unassigned client).
+    nonisolated static func deriveClientNameFromFolder(projectURL: URL, baseURL: URL) -> String? {
+        let standardizedProject = projectURL.standardizedFileURL.resolvingSymlinksInPath()
+        let standardizedBase = baseURL.standardizedFileURL.resolvingSymlinksInPath()
+
+        let baseComponents = standardizedBase.pathComponents
+        let projComponents = standardizedProject.pathComponents
+
+        guard projComponents.count > baseComponents.count else { return nil }
+
+        for i in 0..<baseComponents.count {
+            if projComponents[i] != baseComponents[i] {
+                return nil
+            }
+        }
+
+        let relativeComponents = Array(projComponents[baseComponents.count...])
+        // If directly inside baseURL (relativeComponents.count <= 1), there is no client subfolder
+        if relativeComponents.count <= 1 {
+            return nil
+        }
+
+        let firstFolder = relativeComponents[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        return firstFolder.isEmpty ? nil : firstFolder
+    }
+
+    /// Resolves whether a project is a client project and what its client name is.
+    nonisolated static func resolveClientStatus(
+        project: Project,
+        metadata: ProjectMetadata,
+        clientBaseURL: URL
+    ) -> (isClient: Bool, clientName: String) {
+        // 1. Explicit user override: if marked .personal, it's Personal (unless explicitly changed)
+        if metadata.projectKind == .personal {
+            return (isClient: false, clientName: "")
+        }
+
+        // 2. Explicit client name set in metadata
+        let trimmedMetadataName = metadata.clientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedMetadataName.isEmpty {
+            return (isClient: true, clientName: trimmedMetadataName)
+        }
+
+        // 3. Explicit project kind set to .client
+        let isExplicitClient = (metadata.projectKind == .client)
+
+        // 4. Check if project is located inside clientBaseURL
+        let insideBase = isProjectInsideBaseURL(project.folderURL, baseURL: clientBaseURL)
+
+        if insideBase {
+            let derived = deriveClientNameFromFolder(projectURL: project.folderURL, baseURL: clientBaseURL)
+            return (isClient: true, clientName: derived ?? unassignedClientName)
+        }
+
+        if isExplicitClient {
+            return (isClient: true, clientName: "Direct / Independent")
+        }
+
+        return (isClient: false, clientName: "")
+    }
+
     static func buildItems(
         projects: [Project],
         metadataStore: ProjectMetadataStore,
         todoStore: ProjectTodoStore,
         progressStore: ProjectProgressStore,
+        clientBaseURL: URL? = nil,
         now: Date = Date()
     ) -> (clients: [FocusActionableItem], personal: [FocusActionableItem]) {
+        let effectiveBaseURL = clientBaseURL ?? ClientWorkManager.shared.clientWorkBaseURL
         var clientItems: [FocusActionableItem] = []
         var personalItems: [FocusActionableItem] = []
 
@@ -251,7 +375,8 @@ enum FocusStudioOrganizer {
                 metadata: meta,
                 todos: todos,
                 progress: prog,
-                urgency: urgency
+                urgency: urgency,
+                clientBaseURL: effectiveBaseURL
             )
 
             if item.isClient {
@@ -283,7 +408,7 @@ enum FocusStudioOrganizer {
         var grouped = Dictionary(grouping: items, by: { $0.clientName })
         for known in knownClientNames {
             let trimmed = known.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && grouped[trimmed] == nil {
+            if !trimmed.isEmpty && trimmed != unassignedClientName && grouped[trimmed] == nil {
                 grouped[trimmed] = []
             }
         }
@@ -294,6 +419,11 @@ enum FocusStudioOrganizer {
             )
         }
         .sorted { lhs, rhs in
+            let lhsIsUnassigned = (lhs.clientName == unassignedClientName)
+            let rhsIsUnassigned = (rhs.clientName == unassignedClientName)
+            if lhsIsUnassigned != rhsIsUnassigned {
+                return lhsIsUnassigned // Pin "No Client Assigned" to top when present!
+            }
             if lhs.mostUrgentDeadline != rhs.mostUrgentDeadline {
                 return lhs.mostUrgentDeadline < rhs.mostUrgentDeadline
             }

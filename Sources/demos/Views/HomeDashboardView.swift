@@ -52,7 +52,8 @@ struct HomeDashboardView: View, Equatable {
             projects: allVisibleProjects,
             metadataStore: metadataStore,
             todoStore: todoStore,
-            progressStore: progressStore
+            progressStore: progressStore,
+            clientBaseURL: clientManager.clientWorkBaseURL
         )
 
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -774,8 +775,15 @@ private struct FocusClientGroupSection: View {
 
     @ObservedObject private var clientManager = ClientWorkManager.shared
 
+    private var isUnassignedGroup: Bool {
+        group.clientName == FocusStudioOrganizer.unassignedClientName
+    }
+
     private var clientFolderURL: URL {
-        clientManager.clientWorkBaseURL.appendingPathComponent(group.clientName, isDirectory: true)
+        if isUnassignedGroup {
+            return clientManager.clientWorkBaseURL
+        }
+        return clientManager.clientWorkBaseURL.appendingPathComponent(group.clientName, isDirectory: true)
     }
 
     var body: some View {
@@ -789,9 +797,9 @@ private struct FocusClientGroupSection: View {
                             .foregroundColor(.secondaryText)
                             .frame(width: 14)
 
-                        Image(systemName: "person.crop.square.fill")
+                        Image(systemName: isUnassignedGroup ? "tray.and.arrow.down.fill" : "person.crop.square.fill")
                             .font(.system(size: 15))
-                            .foregroundColor(.accent)
+                            .foregroundColor(isUnassignedGroup ? Color(hex: "FFAA2C") : .accent)
 
                         Text(group.clientName)
                             .font(.system(size: 14, weight: .bold))
@@ -799,6 +807,15 @@ private struct FocusClientGroupSection: View {
                     }
                 }
                 .buttonStyle(.plain)
+
+                if isUnassignedGroup {
+                    Text("Needs Assignment")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color(hex: "FFAA2C"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(hex: "FFAA2C").opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                }
 
                 // Project count & task summary pill
                 HStack(spacing: 4) {
@@ -836,7 +853,7 @@ private struct FocusClientGroupSection: View {
                         .foregroundColor(.secondaryText)
                 }
                 .buttonStyle(.plain)
-                .help("Reveal “\(group.clientName)” folder in Finder")
+                .help(isUnassignedGroup ? "Reveal Client Work base folder in Finder" : "Reveal “\(group.clientName)” folder in Finder")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -896,6 +913,9 @@ private struct FocusClientCard: View {
     private var metadata: ProjectMetadata { item.metadata }
     private var deliverables: [DeliverableItem] { item.effectiveDeliverables }
     private var revisions: [ProjectRevisionItem] { metadata.revisions ?? [] }
+    private var isUnassignedClient: Bool {
+        item.clientName == FocusStudioOrganizer.unassignedClientName
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -904,13 +924,13 @@ private struct FocusClientCard: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Text(item.clientName.uppercased())
+                            Text(isUnassignedClient ? "NO CLIENT ASSIGNED" : item.clientName.uppercased())
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.6)
-                                .foregroundColor(.accent)
+                                .foregroundColor(isUnassignedClient ? Color(hex: "FFAA2C") : .accent)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                .background((isUnassignedClient ? Color(hex: "FFAA2C") : Color.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
 
                             if let service = metadata.serviceType {
                                 Text(service.rawValue)
@@ -1275,7 +1295,11 @@ private struct FocusClientCard: View {
                 Button {
                     onMoveToClient()
                 } label: {
-                    Label("Move to Another Client…", systemImage: "folder.badge.gearshape")
+                    if isUnassignedClient {
+                        Label("Assign to Client…", systemImage: "folder.badge.plus")
+                    } else {
+                        Label("Move to Another Client…", systemImage: "folder.badge.gearshape")
+                    }
                 }
 
                 Divider()
@@ -1690,8 +1714,10 @@ private struct MoveProjectToClientSheet: View {
     @State private var isMoving = false
 
     private var availableClients: [String] {
-        var names = Set(clientManager.discoveredClientNames)
-        if let currentClient = metadataStore.metadata(for: project).clientName {
+        var names = Set(clientManager.discoveredClientNames.filter { $0 != FocusStudioOrganizer.unassignedClientName })
+        if let currentClient = metadataStore.metadata(for: project).clientName,
+           !currentClient.isEmpty,
+           currentClient != FocusStudioOrganizer.unassignedClientName {
             names.insert(currentClient)
         }
         return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }

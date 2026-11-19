@@ -134,4 +134,29 @@ final class ClientWorkManagerTests: XCTestCase {
         XCTAssertEqual(groups.map(\.clientName).sorted(), ["Client A", "Client B"])
         XCTAssertTrue(groups.allSatisfy { $0.items.isEmpty })
     }
+
+    func testDiscoveredClientsFiltersOutDirectProjectFolders() throws {
+        let manager = ClientWorkManager.shared
+        let originalCustom = manager.customClientWorkFolderPath
+        defer {
+            manager.customClientWorkFolderPath = originalCustom
+        }
+
+        manager.customClientWorkFolderPath = tempDir.path
+
+        // 1. Create a client directory (contains no .als directly)
+        let clientFolder = tempDir.appendingPathComponent("Real Client", isDirectory: true)
+        try FileManager.default.createDirectory(at: clientFolder, withIntermediateDirectories: true)
+
+        // 2. Create an Ableton project directly inside base folder (contains .als)
+        let projectFolder = tempDir.appendingPathComponent("Loose Ableton Project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectFolder, withIntermediateDirectories: true)
+        let alsFile = projectFolder.appendingPathComponent("Song.als")
+        try "als dummy".write(to: alsFile, atomically: true, encoding: .utf8)
+
+        manager.refreshDiscoveredClients()
+
+        XCTAssertTrue(manager.discoveredClientNames.contains("Real Client"))
+        XCTAssertFalse(manager.discoveredClientNames.contains("Loose Ableton Project"), "Ableton project folders with .als files must not be treated as client names")
+    }
 }
