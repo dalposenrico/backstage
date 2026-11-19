@@ -292,4 +292,109 @@ final class FocusStudioOrganizerTests: XCTestCase {
         XCTAssertEqual(groups.first?.clientName, FocusStudioOrganizer.unassignedClientName)
         XCTAssertEqual(groups.last?.clientName, "Apple Music")
     }
+
+    func testPersonalCategoryFolderInference() {
+        let rootURL = URL(fileURLWithPath: "/Users/test/Music/Ableton Projects")
+
+        // 1. Project inside Portfolio subfolder
+        let portfolioProject = Project(
+            name: "Best Showreel Track",
+            folderURL: rootURL.appendingPathComponent("Portfolio", isDirectory: true).appendingPathComponent("Best Showreel Track", isDirectory: true),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 124,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let portfolioItem = FocusActionableItem(
+            project: portfolioProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            rootURL: rootURL
+        )
+
+        XCTAssertEqual(portfolioItem.personalCategory, "Portfolio")
+
+        // 2. Loose project directly in root folder
+        let looseProject = Project(
+            name: "Loose Sketch",
+            folderURL: rootURL.appendingPathComponent("Loose Sketch", isDirectory: true),
+            tracks: [],
+            versions: [],
+            creationDate: nil,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity()
+        )
+
+        let looseItem = FocusActionableItem(
+            project: looseProject,
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            rootURL: rootURL
+        )
+
+        XCTAssertEqual(looseItem.personalCategory, "Uncategorized")
+
+        // 3. Explicit metadata override
+        var customMeta = ProjectMetadata()
+        customMeta.personalCategory = "EP 2026"
+
+        let customItem = FocusActionableItem(
+            project: portfolioProject,
+            metadata: customMeta,
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            rootURL: rootURL
+        )
+
+        XCTAssertEqual(customItem.personalCategory, "EP 2026")
+    }
+
+    func testPersonalCategoryGrouping() {
+        let item1 = FocusActionableItem(
+            project: makeProject(named: "Track 1"),
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .dueTomorrow,
+            personalCategory: "Portfolio"
+        )
+
+        let item2 = FocusActionableItem(
+            project: makeProject(named: "Track 2"),
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .overdue(days: 2),
+            personalCategory: "Singles"
+        )
+
+        let item3 = FocusActionableItem(
+            project: makeProject(named: "Track 3"),
+            metadata: ProjectMetadata(),
+            todos: [],
+            progress: ProjectProgress(),
+            urgency: .noDeadline,
+            personalCategory: "Uncategorized"
+        )
+
+        let groups = FocusStudioOrganizer.groupByPersonalCategory(items: [item3, item1, item2])
+
+        XCTAssertEqual(groups.count, 3)
+        // Singles has overdue deadline, so it sorts first among named categories
+        XCTAssertEqual(groups[0].categoryName, "Singles")
+        XCTAssertEqual(groups[1].categoryName, "Portfolio")
+        // Uncategorized is placed last
+        XCTAssertEqual(groups[2].categoryName, "Uncategorized")
+    }
 }

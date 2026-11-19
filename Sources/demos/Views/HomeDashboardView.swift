@@ -5,6 +5,7 @@ struct FocusStudioSnapshot {
     let clients: [FocusActionableItem]
     let personal: [FocusActionableItem]
     let clientGroups: [FocusClientGroup]
+    let personalGroups: [FocusCategoryGroup]
     let urgentItems: [FocusActionableItem]
     let pendingDeliverablesCount: Int
 }
@@ -24,6 +25,7 @@ struct HomeDashboardView: View, Equatable {
     @State private var searchQuery: String = ""
     @State private var expandedProjectIDs: Set<Project.ID> = []
     @State private var collapsedClientNames: Set<String> = []
+    @State private var collapsedCategoryNames: Set<String> = []
 
     // Client Creation & Folder Management State
     @State private var showingCreateClientAlert = false
@@ -47,13 +49,27 @@ struct HomeDashboardView: View, Equatable {
         store.visibleProjects
     }
 
+    private var discoveredPersonalCategories: [String] {
+        var categories = Set<String>()
+        for node in store.folderTree where !node.isProject {
+            categories.insert(node.name)
+        }
+        for proj in allVisibleProjects {
+            if let cat = metadataStore.metadata(for: proj).personalCategory, !cat.isEmpty {
+                categories.insert(cat)
+            }
+        }
+        return categories.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     private var snapshot: FocusStudioSnapshot {
         let (rawClients, rawPersonal) = FocusStudioOrganizer.buildItems(
             projects: allVisibleProjects,
             metadataStore: metadataStore,
             todoStore: todoStore,
             progressStore: progressStore,
-            clientBaseURL: clientManager.clientWorkBaseURL
+            clientBaseURL: clientManager.clientWorkBaseURL,
+            rootURL: store.rootFolderURL
         )
 
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -71,14 +87,20 @@ struct HomeDashboardView: View, Equatable {
             }
             personal = rawPersonal.filter {
                 $0.project.name.lowercased().contains(query)
+                    || $0.personalCategory.lowercased().contains(query)
                     || $0.progress.stage.title.lowercased().contains(query)
                     || $0.progress.nextMove.lowercased().contains(query)
             }
         }
 
-        let groups = FocusStudioOrganizer.groupByClient(
+        let clientGroups = FocusStudioOrganizer.groupByClient(
             items: clients,
             knownClientNames: clientManager.discoveredClientNames
+        )
+
+        let personalGroups = FocusStudioOrganizer.groupByPersonalCategory(
+            items: personal,
+            knownCategoryNames: discoveredPersonalCategories
         )
 
         let urgent = (rawClients + rawPersonal)
@@ -90,7 +112,8 @@ struct HomeDashboardView: View, Equatable {
         return FocusStudioSnapshot(
             clients: clients,
             personal: personal,
-            clientGroups: groups,
+            clientGroups: clientGroups,
+            personalGroups: personalGroups,
             urgentItems: urgent,
             pendingDeliverablesCount: pendingCount
         )
@@ -425,7 +448,7 @@ struct HomeDashboardView: View, Equatable {
                 VStack(alignment: .leading, spacing: 14) {
                     columnHeader(
                         title: "Personal Music",
-                        subtitle: "\(snap.personal.count) tracks in progress",
+                        subtitle: "\(snap.personalGroups.count) categories · \(snap.personal.count) tracks",
                         icon: "music.note.house.fill",
                         color: Color(hex: "8759E8"),
                         expandAction: {
@@ -438,14 +461,17 @@ struct HomeDashboardView: View, Equatable {
                     if snap.personal.isEmpty {
                         emptyPersonalCard
                     } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(snap.personal) { item in
-                                FocusPersonalCard(
-                                    item: item,
-                                    isExpanded: expandedProjectIDs.contains(item.id),
-                                    toggleExpand: { toggleExpand(item.id) },
-                                    open: { openProject(item.project) },
-                                    onMoveToClient: { projectToMove = item.project }
+                        LazyVStack(spacing: 14) {
+                            ForEach(snap.personalGroups) { group in
+                                FocusCategoryGroupSection(
+                                    group: group,
+                                    availableCategories: discoveredPersonalCategories,
+                                    isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
+                                    expandedProjectIDs: expandedProjectIDs,
+                                    toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
+                                    toggleProjectExpand: { toggleExpand($0) },
+                                    openProject: openProject,
+                                    onMoveToClient: { projectToMove = $0 }
                                 )
                             }
                         }
@@ -489,7 +515,7 @@ struct HomeDashboardView: View, Equatable {
             VStack(alignment: .leading, spacing: 16) {
                 expandedHeader(
                     title: "Personal Music",
-                    countLabel: "\(snap.personal.count) personal tracks",
+                    countLabel: "\(snap.personalGroups.count) categories · \(snap.personal.count) personal tracks",
                     icon: "music.note.house.fill",
                     color: Color(hex: "8759E8")
                 )
@@ -497,14 +523,17 @@ struct HomeDashboardView: View, Equatable {
                 if snap.personal.isEmpty {
                     emptyPersonalCard
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16)], spacing: 16) {
-                        ForEach(snap.personal) { item in
-                            FocusPersonalCard(
-                                item: item,
-                                isExpanded: expandedProjectIDs.contains(item.id),
-                                toggleExpand: { toggleExpand(item.id) },
-                                open: { openProject(item.project) },
-                                onMoveToClient: { projectToMove = item.project }
+                    LazyVStack(spacing: 16) {
+                        ForEach(snap.personalGroups) { group in
+                            FocusCategoryGroupSection(
+                                group: group,
+                                availableCategories: discoveredPersonalCategories,
+                                isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
+                                expandedProjectIDs: expandedProjectIDs,
+                                toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
+                                toggleProjectExpand: { toggleExpand($0) },
+                                openProject: openProject,
+                                onMoveToClient: { projectToMove = $0 }
                             )
                         }
                     }
@@ -760,6 +789,16 @@ struct HomeDashboardView: View, Equatable {
             }
         }
     }
+
+    private func toggleCategoryGroupCollapse(_ categoryName: String) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if collapsedCategoryNames.contains(categoryName) {
+                collapsedCategoryNames.remove(categoryName)
+            } else {
+                collapsedCategoryNames.insert(categoryName)
+            }
+        }
+    }
 }
 
 // MARK: - Focus Client Group Section
@@ -881,6 +920,149 @@ private struct FocusClientGroupSection: View {
                                 toggleExpand: { toggleProjectExpand(item.id) },
                                 open: { openProject(item.project) },
                                 onMoveToClient: { onMoveProject(item.project) }
+                            )
+                        }
+                    }
+                }
+                .padding(10)
+            }
+        }
+        .background(Color.surfaceBg.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.subtleBorder, lineWidth: 1))
+    }
+}
+
+// MARK: - Focus Category Group Section (for Personal Music)
+
+private struct FocusCategoryGroupSection: View {
+    let group: FocusCategoryGroup
+    let availableCategories: [String]
+    let isGroupCollapsed: Bool
+    let expandedProjectIDs: Set<Project.ID>
+    let toggleGroupCollapse: () -> Void
+    let toggleProjectExpand: (Project.ID) -> Void
+    let openProject: (Project) -> Void
+    let onMoveToClient: (Project) -> Void
+
+    @EnvironmentObject private var store: AppStore
+
+    private var isUncategorized: Bool {
+        group.categoryName == "Uncategorized"
+    }
+
+    private var categoryIcon: String {
+        switch group.categoryName.lowercased() {
+        case "portfolio":
+            return "sparkles.rectangle.stack.fill"
+        case "singles", "single":
+            return "opticaldisc.fill"
+        case "album", "albums", "ep", "lp":
+            return "square.stack.fill"
+        case "finished", "completed", "done":
+            return "checkmark.circle.fill"
+        case "uncategorized":
+            return "tray.and.arrow.down.fill"
+        default:
+            return "folder.fill"
+        }
+    }
+
+    private var categoryFolderURL: URL? {
+        guard let root = store.rootFolderURL else { return nil }
+        if isUncategorized { return root }
+        return root.appendingPathComponent(group.categoryName, isDirectory: true)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Category Header Banner
+            HStack(alignment: .center, spacing: 10) {
+                Button(action: toggleGroupCollapse) {
+                    HStack(spacing: 8) {
+                        Image(systemName: isGroupCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondaryText)
+                            .frame(width: 14)
+
+                        Image(systemName: categoryIcon)
+                            .font(.system(size: 14))
+                            .foregroundColor(isUncategorized ? .secondaryText : Color(hex: "8759E8"))
+
+                        Text(group.categoryName)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.primaryText)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Project count & todo summary pill
+                HStack(spacing: 4) {
+                    Text("\(group.items.count) \(group.items.count == 1 ? "track" : "tracks")")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondaryText)
+                    if group.totalOpenTodos > 0 {
+                        Text("· \(group.totalOpenTodos) to-dos")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color(hex: "8759E8"))
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 4))
+
+                Spacer()
+
+                // Urgent deadline badge if any
+                if group.mostUrgentDeadline != .noDeadline {
+                    Text(group.mostUrgentDeadline.shortBadge)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(group.mostUrgentDeadline.badgeColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(group.mostUrgentDeadline.badgeBackground, in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                // Reveal Category Folder in Finder
+                if let url = categoryFolderURL, FileManager.default.fileExists(atPath: url.path) {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reveal “\(group.categoryName)” folder in Finder")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.03))
+
+            // Category Projects List (when expanded)
+            if !isGroupCollapsed {
+                LazyVStack(spacing: 10) {
+                    if group.items.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "tray")
+                                .font(.system(size: 12))
+                                .foregroundColor(.tertiaryText)
+                            Text("No tracks in this category yet")
+                                .font(.system(size: 11))
+                                .foregroundColor(.tertiaryText)
+                            Spacer()
+                        }
+                        .padding(12)
+                    } else {
+                        ForEach(group.items) { item in
+                            FocusPersonalCard(
+                                item: item,
+                                isExpanded: expandedProjectIDs.contains(item.id),
+                                availableCategories: availableCategories,
+                                toggleExpand: { toggleProjectExpand(item.id) },
+                                open: { openProject(item.project) },
+                                onMoveToClient: { onMoveToClient(item.project) }
                             )
                         }
                     }
@@ -1363,6 +1545,7 @@ private struct FocusClientCard: View {
 private struct FocusPersonalCard: View {
     let item: FocusActionableItem
     let isExpanded: Bool
+    let availableCategories: [String]
     let toggleExpand: () -> Void
     let open: () -> Void
     let onMoveToClient: () -> Void
@@ -1373,11 +1556,16 @@ private struct FocusPersonalCard: View {
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     @State private var newTodoTitle: String = ""
+    @State private var showingCategoryPopover = false
+    @State private var isHoveringCategory = false
 
     private var project: Project { item.project }
     private var progress: ProjectProgress { progressStore.progress(for: project) }
     private var todos: [ProjectTodo] { todoStore.todos(for: project) }
     private var metadata: ProjectMetadata { metadataStore.metadata(for: project) }
+    private var isUncategorized: Bool {
+        item.personalCategory == "Uncategorized"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1386,6 +1574,46 @@ private struct FocusPersonalCard: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
+                            // Category Popover Tag
+                            Button {
+                                showingCategoryPopover.toggle()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: item.personalCategory.lowercased() == "portfolio" ? "sparkles" : "folder")
+                                        .font(.system(size: 8))
+                                    Text(item.personalCategory.uppercased())
+                                        .font(.system(size: 9, weight: .bold))
+                                        .tracking(0.6)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 7, weight: .bold))
+                                }
+                                .foregroundColor(isUncategorized ? .secondaryText : Color(hex: "8759E8"))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2.5)
+                                .background((isUncategorized ? Color.white.opacity(0.06) : Color(hex: "8759E8").opacity(isHoveringCategory ? 0.22 : 0.12)), in: RoundedRectangle(cornerRadius: 4))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(Color(hex: "8759E8").opacity(isHoveringCategory ? 0.45 : 0), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { isHoveringCategory = $0 }
+                            .help("Click to assign category")
+                            .popover(isPresented: $showingCategoryPopover, arrowEdge: .bottom) {
+                                QuickCategoryAssignPopover(
+                                    project: project,
+                                    currentCategory: item.personalCategory,
+                                    availableCategories: availableCategories,
+                                    onAssigned: { newCat in
+                                        metadataStore.setPersonalCategory(newCat, for: project)
+                                        showingCategoryPopover = false
+                                    },
+                                    onDismiss: {
+                                        showingCategoryPopover = false
+                                    }
+                                )
+                            }
+
                             Text(progress.stage.title.uppercased())
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.6)
@@ -1946,6 +2174,190 @@ private struct QuickClientHoverButtonStyle: ButtonStyle {
                     .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
             )
             .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Quick Category Assign Popover
+
+private struct QuickCategoryAssignPopover: View {
+    let project: Project
+    let currentCategory: String
+    let availableCategories: [String]
+    let onAssigned: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var filterQuery: String = ""
+    @FocusState private var isSearchFocused: Bool
+
+    private var allSuggestedCategories: [String] {
+        var set = Set(availableCategories)
+        set.insert("Portfolio")
+        return set.sorted { lhs, rhs in
+            if lhs.lowercased() == "portfolio" { return true }
+            if rhs.lowercased() == "portfolio" { return false }
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+    }
+
+    private var filteredCategories: [String] {
+        let q = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty {
+            return allSuggestedCategories
+        }
+        return allSuggestedCategories.filter { $0.lowercased().contains(q) }
+    }
+
+    private var exactMatchExists: Bool {
+        let q = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return allSuggestedCategories.contains { $0.lowercased() == q }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                Text("ASSIGN CATEGORY")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+            }
+
+            // Search / New Category field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondaryText)
+
+                TextField("Search or type new category…", text: $filterQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .focused($isSearchFocused)
+                    .onSubmit(handleReturnKey)
+
+                if !filterQuery.isEmpty {
+                    Button {
+                        filterQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+
+            // Categories List
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(filteredCategories, id: \.self) { cat in
+                        Button {
+                            onAssigned(cat)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: cat.lowercased() == "portfolio" ? "sparkles" : "folder.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(Color(hex: "8759E8"))
+
+                                Text(cat)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.primaryText)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                if cat.lowercased() == currentCategory.lowercased() {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(Color(hex: "8759E8"))
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(QuickClientHoverButtonStyle())
+                    }
+
+                    // "+ Create '<filterQuery>' & Assign" option
+                    let trimmed = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty && !exactMatchExists {
+                        Divider().background(Color.divider).padding(.vertical, 4)
+
+                        Button {
+                            onAssigned(trimmed)
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color(hex: "8759E8"))
+
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Create “\(trimmed)”")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.primaryText)
+                                    Text("Assign to this category")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondaryText)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "return")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.secondaryText)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(hex: "8759E8").opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if currentCategory != "Uncategorized" {
+                        Divider().background(Color.divider).padding(.vertical, 4)
+
+                        Button {
+                            onAssigned("Uncategorized")
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondaryText)
+                                Text("Reset to Uncategorized")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondaryText)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(QuickClientHoverButtonStyle())
+                    }
+                }
+            }
+            .frame(maxHeight: 180)
+        }
+        .padding(12)
+        .frame(width: 250)
+        .background(.regularMaterial)
+        .onAppear {
+            isSearchFocused = true
+        }
+    }
+
+    private func handleReturnKey() {
+        let trimmed = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let match = allSuggestedCategories.first(where: { $0.lowercased() == trimmed.lowercased() }) {
+            onAssigned(match)
+        } else {
+            onAssigned(trimmed)
+        }
     }
 }
 

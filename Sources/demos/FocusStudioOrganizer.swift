@@ -156,6 +156,7 @@ struct FocusActionableItem: Identifiable, Equatable {
     let urgency: DeadlineUrgency
     let isClient: Bool
     let clientName: String
+    let personalCategory: String
 
     init(
         project: Project,
@@ -164,8 +165,10 @@ struct FocusActionableItem: Identifiable, Equatable {
         progress: ProjectProgress,
         urgency: DeadlineUrgency,
         clientBaseURL: URL? = nil,
+        rootURL: URL? = nil,
         isClient: Bool? = nil,
-        clientName: String? = nil
+        clientName: String? = nil,
+        personalCategory: String? = nil
     ) {
         self.project = project
         self.metadata = metadata
@@ -200,6 +203,12 @@ struct FocusActionableItem: Identifiable, Equatable {
                 self.clientName = ""
             }
         }
+
+        self.personalCategory = personalCategory ?? FocusStudioOrganizer.derivePersonalCategory(
+            project: project,
+            metadata: metadata,
+            rootURL: rootURL
+        )
     }
 
     var effectiveDeliverables: [DeliverableItem] {
@@ -234,9 +243,11 @@ struct FocusActionableItem: Identifiable, Equatable {
         lhs.id == rhs.id
             && lhs.isClient == rhs.isClient
             && lhs.clientName == rhs.clientName
+            && lhs.personalCategory == rhs.personalCategory
             && lhs.urgency == rhs.urgency
             && lhs.metadata.projectKind == rhs.metadata.projectKind
             && lhs.metadata.clientName == rhs.metadata.clientName
+            && lhs.metadata.personalCategory == rhs.metadata.personalCategory
             && lhs.metadata.targetDeadline == rhs.metadata.targetDeadline
             && lhs.metadata.productionPhase == rhs.metadata.productionPhase
             && lhs.completedDeliverablesCount == rhs.completedDeliverablesCount
@@ -263,6 +274,22 @@ struct FocusClientGroup: Identifiable {
             let pendingDeliverables = item.totalDeliverablesCount - item.completedDeliverablesCount
             return total + pendingDeliverables + item.unresolvedRevisions.count + item.openTodos.count
         }
+    }
+}
+
+// MARK: - Category Group (for Personal Music)
+
+struct FocusCategoryGroup: Identifiable {
+    var id: String { categoryName }
+    let categoryName: String
+    let items: [FocusActionableItem]
+
+    var mostUrgentDeadline: DeadlineUrgency {
+        items.map(\.urgency).min() ?? .noDeadline
+    }
+
+    var totalOpenTodos: Int {
+        items.reduce(0) { $0 + $1.openTodos.count }
     }
 }
 
@@ -317,6 +344,50 @@ enum FocusStudioOrganizer {
         return firstFolder.isEmpty ? nil : firstFolder
     }
 
+    /// Derives the category for personal projects (e.g. Portfolio, Singles, or Uncategorized).
+    nonisolated static func derivePersonalCategory(
+        project: Project,
+        metadata: ProjectMetadata,
+        rootURL: URL?
+    ) -> String {
+        // 1. Explicit user metadata
+        if let explicit = metadata.personalCategory?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+
+        // 2. Derive from folder hierarchy relative to rootURL
+        guard let rootURL else {
+            let parent = project.folderURL.deletingLastPathComponent().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return parent.isEmpty ? "Uncategorized" : parent
+        }
+
+        let stdProject = project.folderURL.standardizedFileURL.resolvingSymlinksInPath()
+        let stdRoot = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+
+        let rootComponents = stdRoot.pathComponents
+        let projComponents = stdProject.pathComponents
+
+        guard projComponents.count > rootComponents.count else {
+            return "Uncategorized"
+        }
+
+        for i in 0..<rootComponents.count {
+            if projComponents[i] != rootComponents[i] {
+                let parent = stdProject.deletingLastPathComponent().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                return parent.isEmpty ? "Uncategorized" : parent
+            }
+        }
+
+        let relative = Array(projComponents[rootComponents.count...])
+        // If relative.count <= 1: loose project directly in rootURL
+        if relative.count <= 1 {
+            return "Uncategorized"
+        }
+
+        let firstFolder = relative[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        return firstFolder.isEmpty ? "Uncategorized" : firstFolder
+    }
+
     /// Resolves whether a project is a client project and what its client name is.
     nonisolated static func resolveClientStatus(
         project: Project,
@@ -358,6 +429,7 @@ enum FocusStudioOrganizer {
         todoStore: ProjectTodoStore,
         progressStore: ProjectProgressStore,
         clientBaseURL: URL? = nil,
+        rootURL: URL? = nil,
         now: Date = Date()
     ) -> (clients: [FocusActionableItem], personal: [FocusActionableItem]) {
         let effectiveBaseURL = clientBaseURL ?? ClientWorkManager.shared.clientWorkBaseURL
@@ -376,7 +448,8 @@ enum FocusStudioOrganizer {
                 todos: todos,
                 progress: prog,
                 urgency: urgency,
-                clientBaseURL: effectiveBaseURL
+                clientBaseURL: effectiveBaseURL,
+                rootURL: rootURL
             )
 
             if item.isClient {
@@ -431,6 +504,45 @@ enum FocusStudioOrganizer {
                 return !lhs.items.isEmpty
             }
             return lhs.clientName.localizedCaseInsensitiveCompare(rhs.clientName) == .orderedAscending
+        }
+    }
+
+    static func groupByPersonalCategory(
+        items: [FocusActionableItem],
+        knownCategoryNames: [String] = []
+    ) -> [FocusCategoryGroup] {
+        var grouped = Dictionary(grouping: items, by: { $0.personalCategory })
+        for known in knownCategoryNames {
+            let trimmed = known.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && grouped[trimmed] == nil {
+                grouped[trimmed] = []
+            }
+        }
+
+        return grouped.map { categoryName, groupItems in
+            FocusCategoryGroup(
+                categoryName: categoryName,
+                items: groupItems.sorted { lhs, rhs in
+                    if lhs.urgency != rhs.urgency {
+                        return lhs.urgency < rhs.urgency
+                    }
+                    return lhs.project.latestModification > rhs.project.latestModification
+                }
+            )
+        }
+        .sorted { lhs, rhs in
+            let lhsIsUncategorized = (lhs.categoryName == "Uncategorized")
+            let rhsIsUncategorized = (rhs.categoryName == "Uncategorized")
+            if lhsIsUncategorized != rhsIsUncategorized {
+                return !lhsIsUncategorized // Put named categories (Portfolio, etc.) first!
+            }
+            if lhs.mostUrgentDeadline != rhs.mostUrgentDeadline {
+                return lhs.mostUrgentDeadline < rhs.mostUrgentDeadline
+            }
+            if lhs.items.isEmpty != rhs.items.isEmpty {
+                return !lhs.items.isEmpty
+            }
+            return lhs.categoryName.localizedCaseInsensitiveCompare(rhs.categoryName) == .orderedAscending
         }
     }
 }

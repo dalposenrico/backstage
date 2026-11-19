@@ -244,6 +244,7 @@ struct ProjectMetadata: Codable {
     var targetLUFS: Double? = nil
     var manualDeliverables: [DeliverableItem]? = nil
     var revisions: [ProjectRevisionItem]? = nil
+    var personalCategory: String? = nil
 }
 
 @MainActor
@@ -286,6 +287,19 @@ final class ProjectMetadataStore: ObservableObject {
     func setClientName(_ name: String?, for project: Project) {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         update(project) { $0.clientName = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setPersonalCategory(_ category: String?, for project: Project) {
+        let trimmed = category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        update(project) { $0.personalCategory = trimmed.isEmpty ? nil : trimmed }
+    }
+
+    func setPersonalCategory(_ category: String?, forPath path: String) {
+        var meta = values[path] ?? ProjectMetadata()
+        let trimmed = category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        meta.personalCategory = trimmed.isEmpty ? nil : trimmed
+        values[path] = meta
+        save()
     }
 
     func setServiceType(_ type: AudioServiceType?, for project: Project) {
