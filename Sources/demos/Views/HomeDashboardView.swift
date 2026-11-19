@@ -275,6 +275,47 @@ struct HomeDashboardView: View, Equatable {
 
                 Spacer()
 
+                // Quick Density & Expand/Collapse Toggles
+                HStack(spacing: 8) {
+                    // Project Cards Toggle
+                    Button {
+                        toggleAllProjectsExpansion(items: snap.clients + snap.personal)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: areAllVisibleProjectsExpanded(items: snap.clients + snap.personal) ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(areAllVisibleProjectsExpanded(items: snap.clients + snap.personal) ? "Small Cards" : "Expand All Cards")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+                        .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(areAllVisibleProjectsExpanded(items: snap.clients + snap.personal) ? "Make all project cards compact" : "Expand all project cards to view notes and tasks")
+
+                    // Folders / Clients Toggle
+                    Button {
+                        toggleAllFolders(snapshot: snap)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: areAllFoldersCollapsed(snapshot: snap) ? "folder.fill" : "folder")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(areAllFoldersCollapsed(snapshot: snap) ? "Expand Folders" : "Collapse to Folders")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.08), lineWidth: 0.5))
+                        .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(areAllFoldersCollapsed(snapshot: snap) ? "Expand all client and category folders to see projects" : "Collapse all folders to easily view clients and categories")
+                }
+
                 // Search Bar
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
@@ -414,6 +455,10 @@ struct HomeDashboardView: View, Equatable {
                         subtitle: "\(snap.clientGroups.count) clients · \(snap.clients.count) projects",
                         icon: "person.2.fill",
                         color: .accent,
+                        cardsExpanded: areAllVisibleProjectsExpanded(items: snap.clients),
+                        foldersCollapsed: areAllClientGroupsCollapsed(groups: snap.clientGroups),
+                        onToggleCards: { toggleAllProjectsExpansion(items: snap.clients) },
+                        onToggleFolders: { toggleAllClientGroups(groups: snap.clientGroups) },
                         expandAction: {
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 viewModeRaw = FocusStudioViewMode.clientsExpanded.rawValue
@@ -434,6 +479,7 @@ struct HomeDashboardView: View, Equatable {
                                     isGroupCollapsed: collapsedClientNames.contains(group.clientName),
                                     expandedProjectIDs: expandedProjectIDs,
                                     toggleGroupCollapse: { toggleClientGroupCollapse(group.clientName) },
+                                    toggleGroupProjects: { toggleGroupProjectsExpansion(items: group.items) },
                                     toggleProjectExpand: { toggleExpand($0) },
                                     openProject: openProject,
                                     onMoveProject: { proj in projectToMove = proj }
@@ -451,6 +497,10 @@ struct HomeDashboardView: View, Equatable {
                         subtitle: "\(snap.personalGroups.count) categories · \(snap.personal.count) tracks",
                         icon: "music.note.house.fill",
                         color: Color(hex: "8759E8"),
+                        cardsExpanded: areAllVisibleProjectsExpanded(items: snap.personal),
+                        foldersCollapsed: areAllCategoryGroupsCollapsed(groups: snap.personalGroups),
+                        onToggleCards: { toggleAllProjectsExpansion(items: snap.personal) },
+                        onToggleFolders: { toggleAllCategoryGroups(groups: snap.personalGroups) },
                         expandAction: {
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 viewModeRaw = FocusStudioViewMode.personalExpanded.rawValue
@@ -469,6 +519,7 @@ struct HomeDashboardView: View, Equatable {
                                     isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
                                     expandedProjectIDs: expandedProjectIDs,
                                     toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
+                                    toggleGroupProjects: { toggleGroupProjectsExpansion(items: group.items) },
                                     toggleProjectExpand: { toggleExpand($0) },
                                     openProject: openProject,
                                     onMoveToClient: { projectToMove = $0 }
@@ -486,7 +537,11 @@ struct HomeDashboardView: View, Equatable {
                     title: "Client Work",
                     countLabel: "\(snap.clientGroups.count) clients · \(snap.clients.count) projects",
                     icon: "person.2.fill",
-                    color: .accent
+                    color: .accent,
+                    cardsExpanded: areAllVisibleProjectsExpanded(items: snap.clients),
+                    foldersCollapsed: areAllClientGroupsCollapsed(groups: snap.clientGroups),
+                    onToggleCards: { toggleAllProjectsExpansion(items: snap.clients) },
+                    onToggleFolders: { toggleAllClientGroups(groups: snap.clientGroups) }
                 )
 
                 // Client Base Folder & Create Client Toolbar
@@ -502,6 +557,7 @@ struct HomeDashboardView: View, Equatable {
                                 isGroupCollapsed: collapsedClientNames.contains(group.clientName),
                                 expandedProjectIDs: expandedProjectIDs,
                                 toggleGroupCollapse: { toggleClientGroupCollapse(group.clientName) },
+                                toggleGroupProjects: { toggleGroupProjectsExpansion(items: group.items) },
                                 toggleProjectExpand: { toggleExpand($0) },
                                 openProject: openProject,
                                 onMoveProject: { proj in projectToMove = proj }
@@ -517,7 +573,11 @@ struct HomeDashboardView: View, Equatable {
                     title: "Personal Music",
                     countLabel: "\(snap.personalGroups.count) categories · \(snap.personal.count) personal tracks",
                     icon: "music.note.house.fill",
-                    color: Color(hex: "8759E8")
+                    color: Color(hex: "8759E8"),
+                    cardsExpanded: areAllVisibleProjectsExpanded(items: snap.personal),
+                    foldersCollapsed: areAllCategoryGroupsCollapsed(groups: snap.personalGroups),
+                    onToggleCards: { toggleAllProjectsExpansion(items: snap.personal) },
+                    onToggleFolders: { toggleAllCategoryGroups(groups: snap.personalGroups) }
                 )
 
                 if snap.personal.isEmpty {
@@ -531,6 +591,7 @@ struct HomeDashboardView: View, Equatable {
                                 isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
                                 expandedProjectIDs: expandedProjectIDs,
                                 toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
+                                toggleGroupProjects: { toggleGroupProjectsExpansion(items: group.items) },
                                 toggleProjectExpand: { toggleExpand($0) },
                                 openProject: openProject,
                                 onMoveToClient: { projectToMove = $0 }
@@ -651,6 +712,10 @@ struct HomeDashboardView: View, Equatable {
         subtitle: String,
         icon: String,
         color: Color,
+        cardsExpanded: Bool,
+        foldersCollapsed: Bool,
+        onToggleCards: @escaping () -> Void,
+        onToggleFolders: @escaping () -> Void,
         expandAction: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .center) {
@@ -670,20 +735,52 @@ struct HomeDashboardView: View, Equatable {
 
             Spacer()
 
-            Button(action: expandAction) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 9, weight: .bold))
-                    Text("Expand")
-                        .font(.system(size: 10, weight: .semibold))
+            HStack(spacing: 5) {
+                Button(action: onToggleCards) {
+                    HStack(spacing: 3) {
+                        Image(systemName: cardsExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(cardsExpanded ? "Small" : "Cards")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondaryText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
                 }
-                .foregroundColor(.secondaryText)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                .buttonStyle(.plain)
+                .help(cardsExpanded ? "Make cards small in \(title)" : "Expand all cards in \(title)")
+
+                Button(action: onToggleFolders) {
+                    HStack(spacing: 3) {
+                        Image(systemName: foldersCollapsed ? "folder.fill" : "folder")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(foldersCollapsed ? "Open" : "Folders")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondaryText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help(foldersCollapsed ? "Expand folders in \(title)" : "Collapse to folders in \(title)")
+
+                Button(action: expandAction) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("Expand")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.secondaryText)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("Expand \(title) to full width")
             }
-            .buttonStyle(.plain)
-            .help("Expand \(title) to full width")
         }
         .padding(.horizontal, 4)
     }
@@ -692,7 +789,11 @@ struct HomeDashboardView: View, Equatable {
         title: String,
         countLabel: String,
         icon: String,
-        color: Color
+        color: Color,
+        cardsExpanded: Bool,
+        foldersCollapsed: Bool,
+        onToggleCards: @escaping () -> Void,
+        onToggleFolders: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .center) {
             HStack(spacing: 8) {
@@ -709,23 +810,55 @@ struct HomeDashboardView: View, Equatable {
 
             Spacer()
 
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    viewModeRaw = FocusStudioViewMode.split.rawValue
+            HStack(spacing: 6) {
+                Button(action: onToggleCards) {
+                    HStack(spacing: 4) {
+                        Image(systemName: cardsExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(cardsExpanded ? "Small Cards" : "Expand Cards")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondaryText)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Back to Split View")
-                        .font(.system(size: 11, weight: .semibold))
+                .buttonStyle(.plain)
+                .help(cardsExpanded ? "Make cards small in \(title)" : "Expand all cards in \(title)")
+
+                Button(action: onToggleFolders) {
+                    HStack(spacing: 4) {
+                        Image(systemName: foldersCollapsed ? "folder.fill" : "folder")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(foldersCollapsed ? "Expand Folders" : "Folders Only")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(.secondaryText)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 5))
                 }
-                .foregroundColor(.primaryText)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .buttonStyle(.plain)
+                .help(foldersCollapsed ? "Expand folders in \(title)" : "Collapse to folders in \(title)")
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        viewModeRaw = FocusStudioViewMode.split.rawValue
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Back to Split View")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.primaryText)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.bottom, 4)
     }
@@ -799,6 +932,93 @@ struct HomeDashboardView: View, Equatable {
             }
         }
     }
+
+    // MARK: - Density & Batch Expansion Helpers
+
+    private func areAllVisibleProjectsExpanded(items: [FocusActionableItem]) -> Bool {
+        guard !items.isEmpty else { return false }
+        return items.allSatisfy { expandedProjectIDs.contains($0.id) }
+    }
+
+    private func toggleAllProjectsExpansion(items: [FocusActionableItem]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if areAllVisibleProjectsExpanded(items: items) {
+                for item in items {
+                    expandedProjectIDs.remove(item.id)
+                }
+            } else {
+                // Expanding cards: ensure containing folders are also open so the cards are visible
+                collapsedClientNames.removeAll()
+                collapsedCategoryNames.removeAll()
+                for item in items {
+                    expandedProjectIDs.insert(item.id)
+                }
+            }
+        }
+    }
+
+    private func areAllClientGroupsCollapsed(groups: [FocusClientGroup]) -> Bool {
+        guard !groups.isEmpty else { return false }
+        return groups.allSatisfy { collapsedClientNames.contains($0.clientName) }
+    }
+
+    private func toggleAllClientGroups(groups: [FocusClientGroup]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if areAllClientGroupsCollapsed(groups: groups) {
+                for g in groups { collapsedClientNames.remove(g.clientName) }
+            } else {
+                for g in groups { collapsedClientNames.insert(g.clientName) }
+            }
+        }
+    }
+
+    private func areAllCategoryGroupsCollapsed(groups: [FocusCategoryGroup]) -> Bool {
+        guard !groups.isEmpty else { return false }
+        return groups.allSatisfy { collapsedCategoryNames.contains($0.categoryName) }
+    }
+
+    private func toggleAllCategoryGroups(groups: [FocusCategoryGroup]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if areAllCategoryGroupsCollapsed(groups: groups) {
+                for g in groups { collapsedCategoryNames.remove(g.categoryName) }
+            } else {
+                for g in groups { collapsedCategoryNames.insert(g.categoryName) }
+            }
+        }
+    }
+
+    private func areAllFoldersCollapsed(snapshot snap: FocusStudioSnapshot) -> Bool {
+        let hasClients = !snap.clientGroups.isEmpty
+        let hasPersonal = !snap.personalGroups.isEmpty
+        if !hasClients && !hasPersonal { return false }
+
+        let clientsCollapsed = !hasClients || areAllClientGroupsCollapsed(groups: snap.clientGroups)
+        let personalCollapsed = !hasPersonal || areAllCategoryGroupsCollapsed(groups: snap.personalGroups)
+        return clientsCollapsed && personalCollapsed
+    }
+
+    private func toggleAllFolders(snapshot snap: FocusStudioSnapshot) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            if areAllFoldersCollapsed(snapshot: snap) {
+                collapsedClientNames.removeAll()
+                collapsedCategoryNames.removeAll()
+            } else {
+                for g in snap.clientGroups { collapsedClientNames.insert(g.clientName) }
+                for g in snap.personalGroups { collapsedCategoryNames.insert(g.categoryName) }
+            }
+        }
+    }
+
+    private func toggleGroupProjectsExpansion(items: [FocusActionableItem]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            let allExpanded = !items.isEmpty && items.allSatisfy { expandedProjectIDs.contains($0.id) }
+            if allExpanded {
+                for item in items { expandedProjectIDs.remove(item.id) }
+            } else {
+                for item in items { expandedProjectIDs.insert(item.id) }
+            }
+        }
+    }
 }
 
 // MARK: - Focus Client Group Section
@@ -808,6 +1028,7 @@ private struct FocusClientGroupSection: View {
     let isGroupCollapsed: Bool
     let expandedProjectIDs: Set<Project.ID>
     let toggleGroupCollapse: () -> Void
+    let toggleGroupProjects: () -> Void
     let toggleProjectExpand: (Project.ID) -> Void
     let openProject: (Project) -> Void
     let onMoveProject: (Project) -> Void
@@ -883,6 +1104,18 @@ private struct FocusClientGroupSection: View {
                         .background(group.mostUrgentDeadline.badgeBackground, in: RoundedRectangle(cornerRadius: 4))
                 }
 
+                // Expand/Collapse cards in this group
+                if !group.items.isEmpty {
+                    let allInGroupExpanded = group.items.allSatisfy { expandedProjectIDs.contains($0.id) }
+                    Button(action: toggleGroupProjects) {
+                        Image(systemName: allInGroupExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(allInGroupExpanded ? "Make project cards small in \(group.clientName)" : "Expand all project cards in \(group.clientName)")
+                }
+
                 // Reveal Client Folder in Finder
                 Button {
                     clientManager.revealInFinder(url: clientFolderURL)
@@ -941,6 +1174,7 @@ private struct FocusCategoryGroupSection: View {
     let isGroupCollapsed: Bool
     let expandedProjectIDs: Set<Project.ID>
     let toggleGroupCollapse: () -> Void
+    let toggleGroupProjects: () -> Void
     let toggleProjectExpand: (Project.ID) -> Void
     let openProject: (Project) -> Void
     let onMoveToClient: (Project) -> Void
@@ -1021,6 +1255,18 @@ private struct FocusCategoryGroupSection: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(group.mostUrgentDeadline.badgeBackground, in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                // Expand/Collapse cards in this group
+                if !group.items.isEmpty {
+                    let allInGroupExpanded = group.items.allSatisfy { expandedProjectIDs.contains($0.id) }
+                    Button(action: toggleGroupProjects) {
+                        Image(systemName: allInGroupExpanded ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help(allInGroupExpanded ? "Make project cards small in \(group.categoryName)" : "Expand all project cards in \(group.categoryName)")
                 }
 
                 // Reveal Category Folder in Finder
