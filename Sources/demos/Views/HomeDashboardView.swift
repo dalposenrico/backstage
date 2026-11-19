@@ -6,6 +6,7 @@ struct FocusStudioSnapshot {
     let personal: [FocusActionableItem]
     let clientGroups: [FocusClientGroup]
     let personalGroups: [FocusCategoryGroup]
+    let discoveredCategories: [String]
     let urgentItems: [FocusActionableItem]
     let pendingDeliverablesCount: Int
 }
@@ -122,9 +123,10 @@ struct HomeDashboardView: View, Equatable {
             knownClientNames: clientManager.discoveredClientNames
         )
 
+        let categories = discoveredPersonalCategories
         let personalGroups = FocusStudioOrganizer.groupByPersonalCategory(
             items: personal,
-            knownCategoryNames: discoveredPersonalCategories
+            knownCategoryNames: categories
         )
 
         let urgent = (rawClients + rawPersonal)
@@ -138,6 +140,7 @@ struct HomeDashboardView: View, Equatable {
             personal: personal,
             clientGroups: clientGroups,
             personalGroups: personalGroups,
+            discoveredCategories: categories,
             urgentItems: urgent,
             pendingDeliverablesCount: pendingCount
         )
@@ -300,6 +303,7 @@ struct HomeDashboardView: View, Equatable {
                 Spacer()
 
                 // View Density Switch: Folders | Compact | Expanded
+                let activeDensity = currentDensity(for: snap)
                 HStack(spacing: 3) {
                     ForEach(StudioHubDensity.allCases) { density in
                         Button {
@@ -314,14 +318,14 @@ struct HomeDashboardView: View, Equatable {
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .background(
-                                currentDensity == density ? Color.accent.opacity(0.18) : Color.white.opacity(0.04),
+                                activeDensity == density ? Color.accent.opacity(0.18) : Color.white.opacity(0.04),
                                 in: RoundedRectangle(cornerRadius: 6)
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .stroke(currentDensity == density ? Color.accent.opacity(0.4) : Color.white.opacity(0.06), lineWidth: 1)
+                                    .stroke(activeDensity == density ? Color.accent.opacity(0.4) : Color.white.opacity(0.06), lineWidth: 1)
                             )
-                            .foregroundColor(currentDensity == density ? .primaryText : .secondaryText)
+                            .foregroundColor(activeDensity == density ? .primaryText : .secondaryText)
                         }
                         .buttonStyle(.plain)
                         .help(density.tooltip)
@@ -524,7 +528,7 @@ struct HomeDashboardView: View, Equatable {
                             ForEach(snap.personalGroups) { group in
                                 FocusCategoryGroupSection(
                                     group: group,
-                                    availableCategories: discoveredPersonalCategories,
+                                    availableCategories: snap.discoveredCategories,
                                     isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
                                     expandedProjectIDs: expandedProjectIDs,
                                     toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
@@ -590,7 +594,7 @@ struct HomeDashboardView: View, Equatable {
                         ForEach(snap.personalGroups) { group in
                             FocusCategoryGroupSection(
                                 group: group,
-                                availableCategories: discoveredPersonalCategories,
+                                availableCategories: snap.discoveredCategories,
                                 isGroupCollapsed: collapsedCategoryNames.contains(group.categoryName),
                                 expandedProjectIDs: expandedProjectIDs,
                                 toggleGroupCollapse: { toggleCategoryGroupCollapse(group.categoryName) },
@@ -903,8 +907,7 @@ struct HomeDashboardView: View, Equatable {
 
     // MARK: - Density & Batch Expansion Helpers
 
-    private var currentDensity: StudioHubDensity {
-        let snap = snapshot
+    private func currentDensity(for snap: FocusStudioSnapshot) -> StudioHubDensity {
         if areAllFoldersCollapsed(snapshot: snap) {
             return .folders
         } else if areAllVisibleProjectsExpanded(items: snap.clients + snap.personal) {
@@ -916,7 +919,7 @@ struct HomeDashboardView: View, Equatable {
 
     private func applyDensity(_ density: StudioHubDensity, snapshot snap: FocusStudioSnapshot) {
         withAnimation(.easeInOut(duration: 0.18)) {
-            if currentDensity == density {
+            if currentDensity(for: snap) == density {
                 // Toggling off the active mode returns to standard compact cards
                 collapsedClientNames.removeAll()
                 collapsedCategoryNames.removeAll()

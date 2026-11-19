@@ -301,47 +301,63 @@ enum FocusStudioOrganizer {
 
     /// Checks if a project URL is located anywhere inside the base client work URL.
     nonisolated static func isProjectInsideBaseURL(_ projectURL: URL, baseURL: URL) -> Bool {
-        let standardizedProject = projectURL.standardizedFileURL.resolvingSymlinksInPath()
-        let standardizedBase = baseURL.standardizedFileURL.resolvingSymlinksInPath()
-
-        let baseComponents = standardizedBase.pathComponents
-        let projComponents = standardizedProject.pathComponents
-
-        guard projComponents.count > baseComponents.count else { return false }
-
-        for i in 0..<baseComponents.count {
-            if projComponents[i] != baseComponents[i] {
-                return false
-            }
+        let projectPath = projectURL.path
+        let basePath = baseURL.path
+        guard projectPath != basePath else { return false }
+        let normalizedBase = basePath.hasSuffix("/") ? basePath : basePath + "/"
+        if projectPath.hasPrefix(normalizedBase) {
+            return true
         }
-        return true
+
+        // Fast fallback with standardized path (no disk I/O)
+        let stdProject = projectURL.standardizedFileURL.path
+        let stdBase = baseURL.standardizedFileURL.path
+        guard stdProject != stdBase else { return false }
+        let normalizedStdBase = stdBase.hasSuffix("/") ? stdBase : stdBase + "/"
+        if stdProject.hasPrefix(normalizedStdBase) {
+            return true
+        }
+
+        // Last resort: symlink resolution only if prefixes fail
+        let resolvedProject = projectURL.resolvingSymlinksInPath().path
+        let resolvedBase = baseURL.resolvingSymlinksInPath().path
+        guard resolvedProject != resolvedBase else { return false }
+        let normalizedResolved = resolvedBase.hasSuffix("/") ? resolvedBase : resolvedBase + "/"
+        return resolvedProject.hasPrefix(normalizedResolved)
     }
 
     /// Derives the client name from the folder hierarchy if inside baseURL (e.g. baseURL/Client/Project -> Client).
     /// If directly in baseURL (baseURL/Project), returns nil (unassigned client).
     nonisolated static func deriveClientNameFromFolder(projectURL: URL, baseURL: URL) -> String? {
-        let standardizedProject = projectURL.standardizedFileURL.resolvingSymlinksInPath()
-        let standardizedBase = baseURL.standardizedFileURL.resolvingSymlinksInPath()
+        let projectPath = projectURL.path
+        let basePath = baseURL.path
+        let normalizedBase = basePath.hasSuffix("/") ? basePath : basePath + "/"
 
-        let baseComponents = standardizedBase.pathComponents
-        let projComponents = standardizedProject.pathComponents
-
-        guard projComponents.count > baseComponents.count else { return nil }
-
-        for i in 0..<baseComponents.count {
-            if projComponents[i] != baseComponents[i] {
-                return nil
+        var relativePath: String?
+        if projectPath.hasPrefix(normalizedBase) {
+            relativePath = String(projectPath.dropFirst(normalizedBase.count))
+        } else {
+            let stdProject = projectURL.standardizedFileURL.path
+            let stdBase = baseURL.standardizedFileURL.path
+            let normalizedStdBase = stdBase.hasSuffix("/") ? stdBase : stdBase + "/"
+            if stdProject.hasPrefix(normalizedStdBase) {
+                relativePath = String(stdProject.dropFirst(normalizedStdBase.count))
+            } else {
+                let resolvedProject = projectURL.resolvingSymlinksInPath().path
+                let resolvedBase = baseURL.resolvingSymlinksInPath().path
+                let normalizedResolved = resolvedBase.hasSuffix("/") ? resolvedBase : resolvedBase + "/"
+                if resolvedProject.hasPrefix(normalizedResolved) {
+                    relativePath = String(resolvedProject.dropFirst(normalizedResolved.count))
+                }
             }
         }
 
-        let relativeComponents = Array(projComponents[baseComponents.count...])
-        // If directly inside baseURL (relativeComponents.count <= 1), there is no client subfolder
-        if relativeComponents.count <= 1 {
-            return nil
-        }
-
-        let firstFolder = relativeComponents[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        return firstFolder.isEmpty ? nil : firstFolder
+        guard let relative = relativePath else { return nil }
+        let parts = relative.split(separator: "/")
+        // If directly inside baseURL (parts.count <= 1), there is no client subfolder
+        guard parts.count > 1 else { return nil }
+        let clientName = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return clientName.isEmpty ? nil : clientName
     }
 
     /// Derives the category for personal projects (e.g. Portfolio, Singles, or Uncategorized).
@@ -361,30 +377,39 @@ enum FocusStudioOrganizer {
             return parent.isEmpty ? "Uncategorized" : parent
         }
 
-        let stdProject = project.folderURL.standardizedFileURL.resolvingSymlinksInPath()
-        let stdRoot = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+        let projectPath = project.folderURL.path
+        let rootPath = rootURL.path
+        let normalizedRoot = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
 
-        let rootComponents = stdRoot.pathComponents
-        let projComponents = stdProject.pathComponents
-
-        guard projComponents.count > rootComponents.count else {
-            return "Uncategorized"
-        }
-
-        for i in 0..<rootComponents.count {
-            if projComponents[i] != rootComponents[i] {
-                let parent = stdProject.deletingLastPathComponent().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-                return parent.isEmpty ? "Uncategorized" : parent
+        var relativePath: String?
+        if projectPath.hasPrefix(normalizedRoot) {
+            relativePath = String(projectPath.dropFirst(normalizedRoot.count))
+        } else {
+            let stdProject = project.folderURL.standardizedFileURL.path
+            let stdRoot = rootURL.standardizedFileURL.path
+            let normalizedStdRoot = stdRoot.hasSuffix("/") ? stdRoot : stdRoot + "/"
+            if stdProject.hasPrefix(normalizedStdRoot) {
+                relativePath = String(stdProject.dropFirst(normalizedStdRoot.count))
+            } else {
+                let resolvedProject = project.folderURL.resolvingSymlinksInPath().path
+                let resolvedRoot = rootURL.resolvingSymlinksInPath().path
+                let normalizedResolved = resolvedRoot.hasSuffix("/") ? resolvedRoot : resolvedRoot + "/"
+                if resolvedProject.hasPrefix(normalizedResolved) {
+                    relativePath = String(resolvedProject.dropFirst(normalizedResolved.count))
+                }
             }
         }
 
-        let relative = Array(projComponents[rootComponents.count...])
-        // If relative.count <= 1: loose project directly in rootURL
-        if relative.count <= 1 {
-            return "Uncategorized"
+        guard let relative = relativePath else {
+            let parent = project.folderURL.deletingLastPathComponent().lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return parent.isEmpty ? "Uncategorized" : parent
         }
 
-        let firstFolder = relative[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = relative.split(separator: "/")
+        guard parts.count > 1 else {
+            return "Uncategorized"
+        }
+        let firstFolder = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
         return firstFolder.isEmpty ? "Uncategorized" : firstFolder
     }
 
