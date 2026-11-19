@@ -905,9 +905,14 @@ private struct FocusClientCard: View {
 
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
+    @EnvironmentObject private var todoStore: ProjectTodoStore
+    @EnvironmentObject private var progressStore: ProjectProgressStore
+    @ObservedObject private var clientManager = ClientWorkManager.shared
 
     @State private var newDeliverableTitle: String = ""
     @State private var newRevisionText: String = ""
+    @State private var showingAssignPopover = false
+    @State private var isHoveringTag = false
 
     private var project: Project { item.project }
     private var metadata: ProjectMetadata { item.metadata }
@@ -924,13 +929,46 @@ private struct FocusClientCard: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Text(isUnassignedClient ? "NO CLIENT ASSIGNED" : item.clientName.uppercased())
-                                .font(.system(size: 9, weight: .bold))
-                                .tracking(0.6)
+                            Button {
+                                showingAssignPopover.toggle()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(isUnassignedClient ? "NO CLIENT ASSIGNED" : item.clientName.uppercased())
+                                        .font(.system(size: 9, weight: .bold))
+                                        .tracking(0.6)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 7, weight: .bold))
+                                }
                                 .foregroundColor(isUnassignedClient ? Color(hex: "FFAA2C") : .accent)
                                 .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background((isUnassignedClient ? Color(hex: "FFAA2C") : Color.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                .padding(.vertical, 2.5)
+                                .background((isUnassignedClient ? Color(hex: "FFAA2C") : Color.accent).opacity(isHoveringTag ? 0.22 : 0.12), in: RoundedRectangle(cornerRadius: 4))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke((isUnassignedClient ? Color(hex: "FFAA2C") : Color.accent).opacity(isHoveringTag ? 0.45 : 0), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { isHoveringTag = $0 }
+                            .help(isUnassignedClient ? "Click to assign a client folder" : "Click to move to another client folder")
+                            .popover(isPresented: $showingAssignPopover, arrowEdge: .bottom) {
+                                QuickClientAssignPopover(
+                                    project: project,
+                                    clientManager: clientManager,
+                                    metadataStore: metadataStore,
+                                    todoStore: todoStore,
+                                    progressStore: progressStore,
+                                    onAssigned: { _ in
+                                        showingAssignPopover = false
+                                        Task {
+                                            await store.scan()
+                                        }
+                                    },
+                                    onDismiss: {
+                                        showingAssignPopover = false
+                                    }
+                                )
+                            }
 
                             if let service = metadata.serviceType {
                                 Text(service.rawValue)
@@ -1697,6 +1735,219 @@ private struct FocusPersonalCard: View {
 }
 
 // MARK: - Move Project to Client Sheet
+
+// MARK: - Quick Client Assign Popover
+
+private struct QuickClientAssignPopover: View {
+    let project: Project
+    @ObservedObject var clientManager: ClientWorkManager
+    let metadataStore: ProjectMetadataStore
+    let todoStore: ProjectTodoStore
+    let progressStore: ProjectProgressStore
+    let onAssigned: (String) -> Void
+    let onDismiss: () -> Void
+
+    @State private var filterQuery: String = ""
+    @State private var errorMessage: String? = nil
+    @State private var isProcessing: Bool = false
+    @FocusState private var isSearchFocused: Bool
+
+    private var availableClients: [String] {
+        clientManager.discoveredClientNames
+            .filter { $0 != FocusStudioOrganizer.unassignedClientName }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var filteredClients: [String] {
+        let q = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty {
+            return availableClients
+        }
+        return availableClients.filter { $0.lowercased().contains(q) }
+    }
+
+    private var exactMatchExists: Bool {
+        let q = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return availableClients.contains { $0.lowercased() == q }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                Text("ASSIGN CLIENT")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundColor(.tertiaryText)
+                Spacer()
+                if isProcessing {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+            }
+
+            // Search / New Client input field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondaryText)
+
+                TextField("Search or type new client…", text: $filterQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .focused($isSearchFocused)
+                    .onSubmit(handleReturnKey)
+
+                if !filterQuery.isEmpty {
+                    Button {
+                        filterQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondaryText)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(hex: "FF5C5C"))
+                    .lineLimit(2)
+            }
+
+            // Clients List
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if filteredClients.isEmpty && filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("No client folders yet")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondaryText)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 4)
+                    } else {
+                        ForEach(filteredClients, id: \.self) { client in
+                            Button {
+                                assignTo(client: client)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.accent)
+
+                                    Text(client)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.primaryText)
+                                        .lineLimit(1)
+
+                                    Spacer()
+
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.tertiaryText)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(QuickClientHoverButtonStyle())
+                        }
+                    }
+
+                    // "+ Create '<filterQuery>' & Move" option
+                    let trimmed = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty && !exactMatchExists {
+                        Divider().background(Color.divider).padding(.vertical, 4)
+
+                        Button {
+                            assignTo(client: trimmed)
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(Color(hex: "4ECCA3"))
+
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Create “\(trimmed)”")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.primaryText)
+                                    Text("New client folder & assign")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondaryText)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "return")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.secondaryText)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(hex: "4ECCA3").opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 180)
+        }
+        .padding(12)
+        .frame(width: 260)
+        .background(.regularMaterial)
+        .onAppear {
+            isSearchFocused = true
+        }
+    }
+
+    private func handleReturnKey() {
+        let trimmed = filterQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let match = availableClients.first(where: { $0.lowercased() == trimmed.lowercased() }) {
+            assignTo(client: match)
+        } else {
+            assignTo(client: trimmed)
+        }
+    }
+
+    private func assignTo(client: String) {
+        guard !isProcessing else { return }
+        isProcessing = true
+        errorMessage = nil
+
+        do {
+            try clientManager.moveProject(
+                project,
+                toClient: client,
+                metadataStore: metadataStore,
+                todoStore: todoStore,
+                progressStore: progressStore
+            )
+            onAssigned(client)
+        } catch {
+            isProcessing = false
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct QuickClientHoverButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
+            )
+            .onHover { isHovered = $0 }
+    }
+}
 
 private struct MoveProjectToClientSheet: View {
     let project: Project
