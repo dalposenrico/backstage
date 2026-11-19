@@ -1,6 +1,14 @@
 import SwiftUI
 import AppKit
 
+struct FocusStudioSnapshot {
+    let clients: [FocusActionableItem]
+    let personal: [FocusActionableItem]
+    let clientGroups: [FocusClientGroup]
+    let urgentItems: [FocusActionableItem]
+    let pendingDeliverablesCount: Int
+}
+
 struct HomeDashboardView: View, Equatable {
     var isActive: Bool = true
     let openProject: (Project) -> Void
@@ -39,50 +47,52 @@ struct HomeDashboardView: View, Equatable {
         store.visibleProjects
     }
 
-    private var organizedData: (clients: [FocusActionableItem], personal: [FocusActionableItem]) {
-        FocusStudioOrganizer.buildItems(
+    private var snapshot: FocusStudioSnapshot {
+        let (rawClients, rawPersonal) = FocusStudioOrganizer.buildItems(
             projects: allVisibleProjects,
             metadataStore: metadataStore,
             todoStore: todoStore,
             progressStore: progressStore
         )
-    }
 
-    private var filteredClientItems: [FocusActionableItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return organizedData.clients }
-        return organizedData.clients.filter {
-            $0.project.name.lowercased().contains(query)
-                || $0.clientName.lowercased().contains(query)
-                || ($0.metadata.serviceType?.rawValue.lowercased().contains(query) ?? false)
-        }
-    }
+        let clients: [FocusActionableItem]
+        let personal: [FocusActionableItem]
 
-    private var clientGroups: [FocusClientGroup] {
-        FocusStudioOrganizer.groupByClient(
-            items: filteredClientItems,
+        if query.isEmpty {
+            clients = rawClients
+            personal = rawPersonal
+        } else {
+            clients = rawClients.filter {
+                $0.project.name.lowercased().contains(query)
+                    || $0.clientName.lowercased().contains(query)
+                    || ($0.metadata.serviceType?.rawValue.lowercased().contains(query) ?? false)
+            }
+            personal = rawPersonal.filter {
+                $0.project.name.lowercased().contains(query)
+                    || $0.progress.stage.title.lowercased().contains(query)
+                    || $0.progress.nextMove.lowercased().contains(query)
+            }
+        }
+
+        let groups = FocusStudioOrganizer.groupByClient(
+            items: clients,
             knownClientNames: clientManager.discoveredClientNames
         )
-    }
 
-    private var filteredPersonalItems: [FocusActionableItem] {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return organizedData.personal }
-        return organizedData.personal.filter {
-            $0.project.name.lowercased().contains(query)
-                || $0.progress.stage.title.lowercased().contains(query)
-                || $0.progress.nextMove.lowercased().contains(query)
-        }
-    }
-
-    private var urgentItems: [FocusActionableItem] {
-        (organizedData.clients + organizedData.personal)
+        let urgent = (rawClients + rawPersonal)
             .filter { $0.urgency.isUrgent }
             .sorted { $0.urgency < $1.urgency }
-    }
 
-    private var pendingClientDeliverablesCount: Int {
-        organizedData.clients.reduce(0) { $0 + ($1.totalDeliverablesCount - $1.completedDeliverablesCount) }
+        let pendingCount = rawClients.reduce(0) { $0 + ($1.totalDeliverablesCount - $1.completedDeliverablesCount) }
+
+        return FocusStudioSnapshot(
+            clients: clients,
+            personal: personal,
+            clientGroups: groups,
+            urgentItems: urgent,
+            pendingDeliverablesCount: pendingCount
+        )
     }
 
     var body: some View {
@@ -131,14 +141,15 @@ struct HomeDashboardView: View, Equatable {
     }
 
     private var content: some View {
-        ScrollView {
+        let snap = snapshot
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if allVisibleProjects.isEmpty {
                     HomeLibraryStatusView(state: store.libraryLoadPresentation)
                         .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
                     // Header Bar
-                    topHeaderBar
+                    topHeaderBar(snapshot: snap)
 
                     // Status Toast Message
                     if let msg = statusFeedbackMessage {
@@ -146,12 +157,12 @@ struct HomeDashboardView: View, Equatable {
                     }
 
                     // Top Urgency Alert Banner (if urgent deadlines exist)
-                    if !urgentItems.isEmpty {
-                        urgencyAlertBanner
+                    if !snap.urgentItems.isEmpty {
+                        urgencyAlertBanner(items: snap.urgentItems)
                     }
 
                     // Main Work Area (Split or Expanded)
-                    mainWorkArea
+                    mainWorkArea(snapshot: snap)
                 }
             }
             .padding(.horizontal, 28)
@@ -165,7 +176,7 @@ struct HomeDashboardView: View, Equatable {
 
     // MARK: - Header Bar
 
-    private var topHeaderBar: some View {
+    private func topHeaderBar(snapshot snap: FocusStudioSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -173,7 +184,7 @@ struct HomeDashboardView: View, Equatable {
                         Image(systemName: "sparkles")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(.accent)
-                        Text("Focus Studio")
+                        Text("Studio Hub")
                             .font(.system(size: 26, weight: .bold))
                             .foregroundColor(.primaryText)
                     }
@@ -223,17 +234,17 @@ struct HomeDashboardView: View, Equatable {
                 HStack(spacing: 8) {
                     metricPill(
                         icon: "flame.fill",
-                        label: "\(urgentItems.count) urgent",
-                        color: urgentItems.isEmpty ? .secondaryText : Color(hex: "FF5C5C")
+                        label: "\(snap.urgentItems.count) urgent",
+                        color: snap.urgentItems.isEmpty ? .secondaryText : Color(hex: "FF5C5C")
                     )
                     metricPill(
                         icon: "person.2.fill",
-                        label: "\(clientGroups.count) clients · \(organizedData.clients.count) projects · \(pendingClientDeliverablesCount) deliverables",
+                        label: "\(snap.clientGroups.count) clients · \(snap.clients.count) projects · \(snap.pendingDeliverablesCount) deliverables",
                         color: .accent
                     )
                     metricPill(
                         icon: "music.note",
-                        label: "\(organizedData.personal.count) personal tracks",
+                        label: "\(snap.personal.count) personal tracks",
                         color: .secondaryText
                     )
                 }
@@ -308,7 +319,7 @@ struct HomeDashboardView: View, Equatable {
 
     // MARK: - Urgency Alert Banner
 
-    private var urgencyAlertBanner: some View {
+    private func urgencyAlertBanner(items: [FocusActionableItem]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -319,14 +330,14 @@ struct HomeDashboardView: View, Equatable {
                     .tracking(0.6)
                     .foregroundColor(Color(hex: "FF8A00"))
                 Spacer()
-                Text("\(urgentItems.count) require attention")
+                Text("\(items.count) require attention")
                     .font(.system(size: 11))
                     .foregroundColor(.secondaryText)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(urgentItems) { item in
+                    ForEach(items) { item in
                         urgentItemChip(item: item)
                     }
                 }
@@ -368,7 +379,7 @@ struct HomeDashboardView: View, Equatable {
     // MARK: - Main Work Area
 
     @ViewBuilder
-    private var mainWorkArea: some View {
+    private func mainWorkArea(snapshot snap: FocusStudioSnapshot) -> some View {
         switch viewMode {
         case .split:
             HStack(alignment: .top, spacing: 22) {
@@ -376,7 +387,7 @@ struct HomeDashboardView: View, Equatable {
                 VStack(alignment: .leading, spacing: 14) {
                     columnHeader(
                         title: "Client Work",
-                        subtitle: "\(clientGroups.count) clients · \(filteredClientItems.count) projects",
+                        subtitle: "\(snap.clientGroups.count) clients · \(snap.clients.count) projects",
                         icon: "person.2.fill",
                         color: .accent,
                         expandAction: {
@@ -389,11 +400,11 @@ struct HomeDashboardView: View, Equatable {
                     // Client Base Folder & Create Client Toolbar
                     clientFolderControlBar
 
-                    if clientGroups.isEmpty {
+                    if snap.clientGroups.isEmpty {
                         emptyClientsCard
                     } else {
-                        VStack(spacing: 14) {
-                            ForEach(clientGroups) { group in
+                        LazyVStack(spacing: 14) {
+                            ForEach(snap.clientGroups) { group in
                                 FocusClientGroupSection(
                                     group: group,
                                     isGroupCollapsed: collapsedClientNames.contains(group.clientName),
@@ -413,7 +424,7 @@ struct HomeDashboardView: View, Equatable {
                 VStack(alignment: .leading, spacing: 14) {
                     columnHeader(
                         title: "Personal Music",
-                        subtitle: "\(filteredPersonalItems.count) tracks in progress",
+                        subtitle: "\(snap.personal.count) tracks in progress",
                         icon: "music.note.house.fill",
                         color: Color(hex: "8759E8"),
                         expandAction: {
@@ -423,11 +434,11 @@ struct HomeDashboardView: View, Equatable {
                         }
                     )
 
-                    if filteredPersonalItems.isEmpty {
+                    if snap.personal.isEmpty {
                         emptyPersonalCard
                     } else {
-                        VStack(spacing: 12) {
-                            ForEach(filteredPersonalItems) { item in
+                        LazyVStack(spacing: 12) {
+                            ForEach(snap.personal) { item in
                                 FocusPersonalCard(
                                     item: item,
                                     isExpanded: expandedProjectIDs.contains(item.id),
@@ -446,7 +457,7 @@ struct HomeDashboardView: View, Equatable {
             VStack(alignment: .leading, spacing: 16) {
                 expandedHeader(
                     title: "Client Work",
-                    countLabel: "\(clientGroups.count) clients · \(filteredClientItems.count) projects",
+                    countLabel: "\(snap.clientGroups.count) clients · \(snap.clients.count) projects",
                     icon: "person.2.fill",
                     color: .accent
                 )
@@ -454,11 +465,11 @@ struct HomeDashboardView: View, Equatable {
                 // Client Base Folder & Create Client Toolbar
                 clientFolderControlBar
 
-                if clientGroups.isEmpty {
+                if snap.clientGroups.isEmpty {
                     emptyClientsCard
                 } else {
-                    VStack(spacing: 16) {
-                        ForEach(clientGroups) { group in
+                    LazyVStack(spacing: 16) {
+                        ForEach(snap.clientGroups) { group in
                             FocusClientGroupSection(
                                 group: group,
                                 isGroupCollapsed: collapsedClientNames.contains(group.clientName),
@@ -477,16 +488,16 @@ struct HomeDashboardView: View, Equatable {
             VStack(alignment: .leading, spacing: 16) {
                 expandedHeader(
                     title: "Personal Music",
-                    countLabel: "\(filteredPersonalItems.count) personal tracks",
+                    countLabel: "\(snap.personal.count) personal tracks",
                     icon: "music.note.house.fill",
                     color: Color(hex: "8759E8")
                 )
 
-                if filteredPersonalItems.isEmpty {
+                if snap.personal.isEmpty {
                     emptyPersonalCard
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 16)], spacing: 16) {
-                        ForEach(filteredPersonalItems) { item in
+                        ForEach(snap.personal) { item in
                             FocusPersonalCard(
                                 item: item,
                                 isExpanded: expandedProjectIDs.contains(item.id),
@@ -833,7 +844,7 @@ private struct FocusClientGroupSection: View {
 
             // Client Projects List (when expanded)
             if !isGroupCollapsed {
-                VStack(spacing: 10) {
+                LazyVStack(spacing: 10) {
                     if group.items.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "tray")

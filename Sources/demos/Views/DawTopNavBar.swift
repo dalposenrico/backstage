@@ -125,7 +125,7 @@ struct DawTopNavBar: View {
                     }
 
                     tabButton(
-                        title: "Focus studio",
+                        title: "Studio hub",
                         icon: "sparkles",
                         section: .home
                     )

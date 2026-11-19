@@ -295,7 +295,7 @@ enum WorkspaceSection: String, CaseIterable, Identifiable {
         switch self {
         case .library: return "Library"
         case .project: return "Project"
-        case .home: return "Focus studio"
+        case .home: return "Studio hub"
         case .releases: return "Releases"
         case .tools: return "Tools"
         }

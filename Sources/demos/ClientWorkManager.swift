@@ -11,6 +11,7 @@ final class ClientWorkManager: ObservableObject {
     @Published var clientWorkFolderName: String {
         didSet {
             UserDefaults.standard.set(clientWorkFolderName, forKey: "clientWorkFolderName")
+            recalculateBaseURL()
             refreshDiscoveredClients()
         }
     }
@@ -18,11 +19,13 @@ final class ClientWorkManager: ObservableObject {
     @Published var customClientWorkFolderPath: String? {
         didSet {
             UserDefaults.standard.set(customClientWorkFolderPath, forKey: "customClientWorkFolderPath")
+            recalculateBaseURL()
             refreshDiscoveredClients()
         }
     }
 
     @Published private(set) var discoveredClientNames: [String] = []
+    @Published private(set) var clientWorkBaseURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music", isDirectory: true).appendingPathComponent(ClientWorkManager.defaultFolderName, isDirectory: true)
 
     init() {
         let savedName = UserDefaults.standard.string(forKey: "clientWorkFolderName")
@@ -31,33 +34,37 @@ final class ClientWorkManager: ObservableObject {
             : savedName!
 
         customClientWorkFolderPath = UserDefaults.standard.string(forKey: "customClientWorkFolderPath")
+        recalculateBaseURL()
         refreshDiscoveredClients()
     }
 
-    /// Resolves the effective base URL where all client folders live.
-    var clientWorkBaseURL: URL {
+    /// Recalculates and caches the effective base URL where all client folders live.
+    private func recalculateBaseURL() {
         if let custom = customClientWorkFolderPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !custom.isEmpty {
-            return URL(fileURLWithPath: custom)
+            clientWorkBaseURL = URL(fileURLWithPath: custom)
+            return
         }
 
         // 1. Check if ~/Music/<clientWorkFolderName> exists
         let musicDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music", isDirectory: true)
         let musicClientURL = musicDir.appendingPathComponent(clientWorkFolderName, isDirectory: true)
         if FileManager.default.fileExists(atPath: musicClientURL.path) {
-            return musicClientURL
+            clientWorkBaseURL = musicClientURL
+            return
         }
 
         // 2. Check if Dropbox has this folder (only if the folder actually exists on disk in Dropbox)
         if let dropbox = DropboxManager.shared.dropboxRootURL {
             let dropboxClientURL = dropbox.appendingPathComponent(clientWorkFolderName, isDirectory: true)
             if FileManager.default.fileExists(atPath: dropboxClientURL.path) {
-                return dropboxClientURL
+                clientWorkBaseURL = dropboxClientURL
+                return
             }
         }
 
         // 3. Default to ~/Music/<clientWorkFolderName>
-        return musicClientURL
+        clientWorkBaseURL = musicClientURL
     }
 
     /// Checks if the client work base directory exists on disk.
