@@ -715,7 +715,7 @@ private struct ProjectListHeader: View {
                 .frame(width: 46, alignment: .center)
 
             Text("Cloud")
-                .frame(width: compact ? 80 : 95, alignment: .leading)
+                .frame(width: compact ? 88 : 105, alignment: .leading)
 
             Text("Version")
                 .frame(width: 60, alignment: .leading)
@@ -869,7 +869,7 @@ private struct BrowserProjectRow: View {
 
             // 8. Cloud / Storage column: Cloud 2.4 GB, Dropbox, Local
             ProjectStorageBadgeView(project: project)
-                .frame(width: compact ? 80 : 95, alignment: .leading)
+                .frame(width: compact ? 88 : 105, alignment: .leading)
 
             // 9. Version column (e.g. 12.4.6)
             Text(project.displayLiveVersion)

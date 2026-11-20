@@ -207,6 +207,25 @@ struct ContentView: View {
         } message: {
             Text(store.checkpointError ?? "")
         }
+        .alert("Missing Audio Export", isPresented: Binding(
+            get: { ProjectOffloadStore.shared.missingExportNoticeProject != nil },
+            set: { if !$0 { ProjectOffloadStore.shared.missingExportNoticeProject = nil } }
+        )) {
+            if let project = ProjectOffloadStore.shared.missingExportNoticeProject {
+                Button("Cancel", role: .cancel) {
+                    ProjectOffloadStore.shared.missingExportNoticeProject = nil
+                }
+                Button("Open in Ableton Live") {
+                    let target = project
+                    ProjectOffloadStore.shared.missingExportNoticeProject = nil
+                    store.openInAbleton(target)
+                }
+            }
+        } message: {
+            if let project = ProjectOffloadStore.shared.missingExportNoticeProject {
+                Text("'\(project.name)' has no audio export bounce. Please bounce an audio export in Ableton first so you can audition the song offline while it is offloaded.")
+            }
+        }
     }
 
     private func presentScheduledFocus(_ event: ScheduledFocusEvent) {

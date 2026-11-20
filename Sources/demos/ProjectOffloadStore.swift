@@ -72,12 +72,21 @@ struct OffloadedProjectRecord: Codable, Identifiable, Hashable {
 }
 
 // MARK: - Project Offload Store
+enum OffloadOperationState: Equatable {
+    case offloading
+    case restoring
+}
+
 @MainActor
 final class ProjectOffloadStore: ObservableObject {
     static let shared = ProjectOffloadStore()
 
     @Published private(set) var offloadedProjects: [String: OffloadedProjectRecord] = [:]
+    @Published private(set) var activeOperations: [String: OffloadOperationState] = [:]
+    @Published private(set) var localProjectSizes: [String: Int64] = [:]
+    @Published var missingExportNoticeProject: Project?
 
+    private var calculatingSizes = Set<String>()
     private let storeFileURL: URL
     private let offloadVaultBaseURL: URL
     nonisolated static let markerFileName = "_goodvibrations_offloaded.json"
@@ -141,6 +150,66 @@ final class ProjectOffloadStore: ObservableObject {
         let newestAlsDate = project.newestAbletonVersion?.modificationDate ?? .distantPast
         let isOutdated = newestAlsDate > exportDate && newestAlsDate != .distantPast
         return .ready(primaryTrack: primary, isOutdated: isOutdated)
+    }
+
+    // MARK: - Size Caching & Asynchronous Lookups
+    func requestSize(for folderURL: URL) {
+        let path = folderURL.standardizedFileURL.path
+        guard localProjectSizes[path] == nil, !calculatingSizes.contains(path) else { return }
+        calculatingSizes.insert(path)
+
+        Task {
+            let breakdown = await calculateSize(for: folderURL)
+            self.localProjectSizes[path] = breakdown.totalBytes
+            self.calculatingSizes.remove(path)
+        }
+    }
+
+    func cachedFormattedSize(for folderURL: URL) -> String? {
+        let path = folderURL.standardizedFileURL.path
+        guard let bytes = localProjectSizes[path], bytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    // MARK: - Non-blocking Background Queue Operations
+    func queueOffload(project: Project) {
+        let path = project.folderURL.standardizedFileURL.path
+        guard activeOperations[path] == nil else { return }
+
+        // Pre-flight check: ensure project has an audio export
+        if checkExportReadiness(for: project) == .missing {
+            missingExportNoticeProject = project
+            return
+        }
+
+        activeOperations[path] = .offloading
+
+        Task {
+            do {
+                _ = try await offloadProject(project: project)
+                await AppStore.shared?.refreshProject(project)
+            } catch {
+                print("Background offload failed for \(project.name): \(error.localizedDescription)")
+            }
+            self.activeOperations.removeValue(forKey: path)
+        }
+    }
+
+    func queueRestore(project: Project) {
+        let path = project.folderURL.standardizedFileURL.path
+        guard activeOperations[path] == nil else { return }
+
+        activeOperations[path] = .restoring
+
+        Task {
+            do {
+                try await restoreProject(project: project)
+                await AppStore.shared?.refreshProject(project)
+            } catch {
+                print("Background restore failed for \(project.name): \(error.localizedDescription)")
+            }
+            self.activeOperations.removeValue(forKey: path)
+        }
     }
 
     // MARK: - Size Calculation

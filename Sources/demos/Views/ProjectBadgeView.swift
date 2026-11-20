@@ -72,25 +72,27 @@ struct ProjectBadgeView: View {
 /// Dedicated badge for Cloud / Storage status (separate column).
 struct ProjectStorageBadgeView: View {
     let project: Project
-    @EnvironmentObject private var store: AppStore
+    @ObservedObject private var offloadStore = ProjectOffloadStore.shared
     @ObservedObject private var dropbox = DropboxManager.shared
     @State private var isHovered = false
-    @State private var isRestoring = false
-    @State private var showRestoreConfirm = false
+
+    private var activeState: OffloadOperationState? {
+        offloadStore.activeOperations[project.folderURL.standardizedFileURL.path]
+    }
+
+    private var localFormattedSize: String? {
+        offloadStore.cachedFormattedSize(for: project.folderURL)
+    }
 
     var body: some View {
         Button {
-            if project.isOffloaded {
-                showRestoreConfirm = true
-            } else {
-                store.offloadModalProject = project
-            }
+            handleClick()
         } label: {
             HStack(spacing: 3.5) {
-                if isRestoring {
+                if let state = activeState {
                     ProgressView()
                         .controlSize(.mini)
-                    Text("Restoring…")
+                    Text(state == .offloading ? "Offload…" : "Restore…")
                         .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                 } else if project.isOffloaded {
                     Image(systemName: isHovered ? "icloud.and.arrow.down.fill" : "icloud.and.arrow.up.fill")
@@ -101,13 +103,15 @@ struct ProjectStorageBadgeView: View {
                 } else if dropbox.isUnderDropbox(url: project.folderURL) {
                     Image(systemName: isHovered ? "icloud.and.arrow.up" : "cloud.fill")
                         .font(.system(size: 8))
-                    Text(isHovered ? "Offload" : "Dropbox")
+                    let label = isHovered ? "Offload" : (localFormattedSize ?? "Dropbox")
+                    Text(label)
                         .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
                         .lineLimit(1)
                 } else {
                     Image(systemName: isHovered ? "icloud.and.arrow.up" : "internaldrive")
                         .font(.system(size: 8))
-                    Text(isHovered ? "Offload" : "Local")
+                    let label = isHovered ? "Offload" : (localFormattedSize ?? "Local")
+                    Text(label)
                         .font(.system(size: 8.5, weight: isHovered ? .bold : .medium, design: .monospaced))
                         .lineLimit(1)
                 }
@@ -123,30 +127,28 @@ struct ProjectStorageBadgeView: View {
             }
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.set()
-            } else {
-                NSCursor.arrow.set()
+        .onHover { isHovered = $0 }
+        .onAppear {
+            if !project.isOffloaded {
+                offloadStore.requestSize(for: project.folderURL)
             }
-        }
-        .alert("Restore '\(project.name)' from Cloud?", isPresented: $showRestoreConfirm) {
-            Button("Cancel", role: .cancel) { }
-            Button("Restore Project\(project.savedSpaceFormatted.map { " (\($0))" } ?? "")") {
-                isRestoring = true
-                Task {
-                    try? await store.restoreOffloadedProject(project)
-                    isRestoring = false
-                }
-            }
-        } message: {
-            Text("This will unpack all samples, audio recordings, and Ableton sets back to your local drive.")
         }
         .help(tooltipText)
     }
 
+    private func handleClick() {
+        guard activeState == nil else { return }
+        if project.isOffloaded {
+            offloadStore.queueRestore(project: project)
+        } else {
+            offloadStore.queueOffload(project: project)
+        }
+    }
+
     private var foregroundColor: Color {
+        if activeState != nil {
+            return Color.white
+        }
         if isHovered {
             return Color.white
         }
@@ -154,12 +156,17 @@ struct ProjectStorageBadgeView: View {
             return Color(hex: "60A5FA")
         } else if dropbox.isUnderDropbox(url: project.folderURL) {
             return Color(hex: "93C5FD")
+        } else if localFormattedSize != nil {
+            return Color.primaryText.opacity(0.85)
         } else {
             return Color.tertiaryText
         }
     }
 
     private var backgroundColor: Color {
+        if activeState != nil {
+            return Color.blue.opacity(0.40)
+        }
         if isHovered {
             return project.isOffloaded ? Color.blue.opacity(0.35) : Color.accent.opacity(0.30)
         }
@@ -173,6 +180,9 @@ struct ProjectStorageBadgeView: View {
     }
 
     private var borderColor: Color {
+        if activeState != nil {
+            return Color.blue.opacity(0.60)
+        }
         if isHovered {
             return project.isOffloaded ? Color.blue.opacity(0.60) : Color.accent.opacity(0.50)
         }
@@ -186,13 +196,15 @@ struct ProjectStorageBadgeView: View {
     }
 
     private var tooltipText: String {
+        if let state = activeState {
+            return state == .offloading ? "Offloading project in background…" : "Restoring project in background…"
+        }
         if project.isOffloaded {
             let freed = project.savedSpaceFormatted.map { " (\($0) freed)" } ?? ""
-            return "Offloaded to cloud archive\(freed). Click to restore project."
-        } else if dropbox.isUnderDropbox(url: project.folderURL) {
-            return "Stored in Dropbox folder. Click to offload heavy assets to cloud."
+            return "Offloaded to cloud archive\(freed). Click to restore immediately."
         } else {
-            return "Stored locally on Mac. Click to offload to cloud archive."
+            let sizeInfo = localFormattedSize.map { " (\($0) on disk)" } ?? ""
+            return "Local project\(sizeInfo). Click to offload to cloud and free space."
         }
     }
 }
