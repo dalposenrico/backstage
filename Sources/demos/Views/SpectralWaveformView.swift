@@ -7,6 +7,7 @@ struct SpectralWaveformView: View {
     var sectionMarkers: [Double] = []
     var zoomScale: CGFloat = 1.0
     var visibleCenterFraction: Double = 0.5
+    var selectionRange: ClosedRange<Double>? = nil
 
     var body: some View {
         Canvas { context, size in
@@ -21,6 +22,28 @@ struct SpectralWaveformView: View {
 
             let centerY = size.height / 2
             let halfHeight = max(1, centerY - 2)
+
+            // 1. Draw Selection Range Background Glow & Borders
+            if let sel = selectionRange {
+                let selStart = max(startFraction, min(endFraction, sel.lowerBound))
+                let selEnd = max(startFraction, min(endFraction, sel.upperBound))
+                if selEnd > selStart {
+                    let x1 = CGFloat((selStart - startFraction) / visibleRange) * size.width
+                    let x2 = CGFloat((selEnd - startFraction) / visibleRange) * size.width
+                    let selRect = CGRect(x: x1, y: 0, width: max(1.5, x2 - x1), height: size.height)
+                    context.fill(Path(selRect), with: .color(Color.accent.opacity(0.18)))
+
+                    var topBorder = Path()
+                    topBorder.move(to: CGPoint(x: x1, y: 1))
+                    topBorder.addLine(to: CGPoint(x: x2, y: 1))
+                    context.stroke(topBorder, with: .color(Color.accent.opacity(0.85)), lineWidth: 1.5)
+
+                    var bottomBorder = Path()
+                    bottomBorder.move(to: CGPoint(x: x1, y: size.height - 1))
+                    bottomBorder.addLine(to: CGPoint(x: x2, y: size.height - 1))
+                    context.stroke(bottomBorder, with: .color(Color.accent.opacity(0.85)), lineWidth: 1.5)
+                }
+            }
 
             let visibleCount = max(1, Int(size.width / 1.15))
             let sampleStep = Double(samples.count) * visibleRange / Double(visibleCount)
@@ -53,7 +76,17 @@ struct SpectralWaveformView: View {
                 let b = min(1.0, low * 1.00 + mid * 0.08 + high * 1.00)
                 let color = Color(red: r, green: g, blue: b)
 
-                let opacity = playedFraction.map { fraction <= $0 ? 1.0 : 0.40 } ?? 0.85
+                let opacity: Double
+                if let sel = selectionRange {
+                    if sel.contains(fraction) {
+                        opacity = 1.0
+                    } else {
+                        opacity = playedFraction.map { fraction <= $0 ? 0.32 : 0.16 } ?? 0.22
+                    }
+                } else {
+                    opacity = playedFraction.map { fraction <= $0 ? 1.0 : 0.40 } ?? 0.85
+                }
+
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: centerY - height))
                 path.addLine(to: CGPoint(x: x, y: centerY + height))
@@ -80,6 +113,18 @@ struct SpectralWaveformView: View {
                     with: .color(Color.accent.opacity(0.65)),
                     style: StrokeStyle(lineWidth: 1.2, dash: [3, 2])
                 )
+            }
+
+            // Draw Selection Boundary Lines
+            if let sel = selectionRange {
+                if sel.lowerBound >= startFraction && sel.lowerBound <= endFraction {
+                    let x = CGFloat((sel.lowerBound - startFraction) / visibleRange) * size.width
+                    drawMarker(atX: x, color: Color.accent, in: &context, size: size, width: 2.0)
+                }
+                if sel.upperBound >= startFraction && sel.upperBound <= endFraction {
+                    let x = CGFloat((sel.upperBound - startFraction) / visibleRange) * size.width
+                    drawMarker(atX: x, color: Color.accent, in: &context, size: size, width: 2.0)
+                }
             }
 
             if let playedFraction, playedFraction >= startFraction && playedFraction <= endFraction {

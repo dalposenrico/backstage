@@ -14,6 +14,7 @@ struct PlayerBarView: View {
             TimelineSeekBar(
                 timeline: player.timeline,
                 trackURL: player.currentTrack?.url,
+                trackDisplayName: player.currentTrack?.displayName ?? "",
                 project: currentProject,
                 onSeek: { p in player.seek(to: p * player.duration) }
             )
@@ -128,6 +129,7 @@ struct PlayerBarView: View {
 struct TimelineSeekBar: View {
     @ObservedObject var timeline: PlaybackTimeline
     let trackURL: URL?
+    var trackDisplayName: String = ""
     let project: Project?
     let onSeek: (Double) -> Void
 
@@ -135,6 +137,7 @@ struct TimelineSeekBar: View {
         SeekBar(
             progress: timeline.progress,
             trackURL: trackURL,
+            trackDisplayName: trackDisplayName,
             duration: timeline.duration,
             project: project,
             onSeek: onSeek
@@ -157,6 +160,7 @@ struct PlaybackTimeLabel: View {
 struct SeekBar: View {
     let progress: Double
     let trackURL: URL?
+    var trackDisplayName: String = ""
     let duration: Double
     let project: Project?
     let onSeek: (Double) -> Void
@@ -172,6 +176,7 @@ struct SeekBar: View {
     @State private var visibleCenter: Double = 0.5
     @State private var autoFollowPlayhead = true
     @State private var hoverFraction: Double? = nil
+    @State private var selectionRange: ClosedRange<Double>? = nil
 
     var display: Double { isDragging ? dragProgress : progress }
 
@@ -207,13 +212,19 @@ struct SeekBar: View {
                             hoverFraction: hoverFraction,
                             sectionMarkers: markers.map(\.fraction),
                             zoomScale: zoomScale,
-                            visibleCenterFraction: visibleCenter
+                            visibleCenterFraction: visibleCenter,
+                            selectionRange: selectionRange
                         )
                         .padding(.horizontal, 4)
                         .padding(.vertical, 4)
 
                         // Trackpad gesture and interaction area
                         WaveformTrackpadArea(
+                            trackURL: trackURL,
+                            trackDisplayName: trackDisplayName,
+                            duration: duration,
+                            selectionRange: selectionRange,
+                            visibleWindow: visibleWindow,
                             onMagnify: { mag in handleMagnify(mag) },
                             onScroll: { delta in handleScroll(delta, containerWidth: geo.size.width) },
                             onSmartMagnify: { handleSmartMagnify() },
@@ -222,7 +233,10 @@ struct SeekBar: View {
                                 let win = visibleWindow
                                 hoverFraction = frac.map { win.start + $0 * win.width }
                             },
-                            onDragStateChanged: { isDragging = $0 }
+                            onDragStateChanged: { isDragging = $0 },
+                            onSelectRange: { newRange in
+                                selectionRange = newRange
+                            }
                         )
 
                         // Section marker badges overlaid across top edge
@@ -233,7 +247,11 @@ struct SeekBar: View {
                                 let isHoveredBadge = hoveredMarkerId == marker.id
 
                                 Button {
-                                    onSeek(marker.fraction)
+                                    if NSEvent.modifierFlags.contains(.option) {
+                                        selectSection(marker)
+                                    } else {
+                                        onSeek(marker.fraction)
+                                    }
                                 } label: {
                                     HStack(spacing: 2.5) {
                                         Image(systemName: "flag.fill")
@@ -261,8 +279,15 @@ struct SeekBar: View {
                                 .onHover { hovering in
                                     hoveredMarkerId = hovering ? marker.id : nil
                                 }
-                                .help(marker.note.isEmpty ? "\(marker.title) · Click to jump" : "\(marker.title) · \(marker.note) · Click to jump")
+                                .help(marker.note.isEmpty ? "\(marker.title) · Click to jump · ⌥-Click to select section" : "\(marker.title) · \(marker.note) · Click to jump · ⌥-Click to select section")
                             }
+                        }
+
+                        // Floating Slice HUD (when selection active) or Unselected Quick Export HUD
+                        if let sel = selectionRange {
+                            floatingSliceHUD(geo: geo, selection: sel)
+                        } else if isHovered && !waveform.isEmpty {
+                            unselectedExportHUD
                         }
 
                         // Floating Zoom HUD (top-right)
@@ -318,6 +343,7 @@ struct SeekBar: View {
             autoFollowPlayhead = true
             waveform = []
             markers = []
+            selectionRange = nil
             guard let trackURL else { return }
 
             async let wf = WaveformSampler.spectralSamples(for: trackURL)
@@ -332,6 +358,156 @@ struct SeekBar: View {
             self.markers = loadedMk
         }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    // MARK: - Floating Slice HUD & Quick Export HUD
+
+    private func floatingSliceHUD(geo: GeometryProxy, selection sel: ClosedRange<Double>) -> some View {
+        let win = visibleWindow
+        let x1 = geo.size.width * CGFloat((sel.lowerBound - win.start) / win.width)
+        let x2 = geo.size.width * CGFloat((sel.upperBound - win.start) / win.width)
+        let midX = (x1 + x2) / 2.0
+        let clampedX = min(max(140, midX), geo.size.width - 140)
+
+        let startSec = sel.lowerBound * duration
+        let endSec = sel.upperBound * duration
+        let sliceDuration = max(0, endSec - startSec)
+
+        return HStack(spacing: 6) {
+            HStack(spacing: 3.5) {
+                Image(systemName: "arrow.left.and.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.accent)
+                Text("\(startSec.mmss)–\(endSec.mmss)")
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                Text("(\(String(format: "%.1fs", sliceDuration)))")
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.65))
+            }
+
+            Rectangle()
+                .fill(Color.white.opacity(0.2))
+                .frame(width: 1, height: 10)
+
+            HStack(spacing: 3) {
+                Image(systemName: "hand.draw.fill")
+                    .font(.system(size: 8))
+                Text("Drag WAV")
+                    .font(.system(size: 9.5, weight: .bold))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2.5)
+            .background(Color.accent, in: Capsule())
+            .onDrag {
+                exportSliceItemProvider(sel)
+            }
+            .help("Drag this WAV slice directly into Ableton Live, Logic, or Finder")
+
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    selectionRange = nil
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white.opacity(0.75))
+                    .frame(width: 13, height: 13)
+                    .background(Color.white.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Clear selection")
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3.5)
+        .background(Color(red: 0.08, green: 0.10, blue: 0.14).opacity(0.95), in: Capsule())
+        .overlay(Capsule().stroke(Color.accent.opacity(0.6), lineWidth: 0.8))
+        .shadow(color: .black.opacity(0.6), radius: 5, y: 2)
+        .position(x: clampedX, y: 16)
+    }
+
+    private var unselectedExportHUD: some View {
+        HStack(spacing: 5) {
+            HStack(spacing: 3.5) {
+                Image(systemName: "hand.draw.fill")
+                    .font(.system(size: 7.5))
+                Text("Drag Track")
+                    .font(.system(size: 8.5, weight: .semibold))
+            }
+            .foregroundColor(.white.opacity(0.9))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(Color.black.opacity(0.72), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.6))
+            .onDrag {
+                exportOriginalItemProvider()
+            }
+            .help("Drag playing track directly into Ableton Live, Logic, or Finder")
+
+            Button {
+                selectDefaultSlice()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "selection.pin.in.out")
+                        .font(.system(size: 7.5))
+                    Text("Select Slice")
+                        .font(.system(size: 8.5, weight: .medium))
+                }
+                .foregroundColor(.white.opacity(0.8))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2.5)
+                .background(Color.black.opacity(0.55), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.6))
+            }
+            .buttonStyle(.plain)
+            .help("Select a slice on the waveform to export (or Shift-drag)")
+        }
+        .padding(.leading, 8)
+        .padding(.top, 5)
+    }
+
+    private func exportOriginalItemProvider() -> NSItemProvider {
+        guard let trackURL else { return NSItemProvider() }
+        return NSItemProvider(contentsOf: trackURL) ?? NSItemProvider()
+    }
+
+    private func exportSliceItemProvider(_ sel: ClosedRange<Double>) -> NSItemProvider {
+        guard let trackURL else { return NSItemProvider() }
+        let name = trackDisplayName.isEmpty ? trackURL.deletingPathExtension().lastPathComponent : trackDisplayName
+        if let sliceURL = try? AudioSliceExporter.exportWavSlice(
+            sourceURL: trackURL,
+            startFraction: sel.lowerBound,
+            endFraction: sel.upperBound,
+            baseName: name,
+            duration: duration > 0 ? duration : nil
+        ) {
+            return NSItemProvider(contentsOf: sliceURL) ?? NSItemProvider()
+        }
+        return NSItemProvider()
+    }
+
+    private func selectDefaultSlice() {
+        let sliceFrac = duration > 0 ? min(0.5, max(0.04, 15.0 / duration)) : 0.15
+        let half = sliceFrac / 2.0
+        let center = min(max(display, half), 1.0 - half)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            selectionRange = (center - half)...(center + half)
+        }
+    }
+
+    private func selectSection(_ marker: WaveformSectionMarker) {
+        let sorted = markers.sorted { $0.fraction < $1.fraction }
+        let start = marker.fraction
+        let end: Double
+        if let idx = sorted.firstIndex(where: { $0.id == marker.id }), idx + 1 < sorted.count {
+            end = sorted[idx + 1].fraction
+        } else {
+            end = 1.0
+        }
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            selectionRange = start...max(start + 0.005, end)
+        }
     }
 
     private var zoomControlsOverlay: some View {
@@ -457,46 +633,80 @@ struct SeekBar: View {
     }
 }
 
-// MARK: - AppKit Trackpad & Gesture Handling for 120Hz Precision
+// MARK: - AppKit Trackpad & Gesture Handling for 120Hz Precision & Drag-and-Drop Export
 
 struct WaveformTrackpadArea: NSViewRepresentable {
+    var trackURL: URL?
+    var trackDisplayName: String = ""
+    var duration: Double = 0
+    var selectionRange: ClosedRange<Double>?
+    var visibleWindow: (start: Double, end: Double, width: Double) = (0, 1, 1)
+
     var onMagnify: (CGFloat) -> Void
     var onScroll: (CGFloat) -> Void
     var onSmartMagnify: () -> Void
     var onSeek: (Double) -> Void
     var onHover: (Double?) -> Void
     var onDragStateChanged: (Bool) -> Void
+    var onSelectRange: ((ClosedRange<Double>?) -> Void)?
 
     func makeNSView(context: Context) -> WaveformTrackpadNSView {
         let view = WaveformTrackpadNSView()
-        view.onMagnify = onMagnify
-        view.onScroll = onScroll
-        view.onSmartMagnify = onSmartMagnify
-        view.onSeek = onSeek
-        view.onHover = onHover
-        view.onDragStateChanged = onDragStateChanged
+        updateProperties(view)
         return view
     }
 
     func updateNSView(_ nsView: WaveformTrackpadNSView, context: Context) {
+        updateProperties(nsView)
+    }
+
+    private func updateProperties(_ nsView: WaveformTrackpadNSView) {
+        nsView.trackURL = trackURL
+        nsView.trackDisplayName = trackDisplayName
+        nsView.duration = duration
+        nsView.selectionRange = selectionRange
+        nsView.visibleWindow = visibleWindow
         nsView.onMagnify = onMagnify
         nsView.onScroll = onScroll
         nsView.onSmartMagnify = onSmartMagnify
         nsView.onSeek = onSeek
         nsView.onHover = onHover
         nsView.onDragStateChanged = onDragStateChanged
+        nsView.onSelectRange = onSelectRange
     }
 }
 
-final class WaveformTrackpadNSView: NSView {
+final class WaveformTrackpadNSView: NSView, NSDraggingSource {
+    var trackURL: URL?
+    var trackDisplayName: String = ""
+    var duration: Double = 0
+    var selectionRange: ClosedRange<Double>?
+    var visibleWindow: (start: Double, end: Double, width: Double) = (0, 1, 1)
+
     var onMagnify: ((CGFloat) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
     var onSmartMagnify: (() -> Void)?
     var onSeek: ((Double) -> Void)?
     var onHover: ((Double?) -> Void)?
     var onDragStateChanged: ((Bool) -> Void)?
+    var onSelectRange: ((ClosedRange<Double>?) -> Void)?
 
     private var trackingArea: NSTrackingArea?
+
+    // Interaction tracking
+    private enum MouseDragMode {
+        case pending
+        case selectingRange
+        case resizingLeftHandle
+        case resizingRightHandle
+        case initiatingFileDrag
+    }
+
+    private var mouseDownLocation: NSPoint = .zero
+    private var mouseDownSongFraction: Double = 0
+    private var isShiftDrag: Bool = false
+    private var dragMode: MouseDragMode = .pending
+    private var hasInitiatedFileDragSession: Bool = false
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -509,6 +719,12 @@ final class WaveformTrackpadNSView: NSView {
         let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
         addTrackingArea(area)
         self.trackingArea = area
+    }
+
+    private func songFraction(for point: NSPoint) -> Double {
+        guard bounds.width > 0 else { return 0 }
+        let localFraction = max(0.0, min(1.0, Double(point.x / bounds.width)))
+        return max(0.0, min(1.0, visibleWindow.start + localFraction * visibleWindow.width))
     }
 
     override func magnify(with event: NSEvent) {
@@ -530,26 +746,122 @@ final class WaveformTrackpadNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
+        if event.clickCount == 2 && !event.modifierFlags.contains(.shift) {
             onSmartMagnify?()
             return
         }
+
         let loc = convert(event.locationInWindow, from: nil)
-        guard bounds.width > 0 else { return }
-        let frac = max(0.0, min(1.0, Double(loc.x / bounds.width)))
+        mouseDownLocation = loc
+        mouseDownSongFraction = songFraction(for: loc)
+        isShiftDrag = event.modifierFlags.contains(.shift)
+        hasInitiatedFileDragSession = false
+        dragMode = .pending
         onDragStateChanged?(true)
-        onSeek?(frac)
+
+        // Check if user clicked near existing selection handles
+        if let sel = selectionRange, !isShiftDrag {
+            let xStart = bounds.width * CGFloat((sel.lowerBound - visibleWindow.start) / visibleWindow.width)
+            let xEnd = bounds.width * CGFloat((sel.upperBound - visibleWindow.start) / visibleWindow.width)
+            if abs(loc.x - xStart) <= 10 {
+                dragMode = .resizingLeftHandle
+                return
+            } else if abs(loc.x - xEnd) <= 10 {
+                dragMode = .resizingRightHandle
+                return
+            }
+        }
+
+        if isShiftDrag {
+            dragMode = .selectingRange
+            onSelectRange?(mouseDownSongFraction...mouseDownSongFraction)
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
-        guard bounds.width > 0 else { return }
-        let frac = max(0.0, min(1.0, Double(loc.x / bounds.width)))
-        onSeek?(frac)
+        let deltaX = abs(loc.x - mouseDownLocation.x)
+        let deltaY = abs(loc.y - mouseDownLocation.y)
+
+        // Minimum threshold to prevent accidental clicks from triggering drags
+        guard deltaX >= 4 || deltaY >= 4 else { return }
+
+        if dragMode == .pending {
+            if isShiftDrag || event.modifierFlags.contains(.shift) {
+                dragMode = .selectingRange
+            } else {
+                dragMode = .initiatingFileDrag
+            }
+        }
+
+        switch dragMode {
+        case .selectingRange:
+            let currentFraction = songFraction(for: loc)
+            let start = min(mouseDownSongFraction, currentFraction)
+            let end = max(mouseDownSongFraction, currentFraction)
+            onSelectRange?(start...end)
+
+        case .resizingLeftHandle:
+            if let sel = selectionRange {
+                let currentFraction = songFraction(for: loc)
+                let newStart = min(currentFraction, sel.upperBound - 0.002)
+                onSelectRange?(max(0.0, newStart)...sel.upperBound)
+            }
+
+        case .resizingRightHandle:
+            if let sel = selectionRange {
+                let currentFraction = songFraction(for: loc)
+                let newEnd = max(currentFraction, sel.lowerBound + 0.002)
+                onSelectRange?(sel.lowerBound...min(1.0, newEnd))
+            }
+
+        case .initiatingFileDrag:
+            guard !hasInitiatedFileDragSession else { return }
+            hasInitiatedFileDragSession = true
+            startFileDragSession(event: event)
+
+        case .pending:
+            break
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         onDragStateChanged?(false)
+
+        let loc = convert(event.locationInWindow, from: nil)
+        let deltaX = abs(loc.x - mouseDownLocation.x)
+        let deltaY = abs(loc.y - mouseDownLocation.y)
+
+        // If it was a clean click without significant drag
+        if deltaX < 4 && deltaY < 4 && !hasInitiatedFileDragSession {
+            if isShiftDrag {
+                // Short Shift-click: clear tiny selection if any
+                if let sel = selectionRange, (sel.upperBound - sel.lowerBound) < 0.002 {
+                    onSelectRange?(nil)
+                }
+            } else if let sel = selectionRange {
+                if !sel.contains(mouseDownSongFraction) {
+                    // Clicked outside active selection -> dismiss selection and seek
+                    onSelectRange?(nil)
+                    onSeek?(mouseDownSongFraction)
+                } else {
+                    // Clicked inside active selection -> seek to clicked position
+                    onSeek?(mouseDownSongFraction)
+                }
+            } else {
+                // Normal click without selection -> seek
+                onSeek?(mouseDownSongFraction)
+            }
+        } else if dragMode == .selectingRange {
+            // Finished dragging range: clear if accidentally too small (< 0.002)
+            if let sel = selectionRange, (sel.upperBound - sel.lowerBound) < 0.002 {
+                onSelectRange?(nil)
+            }
+        }
+
+        dragMode = .pending
+        isShiftDrag = false
+        hasInitiatedFileDragSession = false
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -557,9 +869,66 @@ final class WaveformTrackpadNSView: NSView {
         guard bounds.width > 0 else { return }
         let frac = max(0.0, min(1.0, Double(loc.x / bounds.width)))
         onHover?(frac)
+
+        // Adaptive Cursor
+        if event.modifierFlags.contains(.shift) {
+            NSCursor.crosshair.set()
+        } else if let sel = selectionRange {
+            let xStart = bounds.width * CGFloat((sel.lowerBound - visibleWindow.start) / visibleWindow.width)
+            let xEnd = bounds.width * CGFloat((sel.upperBound - visibleWindow.start) / visibleWindow.width)
+            if abs(loc.x - xStart) <= 10 || abs(loc.x - xEnd) <= 10 {
+                NSCursor.resizeLeftRight.set()
+            } else if sel.contains(songFraction(for: loc)) {
+                NSCursor.openHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
         onHover?(nil)
+        NSCursor.arrow.set()
+    }
+
+    private func startFileDragSession(event: NSEvent) {
+        guard let trackURL else { return }
+
+        let fileToDrag: URL
+        let isSlice: Bool
+        if let sel = selectionRange, (sel.upperBound - sel.lowerBound) >= 0.002 {
+            let name = trackDisplayName.isEmpty ? trackURL.deletingPathExtension().lastPathComponent : trackDisplayName
+            if let sliceURL = try? AudioSliceExporter.exportWavSlice(
+                sourceURL: trackURL,
+                startFraction: sel.lowerBound,
+                endFraction: sel.upperBound,
+                baseName: name,
+                duration: duration > 0 ? duration : nil
+            ) {
+                fileToDrag = sliceURL
+                isSlice = true
+            } else {
+                fileToDrag = trackURL
+                isSlice = false
+            }
+        } else {
+            fileToDrag = trackURL
+            isSlice = false
+        }
+
+        let item = NSDraggingItem(pasteboardWriter: fileToDrag as NSURL)
+        let dragRect = NSRect(x: mouseDownLocation.x - 16, y: mouseDownLocation.y - 16, width: 32, height: 32)
+        let iconName = isSlice ? "scissors.circle.fill" : "waveform.circle.fill"
+        item.setDraggingFrame(dragRect, contents: NSImage(systemSymbolName: iconName, accessibilityDescription: "Audio File") ?? NSImage())
+
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    // MARK: - NSDraggingSource
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        return .copy
     }
 }
