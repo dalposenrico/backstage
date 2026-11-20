@@ -72,45 +72,84 @@ struct ProjectBadgeView: View {
 /// Dedicated badge for Cloud / Storage status (separate column).
 struct ProjectStorageBadgeView: View {
     let project: Project
+    @EnvironmentObject private var store: AppStore
     @ObservedObject private var dropbox = DropboxManager.shared
+    @State private var isHovered = false
+    @State private var isRestoring = false
+    @State private var showRestoreConfirm = false
 
     var body: some View {
-        HStack(spacing: 3.5) {
+        Button {
             if project.isOffloaded {
-                Image(systemName: "icloud.and.arrow.up.fill")
-                    .font(.system(size: 8))
-                Text(project.savedSpaceFormatted ?? "Cloud")
-                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                    .lineLimit(1)
-            } else if dropbox.isUnderDropbox(url: project.folderURL) {
-                Image(systemName: "cloud.fill")
-                    .font(.system(size: 8))
-                Text("Dropbox")
-                    .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
-                    .lineLimit(1)
+                showRestoreConfirm = true
             } else {
-                Circle()
-                    .fill(Color.secondary.opacity(0.35))
-                    .frame(width: 4, height: 4)
-                Text("Local")
-                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
-                    .foregroundColor(.tertiaryText)
-                    .lineLimit(1)
+                store.offloadModalProject = project
+            }
+        } label: {
+            HStack(spacing: 3.5) {
+                if isRestoring {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Restoring…")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                } else if project.isOffloaded {
+                    Image(systemName: isHovered ? "icloud.and.arrow.down.fill" : "icloud.and.arrow.up.fill")
+                        .font(.system(size: 8))
+                    Text(isHovered ? "Restore" : (project.savedSpaceFormatted ?? "Cloud"))
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .lineLimit(1)
+                } else if dropbox.isUnderDropbox(url: project.folderURL) {
+                    Image(systemName: isHovered ? "icloud.and.arrow.up" : "cloud.fill")
+                        .font(.system(size: 8))
+                    Text(isHovered ? "Offload" : "Dropbox")
+                        .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                } else {
+                    Image(systemName: isHovered ? "icloud.and.arrow.up" : "internaldrive")
+                        .font(.system(size: 8))
+                    Text(isHovered ? "Offload" : "Local")
+                        .font(.system(size: 8.5, weight: isHovered ? .bold : .medium, design: .monospaced))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 3.5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 3.5)
+                    .stroke(borderColor, lineWidth: 0.6)
             }
         }
-        .foregroundColor(foregroundColor)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(backgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 3.5))
-        .overlay {
-            RoundedRectangle(cornerRadius: 3.5)
-                .stroke(borderColor, lineWidth: 0.6)
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+        .alert("Restore '\(project.name)' from Cloud?", isPresented: $showRestoreConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Restore Project\(project.savedSpaceFormatted.map { " (\($0))" } ?? "")") {
+                isRestoring = true
+                Task {
+                    try? await store.restoreOffloadedProject(project)
+                    isRestoring = false
+                }
+            }
+        } message: {
+            Text("This will unpack all samples, audio recordings, and Ableton sets back to your local drive.")
         }
         .help(tooltipText)
     }
 
     private var foregroundColor: Color {
+        if isHovered {
+            return Color.white
+        }
         if project.isOffloaded {
             return Color(hex: "60A5FA")
         } else if dropbox.isUnderDropbox(url: project.folderURL) {
@@ -121,6 +160,9 @@ struct ProjectStorageBadgeView: View {
     }
 
     private var backgroundColor: Color {
+        if isHovered {
+            return project.isOffloaded ? Color.blue.opacity(0.35) : Color.accent.opacity(0.30)
+        }
         if project.isOffloaded {
             return Color.blue.opacity(0.18)
         } else if dropbox.isUnderDropbox(url: project.folderURL) {
@@ -131,6 +173,9 @@ struct ProjectStorageBadgeView: View {
     }
 
     private var borderColor: Color {
+        if isHovered {
+            return project.isOffloaded ? Color.blue.opacity(0.60) : Color.accent.opacity(0.50)
+        }
         if project.isOffloaded {
             return Color.blue.opacity(0.40)
         } else if dropbox.isUnderDropbox(url: project.folderURL) {
@@ -143,11 +188,11 @@ struct ProjectStorageBadgeView: View {
     private var tooltipText: String {
         if project.isOffloaded {
             let freed = project.savedSpaceFormatted.map { " (\($0) freed)" } ?? ""
-            return "Project offloaded to cloud archive\(freed). Audio export is available offline."
+            return "Offloaded to cloud archive\(freed). Click to restore project."
         } else if dropbox.isUnderDropbox(url: project.folderURL) {
-            return "Project is stored in your Dropbox folder."
+            return "Stored in Dropbox folder. Click to offload heavy assets to cloud."
         } else {
-            return "Project is stored locally on this Mac."
+            return "Stored locally on Mac. Click to offload to cloud archive."
         }
     }
 }

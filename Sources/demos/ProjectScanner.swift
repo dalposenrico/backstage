@@ -142,15 +142,16 @@ enum ProjectScanner {
             return FolderNode(url: folder, name: project.name, project: project, children: [])
         } else if let record = offloadRecord {
             // This is an offloaded project folder preserved for offline browsing and auditioning
+            let originalModDate = record.metadataSnapshot.originalLatestModification ?? record.offloadedDate
             var tracks = audioFilesInProject(folder, rootContents: contents)
             if tracks.isEmpty, let cachedURL = record.cachedExportURL, fm.fileExists(atPath: cachedURL.path) {
-                tracks = [Track(url: cachedURL, modificationDate: record.offloadedDate, creationDate: record.offloadedDate, relativeFolder: "")]
+                tracks = [Track(url: cachedURL, modificationDate: originalModDate, creationDate: originalModDate, relativeFolder: "")]
             }
             let versions = record.metadataSnapshot.versionNames.map { name in
                 AbletonVersion(
                     url: folder.appendingPathComponent("\(name).als"),
-                    modificationDate: record.offloadedDate,
-                    creationDate: record.offloadedDate
+                    modificationDate: originalModDate,
+                    creationDate: originalModDate
                 )
             }
             let attrs = try? folder.resourceValues(forKeys: [.creationDateKey, .tagNamesKey])
@@ -159,7 +160,7 @@ enum ProjectScanner {
                 folderURL: folder,
                 tracks: tracks,
                 versions: versions,
-                creationDate: attrs?.creationDate ?? record.offloadedDate,
+                creationDate: attrs?.creationDate ?? originalModDate,
                 tags: attrs?.tagNames ?? record.metadataSnapshot.tags,
                 bpm: record.metadataSnapshot.bpm,
                 plugins: record.metadataSnapshot.plugins,
@@ -168,7 +169,7 @@ enum ProjectScanner {
                     sessionCount: record.metadataSnapshot.activitySessionCount,
                     estimatedWorkTime: record.metadataSnapshot.activityEstimatedWorkTime
                 ),
-                latestModification: record.offloadedDate,
+                latestModification: originalModDate,
                 key: record.metadataSnapshot.key,
                 timeSignature: record.metadataSnapshot.timeSignature,
                 liveVersion: record.metadataSnapshot.liveVersion,

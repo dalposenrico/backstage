@@ -47,6 +47,7 @@ struct OffloadMetadataSnapshot: Codable, Hashable {
     let activityBackupCount: Int
     let activitySessionCount: Int
     let activityEstimatedWorkTime: TimeInterval
+    let originalLatestModification: Date?
 }
 
 // MARK: - Offloaded Project Record
@@ -210,6 +211,10 @@ final class ProjectOffloadStore: ObservableObject {
         let folder = project.folderURL.standardizedFileURL
         let fm = FileManager.default
 
+        // Preserve original modification dates so offloading never alters the project timeline
+        let originalLatestModification = project.latestModification
+        let originalFolderModDate = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+
         // 1. Calculate size breakdown before modifying
         let sizeBreakdown = await calculateSize(for: folder)
 
@@ -284,7 +289,8 @@ final class ProjectOffloadStore: ObservableObject {
             notes: ProjectNotesStore().note(for: project),
             activityBackupCount: project.activity.backupCount,
             activitySessionCount: project.activity.sessionCount,
-            activityEstimatedWorkTime: project.activity.estimatedWorkTime
+            activityEstimatedWorkTime: project.activity.estimatedWorkTime,
+            originalLatestModification: originalLatestModification
         )
 
         let freedBytes = sizeBreakdown.estimatedSavings
@@ -314,6 +320,11 @@ final class ProjectOffloadStore: ObservableObject {
         let markerURL = folder.appendingPathComponent(Self.markerFileName)
         if let markerData = try? JSONEncoder().encode(record) {
             try? markerData.write(to: markerURL, options: .atomic)
+        }
+
+        // Restore original modification date on disk so Finder and scanners don't think it was edited today
+        if let originalFolderModDate {
+            try? fm.setAttributes([.modificationDate: originalFolderModDate], ofItemAtPath: folder.path)
         }
 
         // 7. Save in store
@@ -370,6 +381,11 @@ final class ProjectOffloadStore: ObservableObject {
         // Remove the marker file
         let markerURL = folder.appendingPathComponent(Self.markerFileName)
         try? fm.removeItem(at: markerURL)
+
+        // Restore original modification date on disk if known
+        if let originalModDate = record.metadataSnapshot.originalLatestModification {
+            try? fm.setAttributes([.modificationDate: originalModDate], ofItemAtPath: folder.path)
+        }
 
         // Remove from memory and save
         offloadedProjects.removeValue(forKey: folder.path)

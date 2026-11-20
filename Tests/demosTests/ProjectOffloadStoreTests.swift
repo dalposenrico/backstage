@@ -100,11 +100,17 @@ final class ProjectOffloadStoreTests: XCTestCase {
         try "CurrentALS".data(using: .utf8)!.write(to: alsURL)
         try "AudioExport".data(using: .utf8)!.write(to: exportURL)
 
+        let pastDate = Date(timeIntervalSince1970: 1700000000)
+        try fm.setAttributes([.modificationDate: pastDate], ofItemAtPath: alsURL.path)
+        try fm.setAttributes([.modificationDate: pastDate], ofItemAtPath: exportURL.path)
+        try fm.setAttributes([.modificationDate: pastDate], ofItemAtPath: projectFolder.path)
+
         // 1. Initial scan
         let initialProject = await ProjectScanner.scanProject(at: projectFolder)
         XCTAssertNotNil(initialProject)
         XCTAssertFalse(initialProject?.isOffloaded ?? true)
         XCTAssertEqual(initialProject?.tracks.count, 1)
+        XCTAssertEqual(initialProject?.latestModification.timeIntervalSince1970 ?? 0, pastDate.timeIntervalSince1970, accuracy: 2)
 
         // 2. Offload project
         let store = ProjectOffloadStore.shared
@@ -128,6 +134,7 @@ final class ProjectOffloadStoreTests: XCTestCase {
         XCTAssertTrue(offloadedScanned?.isOffloaded ?? false)
         XCTAssertEqual(offloadedScanned?.tracks.count, 1, "Audio export must be accessible for auditioning while offloaded")
         XCTAssertEqual(offloadedScanned?.primaryTrack?.displayName, "Full Ableton Song v1")
+        XCTAssertEqual(offloadedScanned?.latestModification.timeIntervalSince1970 ?? 0, pastDate.timeIntervalSince1970, accuracy: 2, "Latest modification date must not be changed just because the project was offloaded")
 
         // 4. Restore project
         try await store.restoreProject(project: offloadedScanned!)
@@ -142,5 +149,6 @@ final class ProjectOffloadStoreTests: XCTestCase {
         XCTAssertNotNil(restoredScanned)
         XCTAssertFalse(restoredScanned?.isOffloaded ?? true)
         XCTAssertEqual(restoredScanned?.versions.count, 1)
+        XCTAssertEqual(restoredScanned?.latestModification.timeIntervalSince1970 ?? 0, pastDate.timeIntervalSince1970, accuracy: 2, "Latest modification date must remain preserved after restoration")
     }
 }
