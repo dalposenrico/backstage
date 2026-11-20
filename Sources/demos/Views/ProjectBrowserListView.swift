@@ -308,18 +308,24 @@ struct ProjectBrowserListView: View {
 
             if viewStyle == "list" {
                 GeometryReader { proxy in
-                    let compact = proxy.size.width < 820
-                    VStack(spacing: 0) {
-                        ProjectListHeader(compact: compact)
-                        ScrollView {
-                            LazyVStack(spacing: 2) {
-                                ForEach(displayedProjects) { project in
-                                    BrowserProjectRow(project: project, compact: compact)
-                                        .onTapGesture { toggleProjectInspector(for: project) }
+                    let minTableWidth: CGFloat = 920
+                    let tableWidth = max(proxy.size.width, minTableWidth)
+                    let compact = proxy.size.width < 1040
+
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        VStack(spacing: 0) {
+                            ProjectListHeader(compact: compact)
+                            ScrollView(.vertical) {
+                                LazyVStack(spacing: 2) {
+                                    ForEach(displayedProjects) { project in
+                                        BrowserProjectRow(project: project, compact: compact)
+                                            .onTapGesture { toggleProjectInspector(for: project) }
+                                    }
                                 }
+                                .padding(8)
                             }
-                            .padding(8)
                         }
+                        .frame(width: tableWidth)
                     }
                 }
             } else {
@@ -706,7 +712,10 @@ private struct ProjectListHeader: View {
             sortHeader("Edited", order: .recentlyEdited, width: compact ? 105 : 125, alignment: .leading)
 
             Text("v")
-                .frame(width: 44, alignment: .center)
+                .frame(width: 46, alignment: .center)
+
+            Text("Cloud")
+                .frame(width: compact ? 80 : 95, alignment: .leading)
 
             Text("Version")
                 .frame(width: 60, alignment: .leading)
@@ -856,15 +865,19 @@ private struct BrowserProjectRow: View {
 
             // 7. Badge column: v1, v10, DEMO, MIX, etc.
             ProjectBadgeView(project: project)
-                .frame(width: 44, alignment: .center)
+                .frame(width: 46, alignment: .center)
 
-            // 8. Version column (e.g. 12.4.6)
+            // 8. Cloud / Storage column: Cloud 2.4 GB, Dropbox, Local
+            ProjectStorageBadgeView(project: project)
+                .frame(width: compact ? 80 : 95, alignment: .leading)
+
+            // 9. Version column (e.g. 12.4.6)
             Text(project.displayLiveVersion)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.tertiaryText)
                 .frame(width: 60, alignment: .leading)
 
-            // 8. Content column (e.g. 13 tracks, 8 samples)
+            // 10. Content column (e.g. 13 tracks, 8 samples)
             Text(project.contentLabel)
                 .font(.system(size: 11))
                 .foregroundColor(.secondaryText)

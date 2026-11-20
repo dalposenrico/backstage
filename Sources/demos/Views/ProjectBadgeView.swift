@@ -9,11 +9,6 @@ struct ProjectBadgeView: View {
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     private var badgeData: (text: String, bg: Color, textCol: Color, border: Color) {
-        if project.isOffloaded {
-            let label = project.savedSpaceFormatted.map { "CLOUD \($0)" } ?? "OFFLOADED"
-            return (label, Color.blue.opacity(0.20), Color(hex: "60A5FA"), Color.blue.opacity(0.5))
-        }
-
         let meta = metadataStore.metadata(for: project)
         if let phase = meta.productionPhase {
             let isClient = meta.projectKind == .client
@@ -60,25 +55,99 @@ struct ProjectBadgeView: View {
 
     var body: some View {
         let info = badgeData
-        HStack(spacing: 3) {
+        Text(info.text)
+            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+            .foregroundColor(info.textCol)
+            .padding(.horizontal, 4.5)
+            .padding(.vertical, 2)
+            .background(info.bg)
+            .clipShape(RoundedRectangle(cornerRadius: 3.5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 3.5)
+                    .stroke(info.border, lineWidth: 0.6)
+            }
+    }
+}
+
+/// Dedicated badge for Cloud / Storage status (separate column).
+struct ProjectStorageBadgeView: View {
+    let project: Project
+    @ObservedObject private var dropbox = DropboxManager.shared
+
+    var body: some View {
+        HStack(spacing: 3.5) {
             if project.isOffloaded {
                 Image(systemName: "icloud.and.arrow.up.fill")
-                    .font(.system(size: 7.5))
-            } else if DropboxManager.shared.isUnderDropbox(url: project.folderURL) {
+                    .font(.system(size: 8))
+                Text(project.savedSpaceFormatted ?? "Cloud")
+                    .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+            } else if dropbox.isUnderDropbox(url: project.folderURL) {
                 Image(systemName: "cloud.fill")
-                    .font(.system(size: 7.5))
+                    .font(.system(size: 8))
+                Text("Dropbox")
+                    .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
+            } else {
+                Circle()
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(width: 4, height: 4)
+                Text("Local")
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundColor(.tertiaryText)
+                    .lineLimit(1)
             }
-            Text(info.text)
-                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
         }
-        .foregroundColor(info.textCol)
-        .padding(.horizontal, 4.5)
+        .foregroundColor(foregroundColor)
+        .padding(.horizontal, 5)
         .padding(.vertical, 2)
-        .background(info.bg)
+        .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 3.5))
         .overlay {
             RoundedRectangle(cornerRadius: 3.5)
-                .stroke(info.border, lineWidth: 0.6)
+                .stroke(borderColor, lineWidth: 0.6)
+        }
+        .help(tooltipText)
+    }
+
+    private var foregroundColor: Color {
+        if project.isOffloaded {
+            return Color(hex: "60A5FA")
+        } else if dropbox.isUnderDropbox(url: project.folderURL) {
+            return Color(hex: "93C5FD")
+        } else {
+            return Color.tertiaryText
+        }
+    }
+
+    private var backgroundColor: Color {
+        if project.isOffloaded {
+            return Color.blue.opacity(0.18)
+        } else if dropbox.isUnderDropbox(url: project.folderURL) {
+            return Color.blue.opacity(0.08)
+        } else {
+            return Color.white.opacity(0.03)
+        }
+    }
+
+    private var borderColor: Color {
+        if project.isOffloaded {
+            return Color.blue.opacity(0.40)
+        } else if dropbox.isUnderDropbox(url: project.folderURL) {
+            return Color.blue.opacity(0.20)
+        } else {
+            return Color.white.opacity(0.06)
+        }
+    }
+
+    private var tooltipText: String {
+        if project.isOffloaded {
+            let freed = project.savedSpaceFormatted.map { " (\($0) freed)" } ?? ""
+            return "Project offloaded to cloud archive\(freed). Audio export is available offline."
+        } else if dropbox.isUnderDropbox(url: project.folderURL) {
+            return "Project is stored in your Dropbox folder."
+        } else {
+            return "Project is stored locally on this Mac."
         }
     }
 }
