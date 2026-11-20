@@ -3,6 +3,7 @@ import AppKit
 
 struct StudioHubView: View {
     let project: Project
+    @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
     @EnvironmentObject private var player: AudioPlayer
     @ObservedObject private var dropbox = DropboxManager.shared
@@ -77,10 +78,13 @@ struct StudioHubView: View {
                 // 2. Dropbox & Cloud Storage Command Hub
                 dropboxHubSection
 
-                // 3. Deliverables Matrix
+                // 3. Local Storage & Offload
+                cloudStorageOffloadSection
+
+                // 4. Deliverables Matrix
                 deliverablesSection
 
-                // 4. Timestamped Revision & Mix Notes Log
+                // 5. Timestamped Revision & Mix Notes Log
                 revisionsSection
             }
             .padding(18)
@@ -554,6 +558,98 @@ struct StudioHubView: View {
                             .controlSize(.small)
                             .help("Copy web folder URL to clipboard")
                         }
+                    }
+                }
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.06), lineWidth: 1))
+        }
+    }
+
+    // MARK: - 3. Local Storage & Offload Section
+    private var cloudStorageOffloadSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "internaldrive.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.blue)
+                    Text("LOCAL STORAGE & OFFLOAD")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.7)
+                        .foregroundColor(.tertiaryText)
+                }
+                Spacer()
+                if project.isOffloaded {
+                    HStack(spacing: 4) {
+                        Image(systemName: "icloud.and.arrow.up.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.blue)
+                        Text(project.savedSpaceFormatted.map { "\($0) Freed" } ?? "Offloaded")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.blue)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                        Text("Active on Mac")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.green)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                if project.isOffloaded {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("OFFLOADED TO CLOUD")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .tracking(0.5)
+                                .foregroundColor(.tertiaryText)
+                            Text("Heavy samples and project assets are archived in the cloud. Your demo bounce is preserved offline for instant playback.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondaryText)
+                        }
+                        Spacer()
+                        Button {
+                            Task {
+                                try? await store.restoreOffloadedProject(project)
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "icloud.and.arrow.down")
+                                Text("Restore Project")
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                } else {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("FREE SSD STORAGE")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .tracking(0.5)
+                                .foregroundColor(.tertiaryText)
+                            Text("Archive heavy samples and backups to Dropbox while keeping your latest audio export offline for instant auditioning.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondaryText)
+                        }
+                        Spacer()
+                        Button {
+                            store.offloadModalProject = project
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "icloud.and.arrow.up")
+                                Text("Offload Project…")
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                 }
             }

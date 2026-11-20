@@ -9,6 +9,11 @@ struct ProjectBadgeView: View {
     @EnvironmentObject private var metadataStore: ProjectMetadataStore
 
     private var badgeData: (text: String, bg: Color, textCol: Color, border: Color) {
+        if project.isOffloaded {
+            let label = project.savedSpaceFormatted.map { "CLOUD \($0)" } ?? "OFFLOADED"
+            return (label, Color.blue.opacity(0.20), Color(hex: "60A5FA"), Color.blue.opacity(0.5))
+        }
+
         let meta = metadataStore.metadata(for: project)
         if let phase = meta.productionPhase {
             let isClient = meta.projectKind == .client
@@ -55,16 +60,25 @@ struct ProjectBadgeView: View {
 
     var body: some View {
         let info = badgeData
-        Text(info.text)
-            .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-            .foregroundColor(info.textCol)
-            .padding(.horizontal, 4.5)
-            .padding(.vertical, 2)
-            .background(info.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 3.5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 3.5)
-                    .stroke(info.border, lineWidth: 0.6)
+        HStack(spacing: 3) {
+            if project.isOffloaded {
+                Image(systemName: "icloud.and.arrow.up.fill")
+                    .font(.system(size: 7.5))
+            } else if DropboxManager.shared.isUnderDropbox(url: project.folderURL) {
+                Image(systemName: "cloud.fill")
+                    .font(.system(size: 7.5))
             }
+            Text(info.text)
+                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+        }
+        .foregroundColor(info.textCol)
+        .padding(.horizontal, 4.5)
+        .padding(.vertical, 2)
+        .background(info.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 3.5))
+        .overlay {
+            RoundedRectangle(cornerRadius: 3.5)
+                .stroke(info.border, lineWidth: 0.6)
+        }
     }
 }

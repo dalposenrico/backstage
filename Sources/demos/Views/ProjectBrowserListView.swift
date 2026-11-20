@@ -941,6 +941,18 @@ private struct BrowserProjectRow: View {
                 store.toggleProjectHidden(project)
             }
             Divider()
+            if project.isOffloaded {
+                Button("Restore Project from Cloud…") {
+                    Task {
+                        try? await store.restoreOffloadedProject(project)
+                    }
+                }
+            } else {
+                Button("Offload to Cloud / Dropbox…") {
+                    store.offloadModalProject = project
+                }
+            }
+            Divider()
             Button(store.favourites.contains(project.folderURL) ? "Remove Favourite" : "Favourite") {
                 store.toggleFavourite(project)
             }

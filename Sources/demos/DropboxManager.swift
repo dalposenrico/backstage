@@ -10,6 +10,7 @@ final class DropboxManager: ObservableObject {
 
     static let defaultClientWorkFolderName = "MIXING - MASTERING WORK"
     static let defaultMusicProjectsFolderName = "MUSIC PROJECTS"
+    static let defaultArchiveFolderName = "goodvibrations Archive"
 
     private static var cachedDropboxRoot: URL?
     private static var hasSearchedDropboxRoot = false
@@ -157,5 +158,43 @@ final class DropboxManager: ObservableObject {
         if let webURL = dropboxWebURL(for: localURL) {
             NSWorkspace.shared.open(webURL)
         }
+    }
+
+    /// Checks if a given file or folder URL is located inside the Dropbox root directory.
+    func isUnderDropbox(url: URL) -> Bool {
+        guard let root = dropboxRootURL else { return false }
+        let standardRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let standardTarget = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return standardTarget == standardRoot || standardTarget.hasPrefix(standardRoot + "/")
+    }
+
+    /// Detects if an item is an online-only (dataless) cloud placeholder on APFS/FileProvider.
+    func isOnlineOnly(url: URL) -> Bool {
+        var st = stat()
+        if stat(url.path, &st) == 0 {
+            // Check for BSD SF_DATALESS flag (0x40000000)
+            if (st.st_flags & UInt32(SF_DATALESS)) != 0 {
+                return true
+            }
+        }
+        if let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]),
+           let status = values.ubiquitousItemDownloadingStatus {
+            return status == .notDownloaded
+        }
+        return false
+    }
+
+    /// Returns the dedicated cloud archive directory, creating it if needed.
+    /// Prefers Dropbox/goodvibrations Archive if Dropbox is available; otherwise Application Support/Backstage/CloudArchive.
+    func archiveDirectoryURL() -> URL {
+        let targetURL: URL
+        if let root = dropboxRootURL {
+            targetURL = root.appendingPathComponent(Self.defaultArchiveFolderName, isDirectory: true)
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            targetURL = appSupport.appendingPathComponent("Backstage/CloudArchive", isDirectory: true)
+        }
+        try? FileManager.default.createDirectory(at: targetURL, withIntermediateDirectories: true)
+        return targetURL
     }
 }

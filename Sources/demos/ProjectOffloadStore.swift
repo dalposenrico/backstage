@@ -1,0 +1,378 @@
+import Foundation
+import AppKit
+
+// MARK: - Size Breakdown
+struct OffloadSizeBreakdown: Sendable {
+    let totalBytes: Int64
+    let samplesBytes: Int64
+    let backupBytes: Int64
+    let alsBytes: Int64
+    let exportsBytes: Int64
+    let otherBytes: Int64
+
+    var formattedTotal: String { ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file) }
+    var formattedSamples: String { ByteCountFormatter.string(fromByteCount: samplesBytes, countStyle: .file) }
+    var formattedBackups: String { ByteCountFormatter.string(fromByteCount: backupBytes, countStyle: .file) }
+    var formattedAls: String { ByteCountFormatter.string(fromByteCount: alsBytes, countStyle: .file) }
+    var formattedExports: String { ByteCountFormatter.string(fromByteCount: exportsBytes, countStyle: .file) }
+
+    var estimatedSavings: Int64 {
+        // Savings = total - exports
+        max(0, totalBytes - exportsBytes)
+    }
+
+    var formattedEstimatedSavings: String {
+        ByteCountFormatter.string(fromByteCount: estimatedSavings, countStyle: .file)
+    }
+}
+
+// MARK: - Export Readiness
+enum ExportReadiness: Equatable {
+    case ready(primaryTrack: Track, isOutdated: Bool)
+    case missing
+}
+
+// MARK: - Offloaded Metadata Snapshot
+struct OffloadMetadataSnapshot: Codable, Hashable {
+    let bpm: Double?
+    let key: String?
+    let timeSignature: String?
+    let plugins: [String]
+    let liveVersion: String?
+    let tracksCount: Int?
+    let samplesCount: Int?
+    let versionNames: [String]
+    let tags: [String]
+    let notes: String?
+    let activityBackupCount: Int
+    let activitySessionCount: Int
+    let activityEstimatedWorkTime: TimeInterval
+}
+
+// MARK: - Offloaded Project Record
+struct OffloadedProjectRecord: Codable, Identifiable, Hashable {
+    var id: String { originalFolderPath }
+    let originalFolderPath: String
+    let projectName: String
+    let archivePath: String
+    let cachedExportPath: String?
+    let cachedExportRelativeName: String?
+    let offloadedDate: Date
+    let freedBytes: Int64
+    let metadataSnapshot: OffloadMetadataSnapshot
+
+    var archiveURL: URL { URL(fileURLWithPath: archivePath) }
+    var originalFolderURL: URL { URL(fileURLWithPath: originalFolderPath) }
+    var cachedExportURL: URL? { cachedExportPath.map { URL(fileURLWithPath: $0) } }
+
+    var formattedFreedBytes: String {
+        ByteCountFormatter.string(fromByteCount: freedBytes, countStyle: .file)
+    }
+}
+
+// MARK: - Project Offload Store
+@MainActor
+final class ProjectOffloadStore: ObservableObject {
+    static let shared = ProjectOffloadStore()
+
+    @Published private(set) var offloadedProjects: [String: OffloadedProjectRecord] = [:]
+
+    private let storeFileURL: URL
+    private let offloadVaultBaseURL: URL
+    nonisolated static let markerFileName = "_goodvibrations_offloaded.json"
+
+    init() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let backstageDir = appSupport.appendingPathComponent("Backstage", isDirectory: true)
+        try? FileManager.default.createDirectory(at: backstageDir, withIntermediateDirectories: true)
+        storeFileURL = backstageDir.appendingPathComponent("project-offloads.json")
+        offloadVaultBaseURL = backstageDir.appendingPathComponent("OffloadVault", isDirectory: true)
+        try? FileManager.default.createDirectory(at: offloadVaultBaseURL, withIntermediateDirectories: true)
+
+        loadPersistedRecords()
+    }
+
+    // MARK: - Persistence
+    private func loadPersistedRecords() {
+        guard let data = try? Data(contentsOf: storeFileURL),
+              let decoded = try? JSONDecoder().decode([String: OffloadedProjectRecord].self, from: data) else {
+            return
+        }
+        offloadedProjects = decoded
+    }
+
+    private func savePersistedRecords() {
+        guard let data = try? JSONEncoder().encode(offloadedProjects) else { return }
+        try? data.write(to: storeFileURL, options: .atomic)
+    }
+
+    func isOffloaded(folderURL: URL) -> Bool {
+        let path = folderURL.standardizedFileURL.path
+        if offloadedProjects[path] != nil { return true }
+        let marker = folderURL.appendingPathComponent(Self.markerFileName)
+        return FileManager.default.fileExists(atPath: marker.path)
+    }
+
+    func record(for folderURL: URL) -> OffloadedProjectRecord? {
+        let path = folderURL.standardizedFileURL.path
+        if let existing = offloadedProjects[path] {
+            return existing
+        }
+        // Fallback: check on-disk marker
+        return Self.readMarker(in: folderURL)
+    }
+
+    nonisolated static func readMarker(in folderURL: URL) -> OffloadedProjectRecord? {
+        let marker = folderURL.appendingPathComponent(markerFileName)
+        guard let data = try? Data(contentsOf: marker),
+              let record = try? JSONDecoder().decode(OffloadedProjectRecord.self, from: data) else {
+            return nil
+        }
+        return record
+    }
+
+    // MARK: - Export Readiness Check
+    func checkExportReadiness(for project: Project) -> ExportReadiness {
+        guard let primary = project.primaryTrack else {
+            return .missing
+        }
+        let exportDate = primary.modificationDate ?? .distantPast
+        let newestAlsDate = project.newestAbletonVersion?.modificationDate ?? .distantPast
+        let isOutdated = newestAlsDate > exportDate && newestAlsDate != .distantPast
+        return .ready(primaryTrack: primary, isOutdated: isOutdated)
+    }
+
+    // MARK: - Size Calculation
+    nonisolated func calculateSize(for folderURL: URL) async -> OffloadSizeBreakdown {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            var totalBytes: Int64 = 0
+            var samplesBytes: Int64 = 0
+            var backupBytes: Int64 = 0
+            var alsBytes: Int64 = 0
+            var exportsBytes: Int64 = 0
+            var otherBytes: Int64 = 0
+
+            guard let enumerator = fm.enumerator(
+                at: folderURL,
+                includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return OffloadSizeBreakdown(totalBytes: 0, samplesBytes: 0, backupBytes: 0, alsBytes: 0, exportsBytes: 0, otherBytes: 0)
+            }
+
+            let folderPath = folderURL.standardizedFileURL.path
+
+            while let fileURL = enumerator.nextObject() as? URL {
+                guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]),
+                      values.isDirectory == false,
+                      let size = values.fileSize else { continue }
+
+                let bytes = Int64(size)
+                totalBytes += bytes
+
+                let relative = String(fileURL.standardizedFileURL.path.dropFirst(folderPath.count))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let components = relative.split(separator: "/")
+                let topFolder = components.first?.lowercased() ?? ""
+                let ext = fileURL.pathExtension.lowercased()
+
+                if topFolder == "samples" {
+                    samplesBytes += bytes
+                } else if topFolder == "backup" {
+                    backupBytes += bytes
+                } else if ext == "als" {
+                    alsBytes += bytes
+                } else if ProjectScanner.audioExtensions.contains(ext) {
+                    exportsBytes += bytes
+                } else {
+                    otherBytes += bytes
+                }
+            }
+
+            return OffloadSizeBreakdown(
+                totalBytes: totalBytes,
+                samplesBytes: samplesBytes,
+                backupBytes: backupBytes,
+                alsBytes: alsBytes,
+                exportsBytes: exportsBytes,
+                otherBytes: otherBytes
+            )
+        }.value
+    }
+
+    // MARK: - Offload Operation
+    func offloadProject(
+        project: Project,
+        customArchiveDestination: URL? = nil,
+        keepAudioExport: Bool = true
+    ) async throws -> OffloadedProjectRecord {
+        let folder = project.folderURL.standardizedFileURL
+        let fm = FileManager.default
+
+        // 1. Calculate size breakdown before modifying
+        let sizeBreakdown = await calculateSize(for: folder)
+
+        // 2. Identify primary track / exports to preserve locally
+        let primaryTrack = project.primaryTrack
+        let vaultFolder = offloadVaultBaseURL.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+        try? fm.createDirectory(at: vaultFolder, withIntermediateDirectories: true)
+
+        var cachedExportPath: String? = nil
+        var cachedExportRelativeName: String? = nil
+
+        if let primaryTrack {
+            let dest = vaultFolder.appendingPathComponent(primaryTrack.url.lastPathComponent)
+            try? fm.removeItem(at: dest)
+            try? fm.copyItem(at: primaryTrack.url, to: dest)
+            cachedExportPath = dest.path
+            cachedExportRelativeName = primaryTrack.url.lastPathComponent
+        }
+
+        // 3. Resolve archive destination
+        let archiveFolder = customArchiveDestination?.deletingLastPathComponent()
+            ?? DropboxManager.shared.archiveDirectoryURL()
+        try fm.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
+
+        let safeProjectName = project.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? folder.lastPathComponent
+            : project.name
+        let archiveURL = customArchiveDestination ?? archiveFolder.appendingPathComponent("\(safeProjectName).zip")
+
+        // 4. Archive project using ditto
+        try await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = [
+                "-c", "-k",
+                "--sequesterRsrc",
+                "--keepParent",
+                folder.path,
+                archiveURL.path
+            ]
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                throw NSError(
+                    domain: "ProjectOffloadStore",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to compress project into archive (code \(process.terminationStatus))."]
+                )
+            }
+        }.value
+
+        // Verify archive was created
+        guard fm.fileExists(atPath: archiveURL.path) else {
+            throw NSError(
+                domain: "ProjectOffloadStore",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Archive file was not created."]
+            )
+        }
+
+        // 5. Build metadata snapshot
+        let snapshot = OffloadMetadataSnapshot(
+            bpm: project.bpm,
+            key: project.key,
+            timeSignature: project.timeSignature,
+            plugins: project.plugins,
+            liveVersion: project.liveVersion,
+            tracksCount: project.tracksCount,
+            samplesCount: project.samplesCount,
+            versionNames: project.versions.map(\.displayName),
+            tags: project.tags,
+            notes: ProjectNotesStore().note(for: project),
+            activityBackupCount: project.activity.backupCount,
+            activitySessionCount: project.activity.sessionCount,
+            activityEstimatedWorkTime: project.activity.estimatedWorkTime
+        )
+
+        let freedBytes = sizeBreakdown.estimatedSavings
+        let record = OffloadedProjectRecord(
+            originalFolderPath: folder.path,
+            projectName: project.name,
+            archivePath: archiveURL.path,
+            cachedExportPath: cachedExportPath,
+            cachedExportRelativeName: cachedExportRelativeName,
+            offloadedDate: Date(),
+            freedBytes: freedBytes,
+            metadataSnapshot: snapshot
+        )
+
+        // 6. Delete heavy items inside project folder, preserving the export
+        let contents = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        for item in contents {
+            let name = item.lastPathComponent.lowercased()
+            if name == "samples" || name == "backup" || name == "ableton project info" {
+                try? fm.removeItem(at: item)
+            } else if item.pathExtension.lowercased() == "als" {
+                try? fm.removeItem(at: item)
+            }
+        }
+
+        // Write marker file in the project folder
+        let markerURL = folder.appendingPathComponent(Self.markerFileName)
+        if let markerData = try? JSONEncoder().encode(record) {
+            try? markerData.write(to: markerURL, options: .atomic)
+        }
+
+        // 7. Save in store
+        offloadedProjects[folder.path] = record
+        savePersistedRecords()
+
+        return record
+    }
+
+    // MARK: - Restore Operation
+    func restoreProject(project: Project) async throws {
+        let folder = project.folderURL.standardizedFileURL
+        guard let record = self.record(for: folder) else {
+            throw NSError(
+                domain: "ProjectOffloadStore",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "No offload record found for project at \(folder.path)."]
+            )
+        }
+
+        let archiveURL = record.archiveURL
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: archiveURL.path) else {
+            throw NSError(
+                domain: "ProjectOffloadStore",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Cloud archive not found at: \(archiveURL.path). Please verify Dropbox has synced this file."]
+            )
+        }
+
+        // Extract using ditto into the parent directory
+        let parentDir = folder.deletingLastPathComponent()
+
+        try await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = [
+                "-x", "-k",
+                archiveURL.path,
+                parentDir.path
+            ]
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                throw NSError(
+                    domain: "ProjectOffloadStore",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to extract project archive (code \(process.terminationStatus))."]
+                )
+            }
+        }.value
+
+        // Remove the marker file
+        let markerURL = folder.appendingPathComponent(Self.markerFileName)
+        try? fm.removeItem(at: markerURL)
+
+        // Remove from memory and save
+        offloadedProjects.removeValue(forKey: folder.path)
+        savePersistedRecords()
+    }
+}

@@ -76,7 +76,7 @@ enum ProjectScanner {
                 options: .skipsHiddenFiles
               ) else { return 1 }
 
-        if contents.contains(where: { $0.pathExtension.lowercased() == "als" }) {
+        if contents.contains(where: { $0.pathExtension.lowercased() == "als" || $0.lastPathComponent == ProjectOffloadStore.markerFileName }) {
             return 1
         }
         return 1 + contents.reduce(into: 0) { count, item in
@@ -107,8 +107,11 @@ enum ProjectScanner {
         ) else { return nil }
 
         let alsFiles = contents.filter { $0.pathExtension.lowercased() == "als" }
+        let offloadMarker = contents.first { $0.lastPathComponent == ProjectOffloadStore.markerFileName }
+        let offloadRecord = offloadMarker != nil ? ProjectOffloadStore.readMarker(in: folder) : nil
+
         if !alsFiles.isEmpty {
-            // This is an Ableton project folder
+            // This is an active Ableton project folder
             let tracks   = audioFilesInProject(folder, rootContents: contents)
             let versions = alsVersionsIn(alsFiles)
             let attrs    = try? folder.resourceValues(forKeys: [.creationDateKey, .tagNamesKey])
@@ -134,6 +137,46 @@ enum ProjectScanner {
                 liveVersion: inspection.liveVersion,
                 tracksCount: inspection.tracksCount,
                 samplesCount: inspection.samplesCount
+            )
+            reporter.foundProject(in: folder)
+            return FolderNode(url: folder, name: project.name, project: project, children: [])
+        } else if let record = offloadRecord {
+            // This is an offloaded project folder preserved for offline browsing and auditioning
+            var tracks = audioFilesInProject(folder, rootContents: contents)
+            if tracks.isEmpty, let cachedURL = record.cachedExportURL, fm.fileExists(atPath: cachedURL.path) {
+                tracks = [Track(url: cachedURL, modificationDate: record.offloadedDate, creationDate: record.offloadedDate, relativeFolder: "")]
+            }
+            let versions = record.metadataSnapshot.versionNames.map { name in
+                AbletonVersion(
+                    url: folder.appendingPathComponent("\(name).als"),
+                    modificationDate: record.offloadedDate,
+                    creationDate: record.offloadedDate
+                )
+            }
+            let attrs = try? folder.resourceValues(forKeys: [.creationDateKey, .tagNamesKey])
+            let project = Project(
+                name: record.projectName.isEmpty ? cleanName(folder.lastPathComponent) : record.projectName,
+                folderURL: folder,
+                tracks: tracks,
+                versions: versions,
+                creationDate: attrs?.creationDate ?? record.offloadedDate,
+                tags: attrs?.tagNames ?? record.metadataSnapshot.tags,
+                bpm: record.metadataSnapshot.bpm,
+                plugins: record.metadataSnapshot.plugins,
+                activity: ProjectActivity(
+                    backupCount: record.metadataSnapshot.activityBackupCount,
+                    sessionCount: record.metadataSnapshot.activitySessionCount,
+                    estimatedWorkTime: record.metadataSnapshot.activityEstimatedWorkTime
+                ),
+                latestModification: record.offloadedDate,
+                key: record.metadataSnapshot.key,
+                timeSignature: record.metadataSnapshot.timeSignature,
+                liveVersion: record.metadataSnapshot.liveVersion,
+                tracksCount: record.metadataSnapshot.tracksCount,
+                samplesCount: record.metadataSnapshot.samplesCount,
+                isOffloaded: true,
+                offloadedFreedBytes: record.freedBytes,
+                offloadedArchiveURL: record.archiveURL
             )
             reporter.foundProject(in: folder)
             return FolderNode(url: folder, name: project.name, project: project, children: [])

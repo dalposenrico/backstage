@@ -174,6 +174,31 @@ struct ContentView: View {
                 .environmentObject(projectNotes)
                 .environmentObject(projectProgress)
         }
+        .sheet(item: $store.offloadModalProject) { project in
+            ProjectOffloadModalView(project: project)
+        }
+        .alert("Project Offloaded to Cloud", isPresented: Binding(
+            get: { store.restorePromptProject != nil },
+            set: { if !$0 { store.restorePromptProject = nil } }
+        )) {
+            if let project = store.restorePromptProject {
+                Button("Cancel", role: .cancel) {
+                    store.restorePromptProject = nil
+                }
+                Button("Restore & Open in Ableton") {
+                    let target = project
+                    store.restorePromptProject = nil
+                    Task {
+                        try? await store.restoreOffloadedProject(target)
+                        store.openInAbleton(target)
+                    }
+                }
+            }
+        } message: {
+            if let project = store.restorePromptProject {
+                Text("\(project.name) is offloaded to the cloud to save local disk space. Would you like to restore it now and open it in Ableton Live?")
+            }
+        }
         .alert("Export Checkpoint", isPresented: Binding(
             get: { store.checkpointError != nil },
             set: { if !$0 { store.checkpointError = nil } }

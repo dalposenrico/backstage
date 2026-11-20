@@ -60,6 +60,8 @@ class AppStore: ObservableObject {
     }
     @Published var exportCheckpointProject: Project?
     @Published var checkpointError: String?
+    @Published var offloadModalProject: Project?
+    @Published var restorePromptProject: Project?
     @Published private(set) var currentOpenProjectURL: URL?
     @Published private(set) var externalOpenProject: Project?
     @Published private(set) var openingAbletonProject: AbletonOpeningState?
@@ -597,6 +599,11 @@ class AppStore: ObservableObject {
     }
 
     func openInAbleton(_ project: Project, version: AbletonVersion? = nil, autoExportOnReady: Bool = false) {
+        if project.isOffloaded {
+            restorePromptProject = project
+            return
+        }
+
         let targetVersion = version ?? project.newestAbletonVersion
 
         // If this project is ALREADY the current open session in Ableton Live,
@@ -931,6 +938,11 @@ class AppStore: ObservableObject {
 
         let cache = inspectionCache
         Task.detached(priority: .utility) { cache.persistIfNeeded() }
+    }
+
+    func restoreOffloadedProject(_ project: Project) async throws {
+        try await ProjectOffloadStore.shared.restoreProject(project: project)
+        await refreshProject(project)
     }
 
     func toggleExpansion(_ url: URL) {

@@ -83,6 +83,9 @@ struct Project: Identifiable, Hashable {
     let liveVersion: String?
     let tracksCount: Int?
     let samplesCount: Int?
+    let isOffloaded: Bool
+    let offloadedFreedBytes: Int64?
+    let offloadedArchiveURL: URL?
     let sortedTracks: [Track]
     let newestAbletonVersion: AbletonVersion?
     let extractedVersionNumber: String?
@@ -90,6 +93,14 @@ struct Project: Identifiable, Hashable {
 
     var primaryTrack: Track? {
         sortedTracks.first
+    }
+
+    var savedSpaceFormatted: String? {
+        guard let bytes = offloadedFreedBytes, bytes > 0 else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     init(
@@ -107,7 +118,10 @@ struct Project: Identifiable, Hashable {
         timeSignature: String? = nil,
         liveVersion: String? = nil,
         tracksCount: Int? = nil,
-        samplesCount: Int? = nil
+        samplesCount: Int? = nil,
+        isOffloaded: Bool = false,
+        offloadedFreedBytes: Int64? = nil,
+        offloadedArchiveURL: URL? = nil
     ) {
         self.name = name
         self.folderURL = folderURL
@@ -124,6 +138,9 @@ struct Project: Identifiable, Hashable {
         self.liveVersion = liveVersion
         self.tracksCount = tracksCount
         self.samplesCount = samplesCount
+        self.isOffloaded = isOffloaded
+        self.offloadedFreedBytes = offloadedFreedBytes
+        self.offloadedArchiveURL = offloadedArchiveURL
 
         let newest = versions.max { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
         self.newestAbletonVersion = newest

@@ -749,6 +749,22 @@ struct TrackListView: View {
                 Label("Choose Artwork", systemImage: "photo")
             }
             Divider()
+            if project.isOffloaded {
+                Button {
+                    Task {
+                        try? await store.restoreOffloadedProject(project)
+                    }
+                } label: {
+                    Label("Restore Project from Cloud", systemImage: "icloud.and.arrow.down")
+                }
+            } else {
+                Button {
+                    store.offloadModalProject = project
+                } label: {
+                    Label("Offload to Cloud / Dropbox…", systemImage: "icloud.and.arrow.up")
+                }
+            }
+            Divider()
             Button { Task { await store.refreshProject(project) } } label: {
                 Label("Refresh Project", systemImage: "arrow.clockwise")
             }
