@@ -300,6 +300,7 @@ enum SidebarSection: Equatable {
     case all
     case recents
     case favorites
+    case autoOffloadReady
     case folder(URL)
 }
 

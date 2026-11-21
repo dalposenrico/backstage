@@ -24,6 +24,8 @@ enum ProjectDateFilter: String, CaseIterable, Identifiable {
 }
 
 private struct ProjectFilterBar: View {
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var settings: SettingsStore
     @Binding var stage: ProjectStage?
     @Binding var priority: ProjectPriority?
     @Binding var rating: ProjectRating?
@@ -32,7 +34,7 @@ private struct ProjectFilterBar: View {
     let clear: () -> Void
 
     private var hasFilters: Bool {
-        stage != nil || priority != nil || rating != nil || date != .anytime || rediscoverEnabled
+        stage != nil || priority != nil || rating != nil || date != .anytime || rediscoverEnabled || store.selectedSidebarSection == .autoOffloadReady
     }
 
     var body: some View {
@@ -78,6 +80,29 @@ private struct ProjectFilterBar: View {
                     filterLabel("Rediscover", icon: "shuffle", active: rediscoverEnabled)
                 }
                 .buttonStyle(.plain)
+
+                let eligibleCount = ProjectOffloadStore.shared.eligibleProjectsForAutoOffload(
+                    in: store.visibleProjects,
+                    threshold: settings.autoOffloadThreshold
+                ).count
+
+                if settings.isAutoOffloadEnabled || eligibleCount > 0 {
+                    Button {
+                        if store.selectedSidebarSection == .autoOffloadReady {
+                            store.selectedSidebarSection = .all
+                        } else {
+                            store.selectedSidebarSection = .autoOffloadReady
+                            store.selectedCollectionURL = nil
+                        }
+                    } label: {
+                        filterLabel(
+                            "Ready to Offload\(eligibleCount > 0 ? " (\(eligibleCount))" : "")",
+                            icon: "icloud.and.arrow.up",
+                            active: store.selectedSidebarSection == .autoOffloadReady
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 if hasFilters {
                     Button("Clear", action: clear)
@@ -239,6 +264,31 @@ struct ProjectBrowserListView: View {
 
                 Spacer(minLength: 10)
 
+                let eligibleProjects = ProjectOffloadStore.shared.eligibleProjectsForAutoOffload(
+                    in: store.visibleProjects,
+                    threshold: settings.autoOffloadThreshold
+                )
+                if (settings.isAutoOffloadEnabled || store.selectedSidebarSection == .autoOffloadReady) && !eligibleProjects.isEmpty {
+                    Button {
+                        ProjectOffloadStore.shared.performAutoOffload(
+                            projects: store.projects,
+                            threshold: settings.autoOffloadThreshold
+                        )
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "icloud.and.arrow.up")
+                            Text("Offload Ready (\(eligibleProjects.count))")
+                        }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.accent)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.accent.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Offload all \(eligibleProjects.count) inactive projects ready for cloud archiving")
+                }
+
                 Button {
                     withAnimation(.easeInOut(duration: 0.16)) { showFilters.toggle() }
                 } label: {
@@ -305,6 +355,8 @@ struct ProjectBrowserListView: View {
                 )
                 Divider().background(Color.divider)
             }
+
+            AutoOffloadLibraryBannerView()
 
             if viewStyle == "list" {
                 GeometryReader { proxy in
@@ -384,6 +436,9 @@ struct ProjectBrowserListView: View {
         ratingFilter = nil
         dateFilter = .anytime
         rediscoverEnabled = false
+        if store.selectedSidebarSection == .autoOffloadReady {
+            store.selectedSidebarSection = .all
+        }
     }
 
     private var collectionTitle: String {
@@ -394,6 +449,8 @@ struct ProjectBrowserListView: View {
             return "Recent Projects"
         case .favorites:
             return "Favorite Projects"
+        case .autoOffloadReady:
+            return "Ready to Offload"
         case .folder(let url):
             return store.folderTree.findNode(at: url)?.name ?? "Projects"
         }

@@ -227,5 +227,13 @@ final class ProjectOffloadStoreTests: XCTestCase {
 
         XCTAssertEqual(eligible.count, 1)
         XCTAssertEqual(eligible.first?.name, "Old With Export")
+
+        // Test reclaimable bytes
+        store.setCachedSize(1_500_000_000, for: dummyFolder1) // 1.5 GB
+        let reclaimable = store.estimatedReclaimableBytes(for: eligible)
+        XCTAssertEqual(reclaimable, 1_500_000_000)
+        let formatted = store.formattedReclaimableBytes(for: eligible)
+        XCTAssertNotNil(formatted)
+        XCTAssertTrue(formatted?.contains("GB") ?? false)
     }
 }

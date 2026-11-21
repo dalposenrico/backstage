@@ -212,6 +212,7 @@ enum AutoOffloadAge: String, CaseIterable, Identifiable {
     case oneYear = "1 year"
 
     var id: String { rawValue }
+    var title: String { rawValue }
 
     var days: Int {
         switch self {

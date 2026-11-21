@@ -295,6 +295,12 @@ class AppStore: ObservableObject {
                 .sorted { $0.latestModification > $1.latestModification }
         case .favorites:
             baseList = favouriteProjects
+        case .autoOffloadReady:
+            let threshold = SettingsStore.shared?.autoOffloadThreshold ?? .threeMonths
+            baseList = ProjectOffloadStore.shared.eligibleProjectsForAutoOffload(
+                in: visibleProjects,
+                threshold: threshold
+            )
         case .folder(let collectionURL):
             baseList = folderTree.findNode(at: collectionURL)?.allProjects() ?? visibleProjects
         }
@@ -378,6 +384,14 @@ class AppStore: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, self.sortOrder == .size else { return }
                 self.invalidateProjectsCache()
+            }
+            .store(in: &cancellables)
+
+        ProjectOffloadStore.shared.$activeOperations
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.selectedSidebarSection == .autoOffloadReady else { return }
+                self.invalidateFilteredProjectsCache()
             }
             .store(in: &cancellables)
 

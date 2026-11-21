@@ -171,6 +171,10 @@ final class ProjectOffloadStore: ObservableObject {
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    func setCachedSize(_ bytes: Int64, for folderURL: URL) {
+        localProjectSizes[folderURL.standardizedFileURL.path] = bytes
+    }
+
     // MARK: - Non-blocking Background Queue Operations
     func queueOffload(project: Project) {
         let path = project.folderURL.standardizedFileURL.path
@@ -231,6 +235,26 @@ final class ProjectOffloadStore: ObservableObject {
             queueOffload(project: project)
         }
         return eligible.count
+    }
+
+    func estimatedReclaimableBytes(for projects: [Project]) -> Int64 {
+        projects.reduce(0) { total, project in
+            let path = project.folderURL.standardizedFileURL.path
+            if let cached = localProjectSizes[path] {
+                return total + cached
+            }
+            requestSize(for: project.folderURL)
+            return total
+        }
+    }
+
+    func formattedReclaimableBytes(for projects: [Project]) -> String? {
+        let bytes = estimatedReclaimableBytes(for: projects)
+        guard bytes > 0 else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     // MARK: - Size Calculation

@@ -230,7 +230,26 @@ struct SidebarView: View {
                             }
                         }
 
-                        // 4. IMPORTED FOLDERS
+                        // 4. READY TO OFFLOAD
+                        let eligibleCount = ProjectOffloadStore.shared.eligibleProjectsForAutoOffload(
+                            in: store.visibleProjects,
+                            threshold: settings.autoOffloadThreshold
+                        ).count
+
+                        if settings.isAutoOffloadEnabled || eligibleCount > 0 {
+                            sidebarSectionButton(
+                                title: "READY TO OFFLOAD",
+                                icon: "icloud.and.arrow.up",
+                                count: eligibleCount > 0 ? eligibleCount : nil,
+                                isSelected: store.selectedSidebarSection == .autoOffloadReady,
+                                action: {
+                                    store.selectedSidebarSection = .autoOffloadReady
+                                    store.selectedCollectionURL = nil
+                                }
+                            )
+                        }
+
+                        // 5. IMPORTED FOLDERS
                         SidebarSectionHeader(
                             title: "IMPORTED FOLDERS",
                             icon: "folder.fill",
