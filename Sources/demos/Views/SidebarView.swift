@@ -259,7 +259,19 @@ struct SidebarView: View {
                             )
                         }
 
-                        // 5. IMPORTED FOLDERS
+                        // 5. SAMPLE CLEANER
+                        sidebarSectionButton(
+                            title: "SAMPLE CLEANER",
+                            icon: "waveform.badge.magnifyingglass",
+                            count: nil,
+                            isSelected: false,
+                            action: {
+                                openWindow(id: "sample-library-cleaner")
+                                WindowPresenter.showSampleLibraryCleaner()
+                            }
+                        )
+
+                        // 6. IMPORTED FOLDERS
                         SidebarSectionHeader(
                             title: "IMPORTED FOLDERS",
                             icon: "folder.fill",
