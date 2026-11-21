@@ -205,9 +205,39 @@ enum PetPuckSize: String, CaseIterable, Identifiable {
     }
 }
 
+enum AutoOffloadAge: String, CaseIterable, Identifiable {
+    case oneMonth = "1 month"
+    case threeMonths = "3 months"
+    case sixMonths = "6 months"
+    case oneYear = "1 year"
+
+    var id: String { rawValue }
+
+    var days: Int {
+        switch self {
+        case .oneMonth: return 30
+        case .threeMonths: return 90
+        case .sixMonths: return 180
+        case .oneYear: return 365
+        }
+    }
+
+    var timeInterval: TimeInterval {
+        Double(days) * 86_400
+    }
+}
+
 class SettingsStore: ObservableObject {
+    static weak var shared: SettingsStore?
+
     @Published var appearanceMode: AppearanceMode {
         didSet { UserDefaults.standard.set(appearanceMode.rawValue, forKey: "appearanceMode") }
+    }
+    @Published var isAutoOffloadEnabled: Bool {
+        didSet { UserDefaults.standard.set(isAutoOffloadEnabled, forKey: "isAutoOffloadEnabled") }
+    }
+    @Published var autoOffloadThreshold: AutoOffloadAge {
+        didSet { UserDefaults.standard.set(autoOffloadThreshold.rawValue, forKey: "autoOffloadThreshold") }
     }
     @Published var sidebarWidth: CGFloat {
         didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: "sidebarWidth") }
@@ -297,6 +327,10 @@ class SettingsStore: ObservableObject {
         sidebarWidth   = rawWidth > 0 ? CGFloat(rawWidth) : 260
         showInlineWaveforms = storedWaveforms ?? true
 
+        isAutoOffloadEnabled = UserDefaults.standard.bool(forKey: "isAutoOffloadEnabled")
+        let rawAutoAge = UserDefaults.standard.string(forKey: "autoOffloadThreshold") ?? "3 months"
+        autoOffloadThreshold = AutoOffloadAge(rawValue: rawAutoAge) ?? .threeMonths
+
         if let storedActive = UserDefaults.standard.object(forKey: "isFloatingWidgetActive") as? Bool {
             isFloatingWidgetActive = storedActive
         } else {
@@ -345,6 +379,7 @@ class SettingsStore: ObservableObject {
         petPuckSize = PetPuckSize(rawValue: rawPuckSize) ?? .medium
 
         selectedAbletonAppPath = UserDefaults.standard.string(forKey: AbletonAppDetector.defaultsKey) ?? ""
+        Self.shared = self
         refreshAvailableAbletonApps()
     }
 }

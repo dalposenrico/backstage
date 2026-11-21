@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import WidgetKit
+import Combine
 
 enum SortOrder: String, CaseIterable {
     case recentlyEdited = "Recently Edited"
@@ -9,6 +10,7 @@ enum SortOrder: String, CaseIterable {
     case activity = "Activity"
     case bpm = "BPM"
     case work = "Estimated Work"
+    case size = "Size"
 }
 
 enum LibraryLoadPresentation: Equatable {
@@ -78,6 +80,7 @@ class AppStore: ObservableObject {
     private var libraryChangeTask: Task<Void, Never>?
     private var widgetSnapshotTask: Task<Void, Never>?
     private var libraryScanID = UUID()
+    private var cancellables = Set<AnyCancellable>()
 
     nonisolated static let favoritesFileURL: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -319,6 +322,18 @@ class AppStore: ObservableObject {
             result = sortedOptional(base, value: { $0.bpm })
         case .work:
             result = sortedOptional(base, value: { $0.activity.estimatedWorkTime > 0 ? $0.activity.estimatedWorkTime : nil })
+        case .size:
+            result = sorted(base, value: { project in
+                if project.isOffloaded {
+                    return project.offloadedFreedBytes ?? 0
+                }
+                let path = project.folderURL.standardizedFileURL.path
+                if let cached = ProjectOffloadStore.shared.localProjectSizes[path] {
+                    return cached
+                }
+                ProjectOffloadStore.shared.requestSize(for: project.folderURL)
+                return 0
+            })
         }
         _cachedFilteredProjects = result
         return result
@@ -357,6 +372,14 @@ class AppStore: ObservableObject {
         } else {
             sortAscending = sortOrder == .name
         }
+
+        ProjectOffloadStore.shared.$localProjectSizes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.sortOrder == .size else { return }
+                self.invalidateProjectsCache()
+            }
+            .store(in: &cancellables)
 
         loadFavourites()
         hiddenProjects = loadURLSet(key: "hiddenProjectPaths")
@@ -453,6 +476,14 @@ class AppStore: ObservableObject {
 
         // Detect running Ableton session now that projects are available
         refreshAbletonSession()
+
+        // Automatic inactive project offloading if enabled in Settings
+        if let settings = SettingsStore.shared, settings.isAutoOffloadEnabled {
+            ProjectOffloadStore.shared.performAutoOffload(
+                projects: all,
+                threshold: settings.autoOffloadThreshold
+            )
+        }
 
         if let pending = pendingProjectURLToOpen, let match = all.first(where: { $0.folderURL == pending }) {
             openInMainWindow(match)

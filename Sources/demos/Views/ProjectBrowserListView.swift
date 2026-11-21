@@ -714,8 +714,7 @@ private struct ProjectListHeader: View {
             Text("v")
                 .frame(width: 46, alignment: .center)
 
-            Text("Cloud")
-                .frame(width: compact ? 88 : 105, alignment: .leading)
+            sortHeader("Cloud", order: .size, width: compact ? 88 : 105, alignment: .leading)
 
             Text("Version")
                 .frame(width: 60, alignment: .leading)

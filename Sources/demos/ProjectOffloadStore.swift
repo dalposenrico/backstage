@@ -212,6 +212,27 @@ final class ProjectOffloadStore: ObservableObject {
         }
     }
 
+    // MARK: - Automatic Inactive Project Offloading
+    func eligibleProjectsForAutoOffload(in projects: [Project], threshold: AutoOffloadAge) -> [Project] {
+        let cutoffDate = Date().addingTimeInterval(-threshold.timeInterval)
+        return projects.filter { project in
+            !project.isOffloaded &&
+            project.hasExports &&
+            project.latestModification != .distantPast &&
+            project.latestModification < cutoffDate &&
+            activeOperations[project.folderURL.standardizedFileURL.path] == nil
+        }
+    }
+
+    @discardableResult
+    func performAutoOffload(projects: [Project], threshold: AutoOffloadAge) -> Int {
+        let eligible = eligibleProjectsForAutoOffload(in: projects, threshold: threshold)
+        for project in eligible {
+            queueOffload(project: project)
+        }
+        return eligible.count
+    }
+
     // MARK: - Size Calculation
     nonisolated func calculateSize(for folderURL: URL) async -> OffloadSizeBreakdown {
         await Task.detached(priority: .userInitiated) {

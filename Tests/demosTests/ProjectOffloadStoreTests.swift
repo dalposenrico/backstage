@@ -151,4 +151,81 @@ final class ProjectOffloadStoreTests: XCTestCase {
         XCTAssertEqual(restoredScanned?.versions.count, 1)
         XCTAssertEqual(restoredScanned?.latestModification.timeIntervalSince1970 ?? 0, pastDate.timeIntervalSince1970, accuracy: 2, "Latest modification date must remain preserved after restoration")
     }
+
+    func testAutoOffloadEligibilityRequiresExportsAndAgeThreshold() {
+        let store = ProjectOffloadStore.shared
+        let now = Date()
+        let oldDate = now.addingTimeInterval(-100 * 86_400) // ~100 days old (> 3 months)
+        let recentDate = now.addingTimeInterval(-10 * 86_400) // 10 days old
+
+        let dummyFolder1 = tempDir.appendingPathComponent("Old With Export", isDirectory: true)
+        let dummyFolder2 = tempDir.appendingPathComponent("Old Without Export", isDirectory: true)
+        let dummyFolder3 = tempDir.appendingPathComponent("Recent With Export", isDirectory: true)
+        let dummyFolder4 = tempDir.appendingPathComponent("Already Offloaded", isDirectory: true)
+
+        let track = Track(url: dummyFolder1.appendingPathComponent("v1.mp3"), modificationDate: oldDate, creationDate: oldDate, relativeFolder: "")
+
+        // 1. Old project WITH export -> should be eligible
+        let eligibleProject = Project(
+            name: "Old With Export",
+            folderURL: dummyFolder1,
+            tracks: [track],
+            versions: [],
+            creationDate: oldDate,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity(),
+            latestModification: oldDate
+        )
+
+        // 2. Old project WITHOUT export -> must NOT be eligible (safety)
+        let ineligibleNoExport = Project(
+            name: "Old Without Export",
+            folderURL: dummyFolder2,
+            tracks: [],
+            versions: [],
+            creationDate: oldDate,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity(),
+            latestModification: oldDate
+        )
+
+        // 3. Recent project WITH export -> must NOT be eligible (too young)
+        let ineligibleRecent = Project(
+            name: "Recent With Export",
+            folderURL: dummyFolder3,
+            tracks: [track],
+            versions: [],
+            creationDate: recentDate,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity(),
+            latestModification: recentDate
+        )
+
+        // 4. Already offloaded project -> must NOT be eligible
+        let ineligibleAlreadyOffloaded = Project(
+            name: "Already Offloaded",
+            folderURL: dummyFolder4,
+            tracks: [track],
+            versions: [],
+            creationDate: oldDate,
+            tags: [],
+            bpm: 120,
+            plugins: [],
+            activity: ProjectActivity(),
+            latestModification: oldDate,
+            isOffloaded: true
+        )
+
+        let allProjects = [eligibleProject, ineligibleNoExport, ineligibleRecent, ineligibleAlreadyOffloaded]
+        let eligible = store.eligibleProjectsForAutoOffload(in: allProjects, threshold: .threeMonths)
+
+        XCTAssertEqual(eligible.count, 1)
+        XCTAssertEqual(eligible.first?.name, "Old With Export")
+    }
 }

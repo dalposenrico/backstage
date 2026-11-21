@@ -204,6 +204,65 @@ struct SettingsView: View {
                     .font(.headline)
             }
 
+            // Cloud Storage & Auto-Offload
+            Section {
+                Toggle("Auto-offload inactive projects", isOn: $settings.isAutoOffloadEnabled)
+
+                if settings.isAutoOffloadEnabled {
+                    HStack {
+                        Text("Offload when older than")
+                            .font(.system(size: 12))
+                        Spacer()
+                        Picker("", selection: $settings.autoOffloadThreshold) {
+                            ForEach(AutoOffloadAge.allCases) { age in
+                                Text(age.rawValue).tag(age)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 130)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Automatically archives local Ableton project assets (samples, backups, sets) to your Dropbox archive when projects haven't been modified in over \(settings.autoOffloadThreshold.rawValue).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("Only projects with at least one audio bounce export are auto-offloaded so you can always audition them offline.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary.opacity(0.8))
+                }
+
+                let eligibleCount = ProjectOffloadStore.shared.eligibleProjectsForAutoOffload(
+                    in: store.projects,
+                    threshold: settings.autoOffloadThreshold
+                ).count
+
+                HStack {
+                    if eligibleCount > 0 {
+                        Text("\(eligibleCount) project\(eligibleCount == 1 ? "" : "s") ready to offload")
+                            .font(.caption)
+                            .foregroundColor(.accent)
+                    } else {
+                        Text("No projects currently meet the threshold")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("Run Auto-Offload Now") {
+                        ProjectOffloadStore.shared.performAutoOffload(
+                            projects: store.projects,
+                            threshold: settings.autoOffloadThreshold
+                        )
+                    }
+                    .controlSize(.small)
+                    .disabled(eligibleCount == 0)
+                }
+            } header: {
+                Label("Cloud Storage & Auto-Offload", systemImage: "icloud.and.arrow.up")
+                    .font(.headline)
+            }
+
             // Startup
             Section {
                 Toggle("Launch goodvibrations HQ at Login", isOn: Binding(
