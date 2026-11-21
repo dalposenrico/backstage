@@ -144,6 +144,12 @@ struct demosApp: App {
                     WindowPresenter.showWorkflowEditor()
                 }
 
+                Button("Sample Library Cleaner…") {
+                    openWindow(id: "sample-library-cleaner")
+                    WindowPresenter.showSampleLibraryCleaner()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+
                 Divider()
 
                 Button(settings.isFloatingWidgetActive ? "Hide Floating HUD" : "Show Floating HUD") {
@@ -273,6 +279,12 @@ struct demosApp: App {
                 .environmentObject(projectTodos)
         }
         .defaultSize(width: 1180, height: 700)
+
+        Window("Sample Library Cleaner", id: "sample-library-cleaner") {
+            SampleLibraryCleanerView()
+                .environmentObject(store)
+        }
+        .defaultSize(width: 960, height: 680)
 
         Window("goodvibrations HUD", id: "floating-widget") {
             FloatingWidgetView()

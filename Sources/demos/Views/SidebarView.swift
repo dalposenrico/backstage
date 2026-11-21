@@ -9,6 +9,7 @@ struct SidebarView: View {
     @EnvironmentObject var updateChecker: UpdateChecker
     @EnvironmentObject var collectionColors: CollectionColorStore
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @FocusState private var isSearchFocused: Bool
     @State private var showingFolderSearch = false
     @State private var folderSearchQuery = ""
@@ -80,6 +81,15 @@ struct SidebarView: View {
                         Label("Refresh Library", systemImage: "arrow.clockwise")
                     }
                     .disabled(store.isScanning)
+
+                    Divider()
+
+                    Button {
+                        openWindow(id: "sample-library-cleaner")
+                        WindowPresenter.showSampleLibraryCleaner()
+                    } label: {
+                        Label("Sample Library Cleaner…", systemImage: "waveform.badge.magnifyingglass")
+                    }
                 } label: {
                     if store.isScanning {
                         ProgressView().controlSize(.small).frame(width: 24, height: 24)

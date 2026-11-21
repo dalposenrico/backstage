@@ -17,8 +17,8 @@ struct OffloadSizeBreakdown: Sendable {
     var formattedExports: String { ByteCountFormatter.string(fromByteCount: exportsBytes, countStyle: .file) }
 
     var estimatedSavings: Int64 {
-        // Savings = total - exports
-        max(0, totalBytes - exportsBytes)
+        // Savings = total - exports - als (since exports and als are preserved locally)
+        max(0, totalBytes - exportsBytes - alsBytes)
     }
 
     var formattedEstimatedSavings: String {
@@ -419,13 +419,11 @@ final class ProjectOffloadStore: ObservableObject {
             metadataSnapshot: snapshot
         )
 
-        // 6. Delete heavy items inside project folder, preserving the export
+        // 6. Delete heavy items inside project folder, preserving the export bounce and .als files
         let contents = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         for item in contents {
             let name = item.lastPathComponent.lowercased()
             if name == "samples" || name == "backup" || name == "ableton project info" {
-                try? fm.removeItem(at: item)
-            } else if item.pathExtension.lowercased() == "als" {
                 try? fm.removeItem(at: item)
             }
         }
@@ -504,5 +502,39 @@ final class ProjectOffloadStore: ObservableObject {
         // Remove from memory and save
         offloadedProjects.removeValue(forKey: folder.path)
         savePersistedRecords()
+    }
+
+    // MARK: - Offline .als Availability for Offloaded Projects
+    /// Ensures the `.als` file is present locally in an offloaded project folder by extracting it
+    /// from its archive if it was offloaded previously before .als preservation was enabled.
+    /// This runs non-destructively without uncompressing samples or changing the project's offloaded state.
+    @discardableResult
+    nonisolated func ensureAlsAvailableLocally(for folderURL: URL) -> [URL] {
+        let fm = FileManager.default
+        let contents = (try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil)) ?? []
+        let localAls = contents.filter { $0.pathExtension.lowercased() == "als" }
+        if !localAls.isEmpty {
+            return localAls
+        }
+
+        guard let record = Self.readMarker(in: folderURL) else { return [] }
+        let archiveURL = record.archiveURL
+        guard fm.fileExists(atPath: archiveURL.path) else { return [] }
+
+        // Use /usr/bin/unzip to extract just the root .als files (ignoring Backup and resource forks)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = [
+            "-j", "-o", "-q",
+            archiveURL.path,
+            "*.als",
+            "-x", "*/Backup/*", "Backup/*", "*._*", "._*",
+            "-d", folderURL.path
+        ]
+        try? process.run()
+        process.waitUntilExit()
+
+        let updated = (try? fm.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: nil)) ?? []
+        return updated.filter { $0.pathExtension.lowercased() == "als" }
     }
 }

@@ -7,6 +7,11 @@ enum WindowPresenter {
         bringWindowForward(titled: "Versions", attemptsRemaining: 8)
     }
 
+    static func showSampleLibraryCleaner() {
+        NSApp.activate(ignoringOtherApps: true)
+        bringWindowForward(titled: "Sample Library Cleaner", attemptsRemaining: 8)
+    }
+
     static func showFocusPlanner() {
         NSApp.activate(ignoringOtherApps: true)
         bringWindowForward(titled: "Focus Planner", attemptsRemaining: 8)
