@@ -14,11 +14,9 @@ enum AbletonSessionDetector {
         let runningApplications = NSWorkspace.shared.runningApplications
         if let preferred = preferredAppURL {
             let preferredPath = preferred.standardizedFileURL.path
-            if let exact = runningApplications.first(where: {
+            return runningApplications.first(where: {
                 $0.bundleURL?.standardizedFileURL.path == preferredPath
-            }) {
-                return exact
-            }
+            })
         }
         return runningApplications.first { application in
             application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
@@ -33,16 +31,8 @@ enum AbletonSessionDetector {
 
         if let preferred = preferredAppURL {
             let preferredPath = preferred.standardizedFileURL.path
-            let matching = runningApplications.filter {
+            abletonApplications = runningApplications.filter {
                 $0.bundleURL?.standardizedFileURL.path == preferredPath
-            }
-            if !matching.isEmpty {
-                abletonApplications = matching
-            } else {
-                abletonApplications = runningApplications.filter { application in
-                    application.bundleIdentifier?.lowercased().hasPrefix("com.ableton.live") == true
-                        || application.localizedName?.localizedCaseInsensitiveContains("Ableton Live") == true
-                }
             }
         } else {
             abletonApplications = runningApplications.filter { application in
@@ -99,12 +89,9 @@ enum AbletonSessionDetector {
                 } else {
                     return runningPreferred.activate(options: [.activateIgnoringOtherApps])
                 }
-            } else if FileManager.default.fileExists(atPath: preferred.path) {
-                // Preferred Live is not running; launch it
-                let config = NSWorkspace.OpenConfiguration()
-                config.activates = true
-                NSWorkspace.shared.openApplication(at: preferred, configuration: config, completionHandler: nil)
-                return true
+            } else {
+                // Preferred Live is not running; cannot activate it
+                return false
             }
         }
 
@@ -249,7 +236,16 @@ enum AbletonSessionDetector {
         localFormatter.locale = Locale(identifier: "en_US_POSIX")
         localFormatter.timeZone = .current
         localFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
-        let markers = [": info: Loading document \"", ": info: Saving document \"", ": info: Document \""]
+        let markers = [
+            ": info: Loading document \"",
+            ": info: Saving document \"",
+            ": info: Document \"",
+            "Loading document \"",
+            "Saving document \"",
+            "Loaded document: \"",
+            "LoadDocument: \"",
+            "Document: \""
+        ]
 
         return logText.split(separator: "\n", omittingEmptySubsequences: true).reversed().compactMap { rawLine in
             let line = String(rawLine)
@@ -260,10 +256,14 @@ enum AbletonSessionDetector {
                     break
                 }
             }
-            guard let markerRange = matchedMarkerRange,
-                  let timestamp = isoFormatter.date(from: String(line[..<markerRange.lowerBound]))
-                    ?? localFormatter.date(from: String(line[..<markerRange.lowerBound])),
-                  timestamp >= launchDate else { return nil }
+            guard let markerRange = matchedMarkerRange else { return nil }
+            let prefix = String(line[..<markerRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let datePart = prefix.components(separatedBy: ": ").first?.trimmingCharacters(in: .whitespaces) ?? prefix
+            let timestamp = localFormatter.date(from: datePart)
+                ?? isoFormatter.date(from: datePart)
+                ?? localFormatter.date(from: prefix)
+                ?? isoFormatter.date(from: prefix)
+            if let timestamp, timestamp < launchDate { return nil }
             let pathStart = markerRange.upperBound
             guard let closingQuote = line[pathStart...].firstIndex(of: "\"") else { return nil }
             let path = String(line[pathStart..<closingQuote])

@@ -56,6 +56,10 @@ public struct AbletonAppInfo: Identifiable, Hashable, Equatable {
     }
 }
 
+extension Notification.Name {
+    public static let abletonSelectedAppDidChange = Notification.Name("com.enricodalpos.goodvibrationshq.abletonSelectedAppDidChange")
+}
+
 /// Discovers installed Ableton Live application bundles, manages the user's preferred Live app,
 /// and handles opening project files directly in the selected application.
 public enum AbletonAppDetector {
@@ -83,10 +87,16 @@ public enum AbletonAppDetector {
 
     /// Sets or clears the user's selected Ableton Live app path.
     public static func setSelectedAppPath(_ path: String?) {
-        if let path = path?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
-            UserDefaults.standard.set(path, forKey: defaultsKey)
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = (trimmed?.isEmpty == false) ? trimmed : nil
+        let previous = UserDefaults.standard.string(forKey: defaultsKey)
+        if let normalized {
+            UserDefaults.standard.set(normalized, forKey: defaultsKey)
         } else {
             UserDefaults.standard.removeObject(forKey: defaultsKey)
+        }
+        if previous != normalized {
+            NotificationCenter.default.post(name: .abletonSelectedAppDidChange, object: nil)
         }
     }
 

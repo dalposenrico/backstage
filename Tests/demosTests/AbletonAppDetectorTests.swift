@@ -119,4 +119,42 @@ final class AbletonAppDetectorTests: XCTestCase {
         XCTAssertEqual(info?.majorVersionPrefix, "Live 13")
         XCTAssertTrue(info?.isBeta == true)
     }
+
+    func testNotificationPostedWhenSelectedAppChanges() {
+        let expectation = expectation(description: "Notification posted")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .abletonSelectedAppDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        AbletonAppDetector.setSelectedAppPath("/Applications/Ableton Live 13 Beta.app")
+        waitForExpectations(timeout: 1.0)
+    }
+
+    func testLoadedDocumentsParserWithLive12And13Formats() {
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+        let timestamp = formatter.string(from: now)
+
+        let logText = """
+        \(timestamp): info: Loading document "/Users/test/Music/Project/TestProject.als"
+        """
+        let launchDate = now.addingTimeInterval(-60)
+        let docs = AbletonSessionDetector.loadedDocuments(in: logText, since: launchDate)
+        XCTAssertEqual(docs.count, 1)
+        XCTAssertEqual(docs.first?.lastPathComponent, "TestProject.als")
+    }
+
+    func testRunningAbletonAppWithPreferredNonRunningAppDoesNotFallback() {
+        let nonExistentURL = URL(fileURLWithPath: "/Applications/NonExistentAbleton.app")
+        let app = AbletonSessionDetector.runningAbletonApp(preferredAppURL: nonExistentURL)
+        XCTAssertNil(app, "When a preferred Ableton app URL is specified but not running, it must not fall back to other apps")
+    }
 }

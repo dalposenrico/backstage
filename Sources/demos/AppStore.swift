@@ -656,7 +656,7 @@ class AppStore: ObservableObject {
         // simply bring Ableton Live to the foreground.
         let isSameOrLatestVersion = version == nil || version?.url == project.newestAbletonVersion?.url
         if isSameOrLatestVersion && isCurrentOpenProject(project) {
-            if AbletonSessionDetector.activateAbleton() {
+            if AbletonSessionDetector.runningAbletonApp() != nil && AbletonSessionDetector.activateAbleton() {
                 if autoExportOnReady {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(350))
@@ -665,6 +665,7 @@ class AppStore: ObservableObject {
                 }
                 return
             }
+            setCurrentOpenProject(nil)
         } else if isSameOrLatestVersion {
             // Live snapshot check in case periodic poll has not updated currentOpenProjectURL yet
             let snapshot = AbletonSessionDetector.snapshot()
@@ -694,11 +695,15 @@ class AppStore: ObservableObject {
         if let opening = openingAbletonProject,
            opening.phase == .opening,
            opening.matchesLoadedProject(folderURL: project.folderURL) {
-            if autoExportOnReady && !opening.autoExportOnReady {
-                openingAbletonProject?.autoExportOnReady = true
+            if AbletonSessionDetector.runningAbletonApp() != nil {
+                if autoExportOnReady && !opening.autoExportOnReady {
+                    openingAbletonProject?.autoExportOnReady = true
+                }
+                _ = AbletonSessionDetector.activateAbleton()
+                return
+            } else {
+                openingAbletonProject = nil
             }
-            _ = AbletonSessionDetector.activateAbleton()
-            return
         }
 
         openingDismissTask?.cancel()
@@ -734,6 +739,24 @@ class AppStore: ObservableObject {
                 Task { @MainActor [weak self] in self?.refreshAbletonSession() }
             })
         }
+
+        // When the user changes preferred Ableton Live version in Settings,
+        // clear stale session state and immediately inspect the newly targeted app.
+        workspaceObservers.append(NotificationCenter.default.addObserver(
+            forName: .abletonSelectedAppDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.setCurrentOpenProject(nil)
+                self.externalOpenProject = nil
+                self.openingDismissTask?.cancel()
+                self.openingDismissTask = nil
+                self.openingAbletonProject = nil
+                self.refreshAbletonSession()
+            }
+        })
     }
 
     private func startAbletonPolling(snappy: Bool = false) {
