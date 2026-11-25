@@ -120,10 +120,14 @@ enum DeadlineUrgency: Equatable, Comparable {
         }
     }
 
-    private static func shortDate(_ date: Date) -> String {
+    private static let shortDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func shortDate(_ date: Date) -> String {
+        shortDateFormatter.string(from: date)
     }
 }
 

@@ -20,77 +20,72 @@ final class AbletonDragScrollManager: ObservableObject {
     static weak var shared: AbletonDragScrollManager?
     private static let enabledKey = "abletonDragScrollEnabled"
 
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private let backgroundTap = BackgroundCGEventTap()
+    private var isTapStarted = false
+    private var isAbletonFrontmost = false
+    private var workspaceObserver: NSObjectProtocol?
 
     init() {
         let saved = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool
         self.isEnabled = saved ?? true
         Self.shared = self
+        self.isAbletonFrontmost = DawFrontmostMatcher.isDaw(NSWorkspace.shared.frontmostApplication, includeBitwig: false)
+        installWorkspaceObserver()
         if isEnabled { start() }
     }
 
     deinit {
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
+        if let workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        backgroundTap.stop()
+    }
+
+    private func installWorkspaceObserver() {
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let activeApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let isAbleton = DawFrontmostMatcher.isDaw(activeApp, includeBitwig: false)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isAbletonFrontmost = isAbleton
+                if self.isTapStarted {
+                    self.backgroundTap.setEnabled(self.isEnabled && isAbleton)
+                }
+            }
         }
     }
 
     func start() {
-        guard eventTap == nil else { return }
+        guard !isTapStarted else {
+            backgroundTap.setEnabled(isAbletonFrontmost)
+            return
+        }
+        isTapStarted = true
+        isAbletonFrontmost = DawFrontmostMatcher.isDaw(NSWorkspace.shared.frontmostApplication, includeBitwig: false)
 
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-        let refcon = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
+        backgroundTap.start(
+            name: "com.enricodalpos.goodvibrationshq.drag-scroll-tap",
             eventsOfInterest: mask,
-            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                // Handle system tap disable events
-                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    if let refcon = refcon {
-                        let manager = Unmanaged<AbletonDragScrollManager>.fromOpaque(refcon).takeUnretainedValue()
-                        if let tap = manager.eventTap {
-                            CGEvent.tapEnable(tap: tap, enable: true)
-                        }
-                    }
-                    return Unmanaged.passRetained(event)
-                }
-
-                // 1. Must be Ableton Live active in the foreground
-                guard let frontApp = NSWorkspace.shared.frontmostApplication,
-                      let name = frontApp.localizedName else {
-                    return Unmanaged.passRetained(event)
-                }
-                let bundle = frontApp.bundleIdentifier?.lowercased() ?? ""
-                let isAbleton = name.localizedCaseInsensitiveContains("Live")
-                    || name.localizedCaseInsensitiveContains("Ableton")
-                    || bundle.hasPrefix("com.ableton.live")
-                guard isAbleton else {
-                    return Unmanaged.passRetained(event)
-                }
-
-                // 2. Mouse button must be held down (actively dragging)
-                let isDragging = (NSEvent.pressedMouseButtons & 1) != 0
-                    || CGEventSource.buttonState(.combinedSessionState, button: .left)
+            initiallyEnabled: isAbletonFrontmost,
+            handler: { _, _, event -> Unmanaged<CGEvent>? in
+                // 1. Mouse button must be held down (actively dragging)
+                let isDragging = CGEventSource.buttonState(.combinedSessionState, button: .left)
                 guard isDragging else {
-                    // Normal typing in Ableton (search bar, renaming, etc.) passes through untouched
                     return Unmanaged.passRetained(event)
                 }
 
-                // 3. No modifier keys like Cmd/Ctrl/Option
+                // 2. No modifier keys like Cmd/Ctrl/Option
                 let flags = event.flags
                 if flags.contains(.maskCommand) || flags.contains(.maskControl) || flags.contains(.maskAlternate) {
                     return Unmanaged.passRetained(event)
                 }
 
-                // 4. Intercept 'W' (13) and 'S' (1)
+                // 3. Intercept 'W' (13) and 'S' (1)
                 let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
                 if keyCode == 13 { // 'W' -> Page Up (116)
                     let source = CGEventSource(stateID: .combinedSessionState)
@@ -112,29 +107,17 @@ final class AbletonDragScrollManager: ObservableObject {
 
                 return Unmanaged.passRetained(event)
             },
-            userInfo: refcon
-        ) else {
-            AccountDiagnostics.record("Ableton drag-scroll: could not create CGEvent tap")
-            return
-        }
-
-        self.eventTap = tap
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        self.runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        AccountDiagnostics.record("Ableton drag-scroll tap installed (W -> Page Up, S -> Page Down while dragging in Live)")
+            onInstalled: {
+                AccountDiagnostics.record("Ableton drag-scroll tap installed on background thread (W -> Page Up, S -> Page Down while dragging in Live)")
+            },
+            onFailure: {
+                AccountDiagnostics.record("Ableton drag-scroll: could not create CGEvent tap")
+            }
+        )
     }
 
     func stop() {
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
-            self.eventTap = nil
-        }
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-            self.runLoopSource = nil
-        }
+        isTapStarted = false
+        backgroundTap.stop()
     }
 }

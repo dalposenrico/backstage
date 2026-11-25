@@ -3,13 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
-    @EnvironmentObject var player: AudioPlayer
     @EnvironmentObject var settings: SettingsStore
-    @EnvironmentObject var projectNotes: ProjectNotesStore
-    @EnvironmentObject var projectProgress: ProjectProgressStore
-    @EnvironmentObject var projectTodos: ProjectTodoStore
-    @EnvironmentObject var dailyFocus: DailyFocusStore
-    @EnvironmentObject var focusCalendar: FocusCalendarStore
     @EnvironmentObject var globalHotkey: GlobalHotkeyManager
     @Environment(\.openWindow) private var openWindow
     @AppStorage("compactWorkspaceNavigation") private var compactWorkspaceNavigation = false
@@ -125,13 +119,8 @@ struct ContentView: View {
         .onChange(of: showProjectInspector) { _, isShowing in
             if !isShowing { projectWorkspaceExpanded = false }
         }
-        .onChange(of: focusCalendar.dueEvent) { _, event in
-            if let event { presentScheduledFocus(event) }
-        }
-        .task {
-            await focusCalendar.refresh()
-            focusCalendar.checkForDueEvent()
-            if let event = focusCalendar.dueEvent { presentScheduledFocus(event) }
+        .background {
+            ScheduledFocusCoordinator()
         }
         .onAppear {
             DispatchQueue.main.async {
@@ -147,32 +136,8 @@ struct ContentView: View {
         }
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
         .frame(minWidth: 940, minHeight: 560)
-        .onOpenURL { url in
-            if let projectPath = FocusCalendarEventContent.projectPath(from: url) {
-                presentScheduledFocus(
-                    projectPath: projectPath,
-                    durationMinutes: FocusCalendarEventContent.durationMinutes(from: url) ?? dailyFocus.focusMinutes
-                )
-            } else if url.scheme == "goodvibrations", url.host == "open-project" {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let path = components.queryItems?.first(where: { $0.name == "path" })?.value,
-                   !path.isEmpty {
-                    let folderURL = URL(fileURLWithPath: path)
-                    store.openProjectWhenAvailable(folderURL: folderURL)
-                } else {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            } else if url.scheme == "goodvibrations", url.host == "open-hud" {
-                openWindow(id: "floating-widget")
-                WindowPresenter.showFloatingWidget(pinned: true, collapsed: settings.isFloatingWidgetCollapsed)
-            } else {
-                store.openExportCheckpoint(from: url)
-            }
-        }
         .sheet(item: $store.exportCheckpointProject) { project in
             ExportCheckpointView(project: project)
-                .environmentObject(projectNotes)
-                .environmentObject(projectProgress)
         }
         .sheet(item: $store.offloadModalProject) { project in
             ProjectOffloadModalView(project: project)
@@ -226,6 +191,49 @@ struct ContentView: View {
                 Text("'\(project.name)' has no audio export bounce. Please bounce an audio export in Ableton first so you can audition the song offline while it is offloaded.")
             }
         }
+    }
+}
+
+private struct ScheduledFocusCoordinator: View {
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var projectTodos: ProjectTodoStore
+    @EnvironmentObject var dailyFocus: DailyFocusStore
+    @EnvironmentObject var focusCalendar: FocusCalendarStore
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .onChange(of: focusCalendar.dueEvent) { _, event in
+                if let event { presentScheduledFocus(event) }
+            }
+            .task {
+                await focusCalendar.refresh()
+                focusCalendar.checkForDueEvent()
+                if let event = focusCalendar.dueEvent { presentScheduledFocus(event) }
+            }
+            .onOpenURL { url in
+                if let projectPath = FocusCalendarEventContent.projectPath(from: url) {
+                    presentScheduledFocus(
+                        projectPath: projectPath,
+                        durationMinutes: FocusCalendarEventContent.durationMinutes(from: url) ?? dailyFocus.focusMinutes
+                    )
+                } else if url.scheme == "goodvibrations", url.host == "open-project" {
+                    if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                       let path = components.queryItems?.first(where: { $0.name == "path" })?.value,
+                       !path.isEmpty {
+                        let folderURL = URL(fileURLWithPath: path)
+                        store.openProjectWhenAvailable(folderURL: folderURL)
+                    } else {
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                } else if url.scheme == "goodvibrations", url.host == "open-hud" {
+                    openWindow(id: "floating-widget")
+                    WindowPresenter.showFloatingWidget(pinned: true, collapsed: settings.isFloatingWidgetCollapsed)
+                } else {
+                    store.openExportCheckpoint(from: url)
+                }
+            }
     }
 
     private func presentScheduledFocus(_ event: ScheduledFocusEvent) {

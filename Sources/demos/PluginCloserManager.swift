@@ -58,41 +58,42 @@ public final class PluginCloserManager: ObservableObject {
                 return
             }
             UserDefaults.standard.set(key, forKey: Self.keyKey)
-            reinstallHotkeys()
+            syncTapConfiguration()
         }
     }
 
     @Published public var useCommand: Bool {
         didSet {
             UserDefaults.standard.set(useCommand, forKey: Self.commandKey)
-            reinstallHotkeys()
+            syncTapConfiguration()
         }
     }
 
     @Published public var useOption: Bool {
         didSet {
             UserDefaults.standard.set(useOption, forKey: Self.optionKey)
-            reinstallHotkeys()
+            syncTapConfiguration()
         }
     }
 
     @Published public var useShift: Bool {
         didSet {
             UserDefaults.standard.set(useShift, forKey: Self.shiftKey)
-            reinstallHotkeys()
+            syncTapConfiguration()
         }
     }
 
     @Published public var useControl: Bool {
         didSet {
             UserDefaults.standard.set(useControl, forKey: Self.controlKey)
-            reinstallHotkeys()
+            syncTapConfiguration()
         }
     }
 
     @Published public var onlyWhenAbletonActive: Bool {
         didSet {
             UserDefaults.standard.set(onlyWhenAbletonActive, forKey: Self.onlyAbletonKey)
+            syncTapConfiguration()
         }
     }
 
@@ -101,34 +102,91 @@ public final class PluginCloserManager: ObservableObject {
     @Published public private(set) var isExecuting: Bool = false
 
     // MARK: - Internal Monitoring & Hotkey Handles
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private struct TapConfiguration: Sendable {
+        var isEnabled: Bool
+        var targetKeyCode: CGKeyCode
+        var useCommand: Bool
+        var useOption: Bool
+        var useShift: Bool
+        var useControl: Bool
+        var onlyWhenAbletonActive: Bool
+        var isDawFrontmost: Bool
+
+        var shouldTapBeActive: Bool {
+            isEnabled && (!onlyWhenAbletonActive || isDawFrontmost)
+        }
+    }
+
+    private final class TapStateBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var config: TapConfiguration
+
+        init(_ config: TapConfiguration) {
+            self.config = config
+        }
+
+        func update(_ config: TapConfiguration) {
+            lock.lock()
+            self.config = config
+            lock.unlock()
+        }
+
+        func snapshot() -> TapConfiguration {
+            lock.lock()
+            defer { lock.unlock() }
+            return config
+        }
+    }
+
+    private let backgroundTap = BackgroundCGEventTap()
+    private var isTapStarted = false
+    private var isDawFrontmost = false
+    private let tapState: TapStateBox
+    private var workspaceObserver: NSObjectProtocol?
     private var localMonitor: Any?
 
     public init() {
         let defaults = UserDefaults.standard
-        self.isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
-        self.key = defaults.string(forKey: Self.keyKey) ?? "w"
-        self.useCommand = defaults.object(forKey: Self.commandKey) as? Bool ?? true
-        self.useOption = defaults.object(forKey: Self.optionKey) as? Bool ?? true
-        self.useShift = defaults.object(forKey: Self.shiftKey) as? Bool ?? false
-        self.useControl = defaults.object(forKey: Self.controlKey) as? Bool ?? false
-        self.onlyWhenAbletonActive = defaults.object(forKey: Self.onlyAbletonKey) as? Bool ?? true
+        let initialEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        let initialKey = defaults.string(forKey: Self.keyKey) ?? "w"
+        let initialCmd = defaults.object(forKey: Self.commandKey) as? Bool ?? true
+        let initialOpt = defaults.object(forKey: Self.optionKey) as? Bool ?? true
+        let initialShift = defaults.object(forKey: Self.shiftKey) as? Bool ?? false
+        let initialCtrl = defaults.object(forKey: Self.controlKey) as? Bool ?? false
+        let initialOnlyAbleton = defaults.object(forKey: Self.onlyAbletonKey) as? Bool ?? true
+        let frontDaw = DawFrontmostMatcher.isDaw(NSWorkspace.shared.frontmostApplication, includeBitwig: true)
+
+        self.isEnabled = initialEnabled
+        self.key = initialKey
+        self.useCommand = initialCmd
+        self.useOption = initialOpt
+        self.useShift = initialShift
+        self.useControl = initialCtrl
+        self.onlyWhenAbletonActive = initialOnlyAbleton
+        self.isDawFrontmost = frontDaw
+        self.tapState = TapStateBox(TapConfiguration(
+            isEnabled: initialEnabled,
+            targetKeyCode: KeyCodeHelper.keyCode(for: initialKey) ?? CGKeyCode(kVK_ANSI_W),
+            useCommand: initialCmd,
+            useOption: initialOpt,
+            useShift: initialShift,
+            useControl: initialCtrl,
+            onlyWhenAbletonActive: initialOnlyAbleton,
+            isDawFrontmost: frontDaw
+        ))
 
         Self.shared = self
+        installWorkspaceObserver()
         if isEnabled {
             installHotkeys()
         }
     }
 
     deinit {
-        if let eventTap = eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
+        if let workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver)
         }
-        if let runLoopSource = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        }
+        backgroundTap.stop()
         if let localMonitor = localMonitor {
             NSEvent.removeMonitor(localMonitor)
         }
@@ -158,7 +216,45 @@ public final class PluginCloserManager: ObservableObject {
 
     // MARK: - Event Tap / Hotkey Installation
 
+    private func installWorkspaceObserver() {
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let activeApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let isDaw = DawFrontmostMatcher.isDaw(activeApp, includeBitwig: true)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isDawFrontmost = isDaw
+                self.syncTapConfiguration()
+            }
+        }
+    }
+
+    private func currentTapConfiguration() -> TapConfiguration {
+        TapConfiguration(
+            isEnabled: isEnabled,
+            targetKeyCode: KeyCodeHelper.keyCode(for: key) ?? CGKeyCode(kVK_ANSI_W),
+            useCommand: useCommand,
+            useOption: useOption,
+            useShift: useShift,
+            useControl: useControl,
+            onlyWhenAbletonActive: onlyWhenAbletonActive,
+            isDawFrontmost: isDawFrontmost
+        )
+    }
+
+    private func syncTapConfiguration() {
+        let config = currentTapConfiguration()
+        tapState.update(config)
+        if isTapStarted {
+            backgroundTap.setEnabled(config.shouldTapBeActive)
+        }
+    }
+
     private func reinstallHotkeys() {
+        syncTapConfiguration()
         uninstallHotkeys()
         if isEnabled {
             installHotkeys()
@@ -166,85 +262,51 @@ public final class PluginCloserManager: ObservableObject {
     }
 
     private func installHotkeys() {
-        guard eventTap == nil else { return }
+        isDawFrontmost = DawFrontmostMatcher.isDaw(NSWorkspace.shared.frontmostApplication, includeBitwig: true)
+        let config = currentTapConfiguration()
+        tapState.update(config)
 
-        // Session Event Tap intercepts keystrokes system-wide so Ableton never receives Cmd+W
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-        let refcon = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        if !isTapStarted {
+            isTapStarted = true
+            let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+            let stateBox = tapState
+            backgroundTap.start(
+                name: "com.enricodalpos.goodvibrationshq.plugin-closer-tap",
+                eventsOfInterest: mask,
+                initiallyEnabled: config.shouldTapBeActive,
+                handler: { _, _, event -> Unmanaged<CGEvent>? in
+                    let snapshot = stateBox.snapshot()
+                    guard snapshot.shouldTapBeActive else {
+                        return Unmanaged.passRetained(event)
+                    }
 
-        if let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: mask,
-            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    if let refcon = refcon {
-                        let manager = Unmanaged<PluginCloserManager>.fromOpaque(refcon).takeUnretainedValue()
-                        if let tap = manager.eventTap {
-                            CGEvent.tapEnable(tap: tap, enable: true)
+                    let eventKeyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+                    guard eventKeyCode == snapshot.targetKeyCode else {
+                        return Unmanaged.passRetained(event)
+                    }
+
+                    let flags = event.flags
+                    let hasCmd = flags.contains(.maskCommand)
+                    let hasOpt = flags.contains(.maskAlternate)
+                    let hasShift = flags.contains(.maskShift)
+                    let hasCtrl = flags.contains(.maskControl)
+
+                    if hasCmd == snapshot.useCommand &&
+                       hasOpt == snapshot.useOption &&
+                       hasShift == snapshot.useShift &&
+                       hasCtrl == snapshot.useControl {
+                        // Match found! Consume the keystroke so Ableton does NOT close the set.
+                        DispatchQueue.main.async {
+                            PluginCloserManager.shared?.closePluginWindows()
                         }
+                        return nil
                     }
+
                     return Unmanaged.passRetained(event)
                 }
-
-                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
-                let manager = Unmanaged<PluginCloserManager>.fromOpaque(refcon).takeUnretainedValue()
-
-                guard manager.isEnabled else {
-                    return Unmanaged.passRetained(event)
-                }
-
-                // If onlyWhenAbletonActive is set, check if frontmost app is Ableton Live
-                if manager.onlyWhenAbletonActive {
-                    guard let frontApp = NSWorkspace.shared.frontmostApplication,
-                          let name = frontApp.localizedName else {
-                        return Unmanaged.passRetained(event)
-                    }
-                    let bundle = frontApp.bundleIdentifier?.lowercased() ?? ""
-                    let isDaw = name.localizedCaseInsensitiveContains("Live")
-                        || name.localizedCaseInsensitiveContains("Ableton")
-                        || bundle.hasPrefix("com.ableton.live")
-                        || name.localizedCaseInsensitiveContains("Bitwig")
-                        || bundle.hasPrefix("com.bitwig.studio")
-                    guard isDaw else {
-                        return Unmanaged.passRetained(event)
-                    }
-                }
-
-                // Check key code match
-                let targetKeyCode = KeyCodeHelper.keyCode(for: manager.key) ?? CGKeyCode(kVK_ANSI_W)
-                let eventKeyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-                guard eventKeyCode == targetKeyCode else {
-                    return Unmanaged.passRetained(event)
-                }
-
-                // Check modifiers match
-                let flags = event.flags
-                let hasCmd = flags.contains(.maskCommand)
-                let hasOpt = flags.contains(.maskAlternate)
-                let hasShift = flags.contains(.maskShift)
-                let hasCtrl = flags.contains(.maskControl)
-
-                if hasCmd == manager.useCommand &&
-                   hasOpt == manager.useOption &&
-                   hasShift == manager.useShift &&
-                   hasCtrl == manager.useControl {
-                    // Match found! Consume the keystroke so Ableton does NOT close the set.
-                    DispatchQueue.main.async {
-                        manager.closePluginWindows()
-                    }
-                    return nil
-                }
-
-                return Unmanaged.passRetained(event)
-            },
-            userInfo: refcon
-        ) {
-            self.eventTap = tap
-            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-            self.runLoopSource = source
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            )
+        } else {
+            backgroundTap.setEnabled(config.shouldTapBeActive)
         }
 
         // Local monitor when goodvibrations HQ itself is in foreground
@@ -273,15 +335,8 @@ public final class PluginCloserManager: ObservableObject {
     }
 
     private func uninstallHotkeys() {
-        if let eventTap = eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
-            self.eventTap = nil
-        }
-        if let runLoopSource = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-            self.runLoopSource = nil
-        }
+        isTapStarted = false
+        backgroundTap.stop()
         if let localMonitor = localMonitor {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil

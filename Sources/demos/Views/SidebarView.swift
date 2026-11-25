@@ -48,7 +48,7 @@ struct SidebarView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.tertiaryText)
 
-                    TextField("Search projects", text: $store.searchQuery)
+                    DebouncedTextField("Search projects", text: $store.searchQuery, delayMilliseconds: 150)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundColor(.primaryText)

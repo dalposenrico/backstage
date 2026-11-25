@@ -71,6 +71,8 @@ class AppStore: ObservableObject {
     private var pendingCheckpointPath: String?
     private var abletonSessionTimer: Timer?
     private var isSnappyAbletonPolling = false
+    private var abletonRefreshTask: Task<Void, Never>?
+    private var needsAnotherAbletonRefresh = false
     private var workspaceObservers: [NSObjectProtocol] = []
     private var lastAbletonLaunchRequest: Date?
     private let inspectionCache = ProjectInspectionCache()
@@ -735,8 +737,20 @@ class AppStore: ObservableObject {
             NSWorkspace.didTerminateApplicationNotification
         ]
         for name in names {
-            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.refreshAbletonSession() }
+            workspaceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                let bundle = app?.bundleIdentifier?.lowercased() ?? ""
+                let appName = app?.localizedName ?? ""
+                let isAbletonEvent = app == nil
+                    || bundle.hasPrefix("com.ableton.live")
+                    || appName.localizedCaseInsensitiveContains("Ableton Live")
+                    || appName.localizedCaseInsensitiveContains("Live")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if isAbletonEvent || self.currentOpenProjectURL != nil || self.openingAbletonProject != nil {
+                        self.refreshAbletonSession()
+                    }
+                }
             })
         }
 
@@ -786,7 +800,27 @@ class AppStore: ObservableObject {
     }
 
     private func refreshAbletonSession() {
-        let snapshot = AbletonSessionDetector.snapshot()
+        if abletonRefreshTask != nil {
+            needsAnotherAbletonRefresh = true
+            return
+        }
+
+        let preferredAppURL = AbletonAppDetector.selectedAppURL()
+        abletonRefreshTask = Task { @MainActor [weak self] in
+            let snapshot = await Task.detached(priority: .utility) {
+                AbletonSessionDetector.snapshot(preferredAppURL: preferredAppURL)
+            }.value
+            guard let self else { return }
+            self.abletonRefreshTask = nil
+            self.applyAbletonSessionSnapshot(snapshot)
+            if self.needsAnotherAbletonRefresh {
+                self.needsAnotherAbletonRefresh = false
+                self.refreshAbletonSession()
+            }
+        }
+    }
+
+    private func applyAbletonSessionSnapshot(_ snapshot: AbletonSessionSnapshot) {
         let now = Date()
 
         if let opening = openingAbletonProject, opening.phase == .opening {

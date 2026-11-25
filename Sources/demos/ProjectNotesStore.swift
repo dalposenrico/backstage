@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 final class ProjectNotesStore: ObservableObject {
+    static weak var shared: ProjectNotesStore?
     @Published private var notes: [String: String] = [:]
     private let fileURL: URL
 
@@ -15,6 +16,7 @@ final class ProjectNotesStore: ObservableObject {
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             notes = saved
         }
+        Self.shared = self
     }
 
     func note(for project: Project) -> String {
@@ -34,8 +36,11 @@ final class ProjectNotesStore: ObservableObject {
     }
 
     private func setNote(_ note: String, for project: Project) {
-        if note.isEmpty { notes.removeValue(forKey: project.folderURL.path) }
-        else { notes[project.folderURL.path] = note }
+        let path = project.folderURL.path
+        let existing = notes[path] ?? ""
+        guard existing != note else { return }
+        if note.isEmpty { notes.removeValue(forKey: path) }
+        else { notes[path] = note }
         guard let data = try? JSONEncoder().encode(notes) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }

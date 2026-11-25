@@ -63,13 +63,15 @@ struct ExportCheckpointView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 checkpointLabel("NEXT ACTION")
-                TextField("The smallest concrete thing to do next…", text: progressStore.nextMoveBinding(for: project))
+                DebouncedTextField("The smallest concrete thing to do next…", text: progressStore.nextMoveBinding(for: project))
+                    .id(project.id)
                     .textFieldStyle(.roundedBorder)
             }
 
             VStack(alignment: .leading, spacing: 7) {
                 checkpointLabel("EXPORT NOTE")
-                TextEditor(text: notes.binding(for: project))
+                DebouncedTextEditor(text: notes.binding(for: project))
+                    .id(project.id)
                     .font(.system(size: 13))
                     .scrollContentBackground(.hidden)
                     .padding(8)

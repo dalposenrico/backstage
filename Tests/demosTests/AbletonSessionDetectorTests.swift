@@ -133,6 +133,32 @@ final class AbletonSessionDetectorTests: XCTestCase {
         XCTAssertEqual(store.displayLocation(for: homeExternal), "~/Downloads/ProjectX")
     }
 
+    func testLogReaderHandlesNoiseAndUppercaseALSWithFastFilter() throws {
+        let launchDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-08-21T14:00:00Z"))
+        let log = """
+        2026-08-21T14:01:00.000000Z: info: AudioEngine: buffer underrun detected
+        2026-08-21T14:01:05.000000Z: info: Loading document "/Music/Drafts/Readme.txt"
+        2026-08-21T14:01:10.000000Z: info: Loading document "/Music/Drafts/UpperCaseSet.ALS"
+        2026-08-21T14:01:15.000000Z: info: Plugin scanned without extension .als in comment
+        """
+
+        let docs = AbletonSessionDetector.loadedDocuments(in: log, since: launchDate).map(\.path)
+        XCTAssertEqual(docs, ["/Music/Drafts/UpperCaseSet.ALS"])
+    }
+
+    func testBackgroundCGEventTapStartsDisablesAndStopsCleanly() {
+        let tap = BackgroundCGEventTap()
+        tap.start(
+            name: "test.background.tap",
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            initiallyEnabled: false,
+            handler: { _, _, event in Unmanaged.passRetained(event) }
+        )
+        tap.setEnabled(true)
+        tap.setEnabled(false)
+        tap.stop()
+    }
+
     private func project(_ name: String, path: String, versions: [String]) -> Project {
         Project(
             name: name,

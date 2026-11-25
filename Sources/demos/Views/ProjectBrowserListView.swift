@@ -244,7 +244,7 @@ struct ProjectBrowserListView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondaryText)
-                    TextField("Search projects in \(collectionTitle)", text: $store.searchQuery)
+                    DebouncedTextField("Search projects in \(collectionTitle)", text: $store.searchQuery, delayMilliseconds: 150)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14))
                         .textContentType(nil)
@@ -817,10 +817,7 @@ private struct BrowserProjectRow: View {
     let compact: Bool
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var player: AudioPlayer
-    @EnvironmentObject var notes: ProjectNotesStore
-    @EnvironmentObject var progressStore: ProjectProgressStore
     @EnvironmentObject var collectionColors: CollectionColorStore
-    @EnvironmentObject var artworkStore: ProjectArtworkStore
     @EnvironmentObject var metadataStore: ProjectMetadataStore
     @EnvironmentObject var settings: SettingsStore
     @Environment(\.openWindow) private var openWindow
@@ -1001,7 +998,7 @@ private struct BrowserProjectRow: View {
                 openWindow(id: "ab-compare")
                 WindowPresenter.showABCompare()
             }
-            Button(notes.note(for: project).isEmpty ? "Add Project Note" : "View Project Notes") {
+            Button((ProjectNotesStore.shared?.note(for: project).isEmpty ?? true) ? "Add Project Note" : "View Project Notes") {
                 store.selectedProject = project
                 openWindow(id: "project-notes")
                 WindowPresenter.showProjectNotes()

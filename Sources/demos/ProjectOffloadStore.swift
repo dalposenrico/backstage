@@ -248,13 +248,17 @@ final class ProjectOffloadStore: ObservableObject {
         }
     }
 
-    func formattedReclaimableBytes(for projects: [Project]) -> String? {
-        let bytes = estimatedReclaimableBytes(for: projects)
-        guard bytes > 0 else { return nil }
+    private static let reclaimableFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB]
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        return formatter
+    }()
+
+    func formattedReclaimableBytes(for projects: [Project]) -> String? {
+        let bytes = estimatedReclaimableBytes(for: projects)
+        guard bytes > 0 else { return nil }
+        return Self.reclaimableFormatter.string(fromByteCount: bytes)
     }
 
     // MARK: - Size Calculation

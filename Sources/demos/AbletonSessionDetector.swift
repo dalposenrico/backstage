@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-struct AbletonSessionSnapshot: Equatable {
+struct AbletonSessionSnapshot: Equatable, Sendable {
     let isRunning: Bool
     let windowTitles: [String]
     let loadedDocumentURLs: [URL]
@@ -229,13 +229,91 @@ enum AbletonSessionDetector {
             .joined(separator: " ")
     }
 
+    private static let formatterLock = NSLock()
+    private static let sharedISOFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let sharedLocalFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
+        return f
+    }()
+
+    private static let logCacheLock = NSLock()
+    private static var cachedLogKey: LogCacheKey?
+    private static var cachedLogDocuments: [URL] = []
+
+    private struct LogCacheKey: Equatable {
+        let path: String
+        let fileSize: UInt64
+        let modificationTime: TimeInterval
+        let launchTime: TimeInterval
+    }
+
+    private static func parseTimestamp(_ value: String) -> Date? {
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        return sharedLocalFormatter.date(from: value) ?? sharedISOFormatter.date(from: value)
+    }
+
+    /// Zero-allocation UTF-8 pre-filter: skips lines that cannot possibly reference a quoted `.als` path.
+    private static func lineMightContainQuotedALS(_ utf8: Substring.UTF8View) -> Bool {
+        guard utf8.count >= 6 else { return false }
+        var state = 0 // 0=none, 1='.', 2='a', 3='l', 4='s'
+        for byte in utf8 {
+            switch state {
+            case 0:
+                if byte == 0x2E { state = 1 } // '.'
+            case 1:
+                if byte == 0x61 || byte == 0x41 { state = 2 } // 'a'/'A'
+                else if byte == 0x2E { state = 1 }
+                else { state = 0 }
+            case 2:
+                if byte == 0x6C || byte == 0x4C { state = 3 } // 'l'/'L'
+                else if byte == 0x2E { state = 1 }
+                else { state = 0 }
+            case 3:
+                if byte == 0x73 || byte == 0x53 { state = 4 } // 's'/'S'
+                else if byte == 0x2E { state = 1 }
+                else { state = 0 }
+            case 4:
+                if byte == 0x22 { return true } // '"'
+                if byte == 0x2E { state = 1 }
+                else { state = 0 }
+            default:
+                state = 0
+            }
+        }
+        return false
+    }
+
+    private static func earliestTimestamp(in logText: String) -> Date? {
+        var inspected = 0
+        for rawLine in logText.split(separator: "\n", omittingEmptySubsequences: true) {
+            inspected += 1
+            if inspected > 25 { break }
+            let trimmed = rawLine.drop(while: { $0 == " " || $0 == "\t" })
+            guard !trimmed.isEmpty else { continue }
+            let candidate: String
+            if let colonSpace = trimmed.range(of: ": ") {
+                candidate = String(trimmed[..<colonSpace.lowerBound])
+            } else if let space = trimmed.firstIndex(of: " ") {
+                candidate = String(trimmed[..<space])
+            } else {
+                continue
+            }
+            if let parsed = parseTimestamp(candidate) {
+                return parsed
+            }
+        }
+        return nil
+    }
+
     static func loadedDocuments(in logText: String, since launchDate: Date) -> [URL] {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let localFormatter = DateFormatter()
-        localFormatter.locale = Locale(identifier: "en_US_POSIX")
-        localFormatter.timeZone = .current
-        localFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"
         let markers = [
             ": info: Loading document \"",
             ": info: Saving document \"",
@@ -248,6 +326,7 @@ enum AbletonSessionDetector {
         ]
 
         return logText.split(separator: "\n", omittingEmptySubsequences: true).reversed().compactMap { rawLine in
+            guard lineMightContainQuotedALS(rawLine.utf8) else { return nil }
             let line = String(rawLine)
             var matchedMarkerRange: Range<String.Index>?
             for marker in markers {
@@ -259,10 +338,7 @@ enum AbletonSessionDetector {
             guard let markerRange = matchedMarkerRange else { return nil }
             let prefix = String(line[..<markerRange.lowerBound]).trimmingCharacters(in: .whitespaces)
             let datePart = prefix.components(separatedBy: ": ").first?.trimmingCharacters(in: .whitespaces) ?? prefix
-            let timestamp = localFormatter.date(from: datePart)
-                ?? isoFormatter.date(from: datePart)
-                ?? localFormatter.date(from: prefix)
-                ?? isoFormatter.date(from: prefix)
+            let timestamp = parseTimestamp(datePart) ?? parseTimestamp(prefix)
             if let timestamp, timestamp < launchDate { return nil }
             let pathStart = markerRange.upperBound
             guard let closingQuote = line[pathStart...].firstIndex(of: "\"") else { return nil }
@@ -304,28 +380,62 @@ enum AbletonSessionDetector {
             let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return left < right
-        }), let handle = try? FileHandle(forReadingFrom: newestLog) else { return [] }
+        }) else { return [] }
+
+        let effectiveLaunchDate = launchDate == .distantPast ? .distantPast : launchDate.addingTimeInterval(-60)
+        let values = try? newestLog.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let fileSize = UInt64(max(0, values?.fileSize ?? 0))
+        let modTime = values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
+        let cacheKey = LogCacheKey(
+            path: newestLog.path,
+            fileSize: fileSize,
+            modificationTime: modTime,
+            launchTime: effectiveLaunchDate.timeIntervalSinceReferenceDate
+        )
+
+        logCacheLock.lock()
+        if cachedLogKey == cacheKey {
+            let cached = cachedLogDocuments
+            logCacheLock.unlock()
+            return cached
+        }
+        logCacheLock.unlock()
+
+        guard let handle = try? FileHandle(forReadingFrom: newestLog) else { return [] }
         defer { try? handle.close() }
 
-        let fileSize = (try? handle.seekToEnd()) ?? 0
-        let effectiveLaunchDate = launchDate == .distantPast ? .distantPast : launchDate.addingTimeInterval(-60)
+        let actualFileSize = (try? handle.seekToEnd()) ?? fileSize
 
         // Live logs can grow large when running for many hours. Inspect progressively larger chunks
-        // from the end of Log.txt (1 MB -> 4 MB -> 16 MB -> full file) until loaded documents are found.
-        let chunkSizes: [UInt64] = [1_048_576, 4_194_304, 16_777_216, fileSize]
+        // from the end of Log.txt (1 MB -> 4 MB -> 16 MB -> full file) until loaded documents are found
+        // or the chunk already reaches entries written before Ableton launched.
+        let chunkSizes: [UInt64] = [1_048_576, 4_194_304, 16_777_216, actualFileSize]
+        var resolvedDocs: [URL] = []
         for chunkSize in chunkSizes {
-            let bytesToRead = min(fileSize, chunkSize)
-            try? handle.seek(toOffset: fileSize - bytesToRead)
+            let bytesToRead = min(actualFileSize, chunkSize)
+            try? handle.seek(toOffset: actualFileSize - bytesToRead)
             guard let data = try? handle.readToEnd() else { continue }
             let text = String(decoding: data, as: UTF8.self)
             let docs = loadedDocuments(in: text, since: effectiveLaunchDate)
             if !docs.isEmpty {
-                return docs
+                resolvedDocs = docs
+                break
             }
-            if bytesToRead >= fileSize {
+            if bytesToRead >= actualFileSize {
+                break
+            }
+            if effectiveLaunchDate != .distantPast,
+               let earliest = earliestTimestamp(in: text),
+               earliest < effectiveLaunchDate {
                 break
             }
         }
-        return []
+
+        logCacheLock.lock()
+        cachedLogKey = cacheKey
+        cachedLogDocuments = resolvedDocs
+        logCacheLock.unlock()
+
+        return resolvedDocs
     }
 }

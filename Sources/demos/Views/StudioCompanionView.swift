@@ -290,7 +290,8 @@ private struct ChecklistItemView: View {
                     // An auto-growing multiline TextField can enter a recursive layout pass
                     // when it is revealed inside this narrow, scrolling inspector on macOS.
                     // Reflections are intentionally short, so keep the field single-line.
-                    TextField("Short answer…", text: workflow.answerBinding(for: item, project: project))
+                    DebouncedTextField("Short answer…", text: workflow.answerBinding(for: item, project: project))
+                        .id("\(project.id)-\(item.id)")
                         .textFieldStyle(.plain)
                         .padding(9)
                         .background(Color.white.opacity(0.04))

@@ -36,36 +36,33 @@ struct ProjectNotesSection: View {
                 .help("Open notes in a floating window")
             }
 
-            TextEditor(text: notes.binding(for: project))
-                .font(.system(size: 13.5))
-                .foregroundColor(.primaryText)
-                .scrollContentBackground(.hidden)
-                .lineSpacing(3)
-                .padding(10)
-                .frame(minHeight: 130, maxHeight: 200)
-                .background(Color.elevatedBg)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
-                .focused($isEditing)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 9)
-                        .stroke(isEditing ? Color.accent.opacity(0.8) : Color.subtleBorder,
-                                lineWidth: isEditing ? 1.5 : 1)
+            DebouncedTextEditor(text: notes.binding(for: project)) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Start a note…")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Try a mix decision, lyric idea, or timestamp.")
+                        .font(.system(size: 11))
                 }
-                .overlay {
-                    if notes.note(for: project).isEmpty {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Start a note…")
-                                .font(.system(size: 13, weight: .medium))
-                            Text("Try a mix decision, lyric idea, or timestamp.")
-                                .font(.system(size: 11))
-                        }
-                        .font(.system(size: 12))
-                        .foregroundColor(.tertiaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(16)
-                        .allowsHitTesting(false)
-                    }
-                }
+                .font(.system(size: 12))
+                .foregroundColor(.tertiaryText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(16)
+            }
+            .id(project.id)
+            .font(.system(size: 13.5))
+            .foregroundColor(.primaryText)
+            .scrollContentBackground(.hidden)
+            .lineSpacing(3)
+            .padding(10)
+            .frame(minHeight: 130, maxHeight: 200)
+            .background(Color.elevatedBg)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .focused($isEditing)
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(isEditing ? Color.accent.opacity(0.8) : Color.subtleBorder,
+                            lineWidth: isEditing ? 1.5 : 1)
+            }
 
             HStack(spacing: 5) {
                 Image(systemName: "checkmark.circle.fill")
@@ -118,7 +115,8 @@ struct ProjectNotesWindow: View {
 
                     Divider().background(Color.divider)
 
-                    TextEditor(text: notes.binding(for: project))
+                    DebouncedTextEditor(text: notes.binding(for: project))
+                        .id(project.id)
                         .font(.system(size: 14))
                         .foregroundColor(.primaryText)
                         .scrollContentBackground(.hidden)

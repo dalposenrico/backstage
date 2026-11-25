@@ -339,7 +339,7 @@ struct HomeDashboardView: View, Equatable {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11))
                         .foregroundColor(.tertiaryText)
-                    TextField("Filter projects, clients, or tasks…", text: $searchQuery)
+                    DebouncedTextField("Filter projects, clients, or tasks…", text: $searchQuery, delayMilliseconds: 150)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundColor(.primaryText)
@@ -2042,7 +2042,8 @@ private struct FocusPersonalCard: View {
                 .tracking(0.6)
                 .foregroundColor(.tertiaryText)
 
-            TextField("Add a concrete next move (e.g. write B-section bassline)…", text: progressStore.nextMoveBinding(for: project))
+            DebouncedTextField("Add a concrete next move (e.g. write B-section bassline)…", text: progressStore.nextMoveBinding(for: project), delayMilliseconds: 250)
+                .id(project.id)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundColor(.primaryText)
