@@ -57,7 +57,7 @@ struct QuickLauncherTrayView: View {
             }
             .padding(.horizontal, 4)
 
-            // Action buttons grid (1-9)
+            // Action buttons grid
             LazyVGrid(columns: columns, spacing: 6) {
                 ForEach(launcherStore.items) { item in
                     launcherButton(for: item)

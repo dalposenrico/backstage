@@ -559,7 +559,7 @@ struct SettingsView: View {
 
                     Spacer()
 
-                    Button("Reset to Defaults (1–9)") {
+                    Button("Reset to Defaults") {
                         launcherStore.resetToDefaults()
                     }
                     .buttonStyle(.plain)

@@ -3,13 +3,50 @@ import XCTest
 
 @MainActor
 final class QuickLauncherStoreTests: XCTestCase {
-    func testStoreInitializesWithNineDefaultItems() {
-        let store = QuickLauncherStore()
-        XCTAssertEqual(store.items.count, 9)
-        XCTAssertEqual(store.items.first?.key, "1")
-        XCTAssertEqual(store.items.first?.title, "SSL 4000 E")
-        XCTAssertEqual(store.items.last?.key, "9")
-        XCTAssertEqual(store.items.last?.title, "Utility")
+    private func makeIsolatedStore() -> (QuickLauncherStore, String) {
+        let suiteName = "QuickLauncherStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return (QuickLauncherStore(defaults: defaults), suiteName)
+    }
+
+    func testStoreInitializesWithUpdatedDefaultItems() {
+        let (store, suiteName) = makeIsolatedStore()
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(store.items.count, 10)
+        XCTAssertEqual(store.items.map(\.key), ["1", "2", "3", "4", "5", "6", "8", "9", "(", ")"])
+        XCTAssertEqual(store.items.map(\.title), [
+            "SSL 4000 E",
+            "Saturn 2",
+            "Spectre",
+            "Utility",
+            "Pro-Q 4",
+            "StandardCLIP",
+            "ValhallaRoom",
+            "SideKick",
+            "Utility",
+            "Life"
+        ])
+    }
+
+    func testLegacyStoredDefaultsAreMigratedOnceToNewPreset() throws {
+        let suiteName = "QuickLauncherStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let legacy = [QuickLauncherItem(title: "Pro-Q 3", key: "3", category: "EQ")]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "quickLauncherActions")
+
+        let migrated = QuickLauncherStore(defaults: defaults)
+        XCTAssertEqual(migrated.items.count, 10)
+        XCTAssertEqual(migrated.items[4].title, "Pro-Q 4")
+
+        // Subsequent user customizations after v2 migration are preserved
+        migrated.addItem(title: "Custom Synth", key: "0", category: "INST")
+        let reloaded = QuickLauncherStore(defaults: defaults)
+        XCTAssertEqual(reloaded.items.count, 11)
+        XCTAssertEqual(reloaded.items.last?.title, "Custom Synth")
     }
 
     func testKeyCodeMappingForNumbersAndLetters() {
@@ -28,7 +65,9 @@ final class QuickLauncherStoreTests: XCTestCase {
     }
 
     func testAddAndRemoveItem() {
-        let store = QuickLauncherStore()
+        let (store, suiteName) = makeIsolatedStore()
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+
         let initialCount = store.items.count
         store.addItem(title: "Custom Synth", key: "0", category: "INST")
         XCTAssertEqual(store.items.count, initialCount + 1)
@@ -41,7 +80,9 @@ final class QuickLauncherStoreTests: XCTestCase {
     }
 
     func testUpdateItem() {
-        let store = QuickLauncherStore()
+        let (store, suiteName) = makeIsolatedStore()
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+
         guard var first = store.items.first else {
             XCTFail("Missing first item")
             return
@@ -55,7 +96,32 @@ final class QuickLauncherStoreTests: XCTestCase {
     }
 
     func testTrayHeightCalculation() {
-        let store = QuickLauncherStore()
+        let (store, suiteName) = makeIsolatedStore()
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+
         XCTAssertGreaterThan(store.trayHeight, 100)
+    }
+
+    func testKeyStrokeMappingSupportsParentheses() {
+        let openParen = KeyCodeHelper.keyStroke(for: "(")
+        let closeParen = KeyCodeHelper.keyStroke(for: ")")
+        XCTAssertNotNil(openParen)
+        XCTAssertNotNil(closeParen)
+        XCTAssertTrue(openParen?.flags.contains(.maskShift) == true)
+        XCTAssertTrue(closeParen?.flags.contains(.maskShift) == true)
+    }
+
+    func testShouldPresentFloatingPanelOnlyWhenCollapsed() {
+        let suiteName = "QuickLauncherStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "isFloatingWidgetCollapsed")
+        let expandedStore = QuickLauncherStore(defaults: defaults)
+        XCTAssertFalse(expandedStore.shouldPresentFloatingPanel)
+
+        defaults.set(true, forKey: "isFloatingWidgetCollapsed")
+        let collapsedStore = QuickLauncherStore(defaults: defaults)
+        XCTAssertTrue(collapsedStore.shouldPresentFloatingPanel)
     }
 }

@@ -9,7 +9,15 @@ final class QuickLauncherPanelPresenter {
     private init() {}
 
     func show(launcherStore: QuickLauncherStore) {
+        if let settings = SettingsStore.shared, !settings.isFloatingWidgetCollapsed {
+            hide()
+            return
+        }
         guard let hudWindow = NSApp.windows.first(where: { $0.title == "goodvibrations HUD" }) else { return }
+        guard hudWindow.frame.height <= 200 else {
+            hide()
+            return
+        }
 
         let panelWidth: CGFloat = 330
         let panelHeight = launcherStore.trayHeight

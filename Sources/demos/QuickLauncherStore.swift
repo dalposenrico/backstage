@@ -90,12 +90,71 @@ public enum KeyCodeHelper {
             return nil
         }
     }
+
+    /// Resolves a key string into a virtual keycode and modifier flags using the active keyboard layout.
+    public static func keyStroke(for keyString: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
+        let trimmed = keyString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let code = keyCode(for: trimmed) {
+            return (code, [])
+        }
+        guard trimmed.count == 1 else { return nil }
+        return lookupCharacterInCurrentLayout(trimmed)
+    }
+
+    private static func lookupCharacterInCurrentLayout(_ target: String) -> (CGKeyCode, CGEventFlags)? {
+        guard let inputSource = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let layoutDataPtr = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
+            return nil
+        }
+        let layoutData = unsafeBitCast(layoutDataPtr, to: CFData.self)
+        guard let bytePtr = CFDataGetBytePtr(layoutData) else { return nil }
+        let keyboardLayout = UnsafeRawPointer(bytePtr).assumingMemoryBound(to: UCKeyboardLayout.self)
+        let keyboardType = UInt32(LMGetKbdType())
+
+        let candidates: [(CGEventFlags, UInt32)] = [
+            ([], 0),
+            ([.maskShift], UInt32(shiftKey >> 8) & 0xFF),
+            ([.maskAlternate], UInt32(optionKey >> 8) & 0xFF),
+            ([.maskShift, .maskAlternate], UInt32((shiftKey | optionKey) >> 8) & 0xFF)
+        ]
+
+        for (flags, modifierState) in candidates {
+            for code in 0..<128 {
+                var deadKeyState: UInt32 = 0
+                var actualLength = 0
+                var chars = [UniChar](repeating: 0, count: 4)
+                let status = UCKeyTranslate(
+                    keyboardLayout,
+                    UInt16(code),
+                    UInt16(kUCKeyActionDown),
+                    modifierState,
+                    keyboardType,
+                    OptionBits(kUCKeyTranslateNoDeadKeysMask),
+                    &deadKeyState,
+                    chars.count,
+                    &actualLength,
+                    &chars
+                )
+                if status == noErr, actualLength > 0 {
+                    let produced = String(utf16CodeUnits: chars, count: actualLength)
+                    if produced == target {
+                        return (CGKeyCode(code), flags)
+                    }
+                }
+            }
+        }
+        return nil
+    }
 }
 
 @MainActor
 public final class QuickLauncherStore: ObservableObject {
     private static let storageKey = "quickLauncherActions"
     private static let trayOpenKey = "quickLauncherTrayOpen"
+    private static let presetVersionKey = "quickLauncherPresetVersion"
+    private static let currentPresetVersion = 2
+
+    private let defaults: UserDefaults
 
     @Published public var items: [QuickLauncherItem] {
         didSet {
@@ -105,13 +164,28 @@ public final class QuickLauncherStore: ObservableObject {
 
     @Published public var isTrayOpen: Bool {
         didSet {
-            UserDefaults.standard.set(isTrayOpen, forKey: Self.trayOpenKey)
+            defaults.set(isTrayOpen, forKey: Self.trayOpenKey)
             if isTrayOpen {
-                QuickLauncherPanelPresenter.shared.show(launcherStore: self)
+                if shouldPresentFloatingPanel {
+                    QuickLauncherPanelPresenter.shared.show(launcherStore: self)
+                } else {
+                    // Expanded HUD embeds QuickLauncherTrayView inline; never show a second floating panel.
+                    QuickLauncherPanelPresenter.shared.hide()
+                }
             } else {
                 QuickLauncherPanelPresenter.shared.hide()
             }
         }
+    }
+
+    var shouldPresentFloatingPanel: Bool {
+        if let settings = SettingsStore.shared {
+            return settings.isFloatingWidgetCollapsed
+        }
+        if let stored = defaults.object(forKey: "isFloatingWidgetCollapsed") as? Bool {
+            return stored
+        }
+        return true
     }
 
     @Published public var lastTriggeredId: String? = nil
@@ -120,21 +194,30 @@ public final class QuickLauncherStore: ObservableObject {
     public static let defaultItems: [QuickLauncherItem] = [
         QuickLauncherItem(title: "SSL 4000 E", key: "1", category: "DYN", colorHex: "#3B82F6"),
         QuickLauncherItem(title: "Saturn 2", key: "2", category: "SAT", colorHex: "#EF4444"),
-        QuickLauncherItem(title: "Pro-Q 3", key: "3", category: "EQ", colorHex: "#10B981"),
-        QuickLauncherItem(title: "Pro-C 2", key: "4", category: "COMP", colorHex: "#6366F1"),
-        QuickLauncherItem(title: "VintageVerb", key: "5", category: "REV", colorHex: "#8B5CF6"),
-        QuickLauncherItem(title: "Decapitator", key: "6", category: "DIST", colorHex: "#F59E0B"),
-        QuickLauncherItem(title: "OTT", key: "7", category: "DYN", colorHex: "#EC4899"),
-        QuickLauncherItem(title: "Soothe 2", key: "8", category: "RES", colorHex: "#06B6D4"),
-        QuickLauncherItem(title: "Utility", key: "9", category: "UTIL", colorHex: "#64748B")
+        QuickLauncherItem(title: "Spectre", key: "3", category: "EQ", colorHex: "#F59E0B"),
+        QuickLauncherItem(title: "Utility", key: "4", category: "UTIL", colorHex: "#64748B"),
+        QuickLauncherItem(title: "Pro-Q 4", key: "5", category: "EQ", colorHex: "#10B981"),
+        QuickLauncherItem(title: "StandardCLIP", key: "6", category: "CLIP", colorHex: "#EC4899"),
+        QuickLauncherItem(title: "ValhallaRoom", key: "8", category: "REV", colorHex: "#8B5CF6"),
+        QuickLauncherItem(title: "SideKick", key: "9", category: "SC", colorHex: "#06B6D4"),
+        QuickLauncherItem(title: "Utility", key: "(", category: "UTIL", colorHex: "#64748B"),
+        QuickLauncherItem(title: "Life", key: ")", category: "FX", colorHex: "#6366F1")
     ]
 
-    public init() {
-        self.isTrayOpen = UserDefaults.standard.bool(forKey: Self.trayOpenKey)
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.isTrayOpen = defaults.bool(forKey: Self.trayOpenKey)
 
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode([QuickLauncherItem].self, from: data),
-           !decoded.isEmpty {
+        let storedVersion = defaults.integer(forKey: Self.presetVersionKey)
+        if storedVersion < Self.currentPresetVersion {
+            self.items = Self.defaultItems
+            if let encoded = try? JSONEncoder().encode(Self.defaultItems) {
+                defaults.set(encoded, forKey: Self.storageKey)
+            }
+            defaults.set(Self.currentPresetVersion, forKey: Self.presetVersionKey)
+        } else if let data = defaults.data(forKey: Self.storageKey),
+                  let decoded = try? JSONDecoder().decode([QuickLauncherItem].self, from: data),
+                  !decoded.isEmpty {
             self.items = decoded
         } else {
             self.items = Self.defaultItems
@@ -143,7 +226,7 @@ public final class QuickLauncherStore: ObservableObject {
 
     private func save() {
         if let encoded = try? JSONEncoder().encode(items) {
-            UserDefaults.standard.set(encoded, forKey: Self.storageKey)
+            defaults.set(encoded, forKey: Self.storageKey)
         }
     }
 
@@ -206,10 +289,12 @@ public final class QuickLauncherStore: ObservableObject {
 
     public static func postKey(_ keyString: String) {
         let trimmed = keyString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let code = KeyCodeHelper.keyCode(for: trimmed) {
+        if let stroke = KeyCodeHelper.keyStroke(for: trimmed) {
             let source = CGEventSource(stateID: .combinedSessionState)
-            if let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
-               let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) {
+            if let down = CGEvent(keyboardEventSource: source, virtualKey: stroke.keyCode, keyDown: true),
+               let up = CGEvent(keyboardEventSource: source, virtualKey: stroke.keyCode, keyDown: false) {
+                down.flags = stroke.flags
+                up.flags = stroke.flags
                 down.post(tap: .cghidEventTap)
                 up.post(tap: .cghidEventTap)
                 return

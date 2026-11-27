@@ -97,6 +97,7 @@ struct FloatingWidgetView: View {
                 updateCollapsedWindowSize(animated: false)
             } else {
                 isContentReady = true
+                QuickLauncherPanelPresenter.shared.hide()
             }
         }
         .onChange(of: settings.showAppIconOnPuck) {
@@ -179,7 +180,7 @@ struct FloatingWidgetView: View {
                     dockToCube(side: "right")
                 }
             }
-            Button(launcherStore.isTrayOpen ? "Close Quick Launcher" : "Open Quick Launcher (1–9)") {
+            Button(launcherStore.isTrayOpen ? "Close Quick Launcher" : "Open Quick Launcher") {
                 launcherStore.isTrayOpen.toggle()
             }
 
@@ -528,7 +529,7 @@ struct FloatingWidgetView: View {
                         .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel (1–9)")
+                .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher panel" : "Show quick plugin launcher panel")
 
                 // Close / Hide Floating Minibar Button ("✕")
                 Button {
@@ -627,6 +628,7 @@ struct FloatingWidgetView: View {
 
     private func collapseWidget() {
         guard !settings.isFloatingWidgetCollapsed else { return }
+        launcherStore.isTrayOpen = false
         isContentReady = false
         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
             settings.isFloatingWidgetCollapsed = true
@@ -1151,7 +1153,7 @@ struct FloatingWidgetView: View {
                     .background(launcherStore.isTrayOpen ? Color.accentColor : Color.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.plain)
-            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher" : "Show quick plugin launcher (1–9)")
+            .help(launcherStore.isTrayOpen ? "Hide quick plugin launcher" : "Show quick plugin launcher")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
