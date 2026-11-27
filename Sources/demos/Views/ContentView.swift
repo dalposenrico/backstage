@@ -9,6 +9,7 @@ struct ContentView: View {
     @AppStorage("compactWorkspaceNavigation") private var compactWorkspaceNavigation = false
     @State private var showProjectInspector = false
     @State private var projectWorkspaceExpanded = false
+    @StateObject private var spacebarMonitor = SpacebarPlaybackMonitor()
 
     private var displayedWorkspaceProjects: [Project] {
         var list = store.openProjects
@@ -123,6 +124,7 @@ struct ContentView: View {
             ScheduledFocusCoordinator()
         }
         .onAppear {
+            spacebarMonitor.start(audioPlayer: store.audioPlayer)
             DispatchQueue.main.async {
                 if let window = NSApp.keyWindow, window.firstResponder is NSTextView || window.firstResponder is NSTextField {
                     window.makeFirstResponder(nil)
@@ -133,6 +135,9 @@ struct ContentView: View {
                 }
                 WindowPresenter.showMainWindow()
             }
+        }
+        .onDisappear {
+            spacebarMonitor.stop()
         }
         .preferredColorScheme(settings.appearanceMode.colorSchemeOverride)
         .frame(minWidth: 940, minHeight: 560)

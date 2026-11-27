@@ -85,7 +85,6 @@ struct demosApp: App {
 
             CommandMenu("Playback") {
                 Button("Play / Pause")    { store.audioPlayer.togglePlayPause() }
-                    .keyboardShortcut(.space, modifiers: [])
                 Button("Next Track")      { store.playNext() }
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                 Button("Previous Track")  { store.playPrevious() }
